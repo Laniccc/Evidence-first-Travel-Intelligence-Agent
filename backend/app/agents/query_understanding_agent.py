@@ -3,6 +3,7 @@ from datetime import date
 from pathlib import Path
 
 from app.agents.rule_based_understanding import RuleBasedUnderstanding
+from app.agents.semantic_frame_builder import SemanticFrameBuilder
 from app.catalog.place_catalog import get_place_catalog
 from app.config import get_settings
 from app.schemas.conversation_context import ConversationContext
@@ -30,9 +31,11 @@ class QueryUnderstandingAgent:
         rule_result = RuleBasedUnderstanding.understand(raw_query, conversation_context, user_ctx)
 
         if rule_result.needs_clarification:
+            rule_result.semantic_frame = SemanticFrameBuilder.build(raw_query, rule_result)
             return rule_result
 
         if not RuleBasedUnderstanding.needs_llm(raw_query, rule_result):
+            rule_result.semantic_frame = SemanticFrameBuilder.build(raw_query, rule_result)
             return rule_result
 
         if not self.llm._should_use_anthropic():
@@ -40,8 +43,10 @@ class QueryUnderstandingAgent:
 
         try:
             llm_result = await self._llm_understand(raw_query, conversation_context, supported_regions)
+            llm_result.semantic_frame = SemanticFrameBuilder.build(raw_query, llm_result)
             return llm_result
         except Exception:
+            rule_result.semantic_frame = SemanticFrameBuilder.build(raw_query, rule_result)
             return rule_result
 
     async def _llm_understand(

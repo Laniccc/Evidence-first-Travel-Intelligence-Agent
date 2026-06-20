@@ -17,6 +17,7 @@ from app.tools.restaurant_tool import MockRestaurantTool
 from app.tools.review_tool import MockReviewTool
 from app.tools.transit_tool import MockTransitTool
 from app.tools.weather_tool import MockWeatherTool
+from app.tools.knowledge_prior_tool import KnowledgePriorTool
 
 logger = logging.getLogger(__name__)
 
@@ -28,7 +29,7 @@ def _resolve_tool_mode(use_mock: bool | None) -> str:
 
 
 class TravelToolRegistry:
-    def __init__(self, use_mock: bool | None = None) -> None:
+    def __init__(self, use_mock: bool | None = None, llm_client=None) -> None:
         tool_mode = _resolve_tool_mode(use_mock)
         settings = get_settings()
 
@@ -71,6 +72,7 @@ class TravelToolRegistry:
         self.restaurant = MockRestaurantTool()
         self.lodging = MockLodgingAreaTool()
         self.fallback = MockFallbackTool()
+        self.knowledge_prior = KnowledgePriorTool(llm_client=llm_client)
 
         self.mcp_weather = WeatherMCPAdapter()
         self.mcp_places = PlacesMCPAdapter()

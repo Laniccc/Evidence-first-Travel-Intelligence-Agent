@@ -1,5 +1,6 @@
 from datetime import date
 
+from app.catalog.location_resolver import resolve_city_country_from_text
 from app.catalog.place_catalog import get_place_catalog
 from app.schemas.conversation_context import ConversationContext
 from app.schemas.place_context import PlaceContext
@@ -15,6 +16,7 @@ SEMANTIC_LOW_CONFIDENCE_MARKERS = ["踩雷", "会不会", "累不累", "值不�
 ITINERARY_MARKERS = ["安排", "行程", "一天", "半日", "路线", "轻松玩", "文化游"]
 COMPARE_MARKERS = ["哪个更", "哪个适合", "比较", "对比", "vs", "还是"]
 CROWD_MARKERS = ["人流量", "人多", "拥挤", "排队", "crowd", "busy", "queue"]
+BEST_TIME_MARKERS = ["几月", "什么时候", "何时", "最佳时间", "适合几月"]
 CONCERN_PATTERNS: list[tuple[list[str], str]] = [
     (["人流量", "人多", "拥挤", "排队", "crowd", "busy", "queue"], "crowd_level"),
     (["累不累", "走路", "坡", "步行", "tiring", "walk", "slope"], "walking_intensity"),
@@ -157,8 +159,29 @@ class RuleBasedUnderstanding:
         if places:
             country = places[0].country or country
             city = places[0].city or city
+        elif not country or not city:
+            loc = resolve_city_country_from_text(text)
+            if loc:
+                country, city = loc
 
-        task_type = cls._detect_task_type(text, concerns, is_compare, place_from_query, context, is_time_followup)
+        is_best_time_city = (
+            not places
+            and any(m in text for m in BEST_TIME_MARKERS)
+            and "几点" not in text
+            and "关门" not in text
+        )
+        if is_best_time_city:
+            task_type = TravelTaskType.OPEN_ENDED_ADVICE
+            if "seasonality" not in concerns:
+                concerns.append("seasonality")
+            rewritten = f"{city or country or '目的地'} 最佳出行季节/月份建议（基于一般季节规律）"
+            confidence = 0.82 if (city or country) else 0.55
+        else:
+            task_type = cls._detect_task_type(
+                text, concerns, is_compare, place_from_query, context, is_time_followup
+            )
+            confidence = 0.9 if (resolved_place or place_from_query) else 0.65
+
         required, optional = cls._evidence_for_task(task_type, concerns)
 
         if "京都" in text or (city == "Kyoto"):
@@ -166,7 +189,6 @@ class RuleBasedUnderstanding:
         if "父母" in text or "爸妈" in text:
             assumptions.append("默认同行人包含长辈，pace 偏轻松。")
 
-        confidence = 0.9 if (resolved_place or place_from_query) else 0.65
         if assumptions:
             confidence = min(confidence, 0.88)
         if any(m in text for m in SEMANTIC_LOW_CONFIDENCE_MARKERS):

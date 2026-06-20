@@ -1,7 +1,7 @@
 from app.catalog.destination_catalog import CULTURAL_SETS
 from app.catalog.location_resolver import resolve_start_location
 from app.catalog.place_catalog import get_place_catalog
-from app.schemas.evidence import Evidence
+from app.schemas.evidence import ClaimType, Evidence
 from app.schemas.itinerary import ItineraryItem, ItineraryPlan
 from app.schemas.place_factsheet import PlaceFactSheet
 from app.schemas.response import ComparisonRow, RecommendationResult
@@ -82,6 +82,29 @@ class ComposerAgent:
                 *ComposerAgent._evidence_summary_lines(state, fact_sheet),
             ]
         )
+        return "\n".join(lines)
+
+    @staticmethod
+    def compose_advisory(target_label: str, evidence: list[Evidence], state: TravelAgentState) -> str:
+        advice_lines: list[str] = []
+        for ev in evidence:
+            for claim in ev.claims:
+                if claim.claim_type in {ClaimType.TRAVEL_ADVICE, ClaimType.SEASONALITY}:
+                    advice_lines.append(str(claim.value))
+
+        lines = [
+            f"关于 {target_label}：",
+            "",
+            "结论：",
+            advice_lines[0] if advice_lines else "暂无足够建议。",
+            "",
+            "说明：",
+            "- 以下为基于一般旅行常识的低置信度建议，非官方实时信息。",
+        ]
+        for lim in state.limitations:
+            if lim not in lines:
+                lines.append(f"- {lim}")
+        lines.extend(["", "证据摘要：", *ComposerAgent._evidence_summary_lines(state)])
         return "\n".join(lines)
 
     @staticmethod

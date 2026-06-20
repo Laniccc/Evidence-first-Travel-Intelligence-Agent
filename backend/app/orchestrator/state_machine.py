@@ -1,13 +1,13 @@
-"""Evidence-first travel agent state machine (QueryUnderstanding-first).
+"""Evidence-first travel agent state machine (SemanticFrame + AnswerMode routing).
 
 Main pipeline::
 
     User Query
-      → QueryUnderstandingPromptState   # ConversationContext + TravelTask + clarification gate
-      → RegionGate                      # TravelTask.country/city first, then RegionGateAgent fallback
-      → TravelTaskToUserGoalAdapter     # primary UserGoal; IntentAgent only on fallback
-      → InformationNeedPlanner + ToolRouter
-      → Tools → Evidence → Aggregator → ReviewMining → Scorer → Composer → CitationChecker
+      → QueryUnderstandingPromptState → SemanticFrame
+      → AnswerModeRouter
+      → (clarification | evidence | model prior | estimation)
+      → Tools / KnowledgePriorTool → Evidence
+      → Aggregator → Composer → CitationChecker
 """
 
 from uuid import uuid4
@@ -32,6 +32,7 @@ from app.schemas.place_factsheet import PlaceFactSheet
 from app.schemas.response import StructuredResult, TravelQueryResponse
 from app.schemas.review import ReviewAspectResult
 from app.schemas.travel_task import TravelTaskType
+from app.schemas.semantic_frame import AnswerMode, DecisionType
 from app.schemas.user_query import ConflictRecord, IntentType, RegionGateResult, TravelAgentState, UserContext, UserGoal
 from app.tools import ToolRegistry
 from app.tools.tool_router import ToolRouter
@@ -39,8 +40,8 @@ from app.tools.tool_router import ToolRouter
 
 class TravelAgentStateMachine:
     def __init__(self) -> None:
-        self.tools = ToolRegistry()
         self.llm = LLMClient()
+        self.tools = ToolRegistry(llm_client=self.llm)
         self.place_research = PlaceResearchAgent(self.tools)
         self.review_agent = ReviewAspectMiningAgent(self.tools)
         self.scorer = TravelSuitabilityScorer()
@@ -81,8 +82,14 @@ class TravelAgentStateMachine:
         self._complete_context(state, ctx)
         TraceRecorder.add(state, f"✓ 识别用户画像：{', '.join(p.value for p in state.user_goal.party) or '一般游客'}")
 
+        mode = state.answer_mode_decision.answer_mode if state.answer_mode_decision else None
+        if mode in {AnswerMode.MODEL_PRIOR_ALLOWED, AnswerMode.EVIDENCE_PREFERRED} and not self._has_place_target(state):
+            return await self._run_advisory(state, try_tools_first=mode == AnswerMode.EVIDENCE_PREFERRED)
+
         if not state.travel_task:
             state.limitations.append("TravelTask 缺失，后续路由可能受限。")
+            if state.answer_mode_decision and state.answer_mode_decision.allow_knowledge_prior:
+                return await self._run_advisory(state)
             return self._to_response(state, 0.25)
 
         # Phase 4: InformationNeedPlanner + ToolRouter — driven by TravelTask, not IntentAgent.
@@ -103,6 +110,70 @@ class TravelAgentStateMachine:
         if task_type == TravelTaskType.CROWD_INQUIRY:
             return await self._run_crowd_inquiry(state, tool_names)
         return await self._run_single(state, tool_names)
+
+    def _has_place_target(self, state: TravelAgentState) -> bool:
+        if state.user_goal and state.user_goal.place_candidates:
+            return True
+        if state.travel_task and state.travel_task.places:
+            return True
+        if state.semantic_frame and state.semantic_frame.entities.places:
+            return True
+        return False
+
+    async def _run_advisory(self, state: TravelAgentState, try_tools_first: bool = False) -> TravelQueryResponse:
+        frame = state.semantic_frame
+        decision = state.answer_mode_decision
+        goal = state.user_goal
+        evidence: list[Evidence] = []
+
+        if try_tools_first and goal and goal.destination_city and goal.destination_country:
+            if decision and "weather" in (decision.optional_tools or decision.required_tools):
+                evidence.extend(
+                    await self.tools.run_tool(
+                        "weather",
+                        city=goal.destination_city,
+                        country=goal.destination_country,
+                        travel_date=goal.travel_date,
+                    )
+                )
+                TraceRecorder.add(state, "✓ 已尝试补充天气证据（可选）")
+
+        if decision and decision.allow_knowledge_prior and frame:
+            prior = await self.tools.run_tool(
+                "knowledge_prior",
+                raw_query=state.raw_user_query,
+                semantic_frame=frame,
+                limitations=list(decision.limitations_to_add),
+            )
+            evidence.extend(prior)
+            TraceRecorder.add(state, "✓ 已生成 model prior advisory Evidence")
+
+        state.evidence = evidence
+        self._sync_tool_traces(state)
+
+        target = (
+            (frame.entities.city if frame else None)
+            or (frame.entities.country if frame else None)
+            or (goal.destination_city if goal else None)
+            or "目的地"
+        )
+        state.field_evidence_summary = []
+        for ev in evidence:
+            for claim in ev.claims:
+                state.field_evidence_summary.append(
+                    {
+                        "field": claim.claim_type.value,
+                        "value": claim.value,
+                        "source_ids": [ev.evidence_id],
+                        "confidence": claim.confidence,
+                        "source_names": [ev.source_name],
+                    }
+                )
+
+        state.final_response = ComposerAgent.compose_advisory(target, evidence, state)
+        base_conf = min((ev.confidence for ev in evidence), default=0.55) if evidence else 0.45
+        confidence = self._citation_check(state, [], [], base_conf)
+        return self._to_response(state, confidence)
 
     async def _run_query_understanding(
         self,
@@ -319,6 +390,8 @@ class TravelAgentStateMachine:
         goal = state.user_goal
         place = goal.place_candidates[0] if goal and goal.place_candidates else None
         if not place:
+            if state.answer_mode_decision and state.answer_mode_decision.allow_knowledge_prior:
+                return await self._run_advisory(state)
             state.limitations.append("未能识别具体景点，返回区域级有限建议。")
             state.final_response = "请提供具体景点名称，以便生成证据驱动的情报卡。"
             return self._to_response(state, 0.2)

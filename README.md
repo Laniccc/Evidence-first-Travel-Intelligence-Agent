@@ -2,126 +2,46 @@
 
 面向日本、中国、韩国的 **Evidence-first Travel Intelligence Agent**。
 
-> **当前版本：Mock MVP + Real Data Pilot（小范围真实数据）** — 默认 `TOOL_MODE=hybrid`：优先真实 Weather / Places / 官方白名单页面，失败或无 API key 时回退 mock。  
+> **当前版本：Mock MVP + Real Data Pilot（小范围真实数据）**  
+> 默认 `TOOL_MODE=hybrid`：优先真实 Weather / Places / 官方白名单页面；失败、超时或缺少 API key 时回退 mock。  
 > 开放时间、票价、交通、评价等仍以 **mock tools** 为主；天气与地点在配置密钥后可走真实 API。  
-> **不来自 LLM 训练记忆**；未配置真实 API 时行为与 Mock MVP 一致。
+> 所有事实经 **Evidence 链路**聚合后生成回答，**不来自 LLM 训练记忆**；未配置真实 API 时行为与 Mock MVP 一致。
 
-**运维手册**：[RUNBOOK.md](RUNBOOK.md)
+**运维手册**：[RUNBOOK.md](RUNBOOK.md)（安装、API 示例、故障排查）
 
-## Agent 回答链路（主流程）
-
-![证据优先 Travel Agent 当前状态流程图](image.png)
-
-```text
-User Query
-  → ConversationContextBuilder
-  → QueryUnderstandingPromptState（固定进入）
-  → TravelTask
-  → ClarificationGate（如需澄清则直接返回，不调用工具）
-  → TravelTaskToUserGoalAdapter
-  → RegionGate（优先 TravelTask.country/city）
-  → InformationNeedPlanner
-  → ToolRouter
-  → TravelToolRegistry.run_tool / ToolTrace（每请求 clear_traces，统一记录 evidence_ids / latency / status）
-  → Evidence
-  → EvidenceAggregator
-  → ReviewMining
-  → Scorer
-  → Composer
-  → CitationChecker
-```
-
-**QueryUnderstandingPromptState 不是最终回答器**——它只做需求转写与 `TravelTask` 生成，不生成开放时间/票价/天气/人流等事实。  
-`IntentAgent` 仅在 QueryUnderstanding 置信度低且无可用 TravelTask 时作为 fallback。  
-`SourceSelectionPolicy` 仅作为 ToolRouter 无匹配需求时的兜底，不再是主链路入口。
-
-### 用户需求理解层
-
-| 组件 | 职责 |
-|------|------|
-| `ConversationContext` | 会话级上下文（`last_places`、`last_travel_date`、画像） |
-| `ConversationContextBuilder` | 从 request / `conversation_memory` 构建上下文 |
-| `QueryUnderstandingAgent` | 受控子代理：改写 + 指代 + TravelTask |
-| `RuleBasedUnderstanding` | 离线规则解析（置信度 ≥0.75 时优先） |
-| `QueryUnderstandingPromptState` | 状态机固定 state，写入 `visible_trace` |
-| `TravelTaskToUserGoalAdapter` | TravelTask → UserGoal（主路径） |
-| `ClarificationGate` | `needs_clarification=true` 时暂停工具调用 |
-| `TravelToolRegistry` | 统一 `run_tool` / `record_skipped_tool`，每请求 `clear_traces`，输出 `tool_traces` |
-
-**表达处理示例：**
-
-- 「这里」「那边」「刚才那个」→ 从 `conversation_context.last_places` 解析
-- 「那明天呢？」→ 继承 `last_places`，`travel_date=tomorrow`
-- 「适合爸妈吗」「累不累」→ `key_concerns` + `single_place_suitability`
-- 「会不会踩雷」→ `overrated_risk`；无上下文则澄清
-- 可合理默认时不追问，写入 `assumptions`
-
-**何时追问 vs 默认：**
-
-- 无法解析「这里」且无 `last_places` → `needs_clarification=true`
-- 有明确景点名或可从 catalog 识别 → 继续执行并记录 assumptions
-
-### 为什么不是「用户问题 → 固定工具」？
-
-用户常问的是**信息需求**（如“人流量怎么样”“适合推婴儿车吗”），而不是某个工具名。  
-新链路先把自然语言转成 `TravelTask` + `InformationNeed`，再由 `ToolRouter` 按工具 **capabilities** 动态组合，例如：
-
-| 用户问题 | 解析结果 | 工具组合 |
-|---------|---------|---------|
-| 这里人流量怎么样？（有上下文） | `crowd_inquiry` + `crowd_level` | `reviews` + `places` + `fallback` |
-| 故宫今天人多吗？ | `crowd_inquiry` | 同上 + `weather` + `reservation_policy` |
-| 适合带爸妈吗？ | `single_place_suitability` | `reviews` + `transit` + `official` + `restaurant` |
-
-### Query Rewriter / Contextualizer
-
-- 模块：`agents/query_rewriter.py`、`schemas/conversation_memory.py`
-- 解析「这里、明天、刚才那个」等指代；补充模糊关注点（人多、累不累、踩雷）
-- **不回答、不编造事实**；无法解析指代时 `needs_clarification=true`
-- 通过 `user_context.conversation_memory.last_places` 传入上一轮景点
-
-### TravelTask & InformationNeed
-
-- `TravelTask`：任务类型、景点、关注点、所需证据字段
-- `InformationNeed`：细粒度需求（`crowd_level`、`stroller_friendliness` 等）+ 优先级
-- `InformationNeedPlanner` 根据任务生成需求列表
-
-### Capability-based Tool Router
-
-- `tools/capabilities.py` + `capability_registry.py` + `tool_router.py`
-- 每个工具声明 capabilities（如 `reviews` → `crowd_level`）
-- 无直接工具时走 `fallback`，并在 `limitations` 说明估算性质
-- **人流量**：当前无 `live_crowd_tool`，使用评价 + 地图热门代理 + fallback，回答中明确「未接入实时人流」
-
-## 架构要点（P2/P3）
-
-- **Catalog 层**：`place_catalog` / `location_resolver` / `destination_catalog` 隔离 mock 数据与回答层
-- **字段级 evidence**：`field_evidence_summary`（每字段 value + source_ids + confidence）
-- **Claim/value 级引用检查**：`CitationChecker` 校验开放时间、票价、预约、天气等具体表述
-- **多景点 per-place location**：`PlaceContext` 列表，compare 链路按景点独立 country/city 调工具
-- **Review 两层管线**：规则抽取 + LLM structured extraction（默认关闭）
-- **Tool 抽象**：`BaseTravelTool` + `TravelToolRegistry` + `ToolTrace`
-
-## 功能范围
-
-- 单景点情报卡、多景点比较、轻量行程
-- `evidence_summary`（来源列表，兼容）+ `field_evidence_summary`（字段级，前端主用）
-- `citation_check_result` / `tool_traces` / `conflicts` / `limitations`
-- Golden + P0/P1 + P2/P3 + P4 架构评测
+---
 
 ## 快速开始
 
-```bash
+> **重要**：`app` 包位于 `backend/` 下。请在 `backend` 目录内运行 uvicorn、pytest 及所有 Python 命令。  
+> 若在项目根目录运行会出现 `ModuleNotFoundError: No module named 'app'`。
+
+```powershell
+# 1. 进入 backend（必须）
 cd backend
-python -m venv .venv
-.venv\Scripts\activate          # Windows
+
+# 2. 安装依赖（conda / venv 均可，激活环境后执行）
 pip install -r requirements.txt
-copy .env.example .env
+copy .env.example .env          # Windows
+# cp .env.example .env          # macOS / Linux
+
+# 3. 验收
 python -m compileall app
 pytest app/evals -q
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+
+# 4. 启动服务
+uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 ```
 
-### DeepSeek V4-Pro
+### 访问地址
+
+| 地址 | 说明 |
+|------|------|
+| http://127.0.0.1:8000/ | 用户 Web UI（输入问题、查看 trace / 证据摘要） |
+| http://127.0.0.1:8000/admin | Swagger API 文档 |
+| http://127.0.0.1:8000/health | 健康检查 |
+
+### LLM 配置（可选）
 
 ```env
 LLM_MODE=anthropic
@@ -140,61 +60,74 @@ curl -X POST http://127.0.0.1:8000/api/travel/query ^
   -d "{\"query\":\"京都清水寺适合带父母去吗？\",\"user_context\":{\"party\":[\"elderly\"]}}"
 ```
 
-## 目录结构
+---
+
+## Agent 回答链路（主流程）
+
+![证据优先 Travel Agent 当前状态流程图](image.png)
 
 ```text
-backend/app/
-  catalog/                  # PlaceCatalogService（回答层唯一地点入口）
-  orchestrator/
-    state_machine.py
-    evidence_aggregator.py
-    citation_check.py
-  agents/
-    conversation_context_builder.py
-    query_understanding_agent.py
-    rule_based_understanding.py
-    query_rewriter.py          # 兼容包装
-  orchestrator/
-    states/query_understanding_state.py
-    clarification_gate.py
-  prompts/
-    query_understanding.system.md
-    query_understanding.user.md
-  tools/
-    real/                     # RealWeatherTool, RealPlacesTool, RealOfficialPageTool
-    adapters/                 # MCPToolAdapter 占位
-    hybrid_tool.py            # real → mock fallback + cache
-    storage/tool_cache.py     # TTL 缓存
-  schemas/
-    place_factsheet.py      # FactValue + to_field_evidence_summary()
-    place_context.py
-  evals/
-    p0_p1_tests.py
-    p2_p3_tests.py
-    p4_architecture_tests.py
-    query_understanding_tests.py
+User Query
+  → ConversationContextBuilder
+  → QueryUnderstandingPromptState → SemanticFrame
+  → AnswerModeRouter（EvidencePolicy + 工具能力）
+  → 分支：clarification | evidence_required | model_prior | estimation
+  → ToolRouter / KnowledgePriorTool → Evidence
+  → EvidenceAggregator
+  → ReviewMining / Scorer（景点级问题）
+  → Composer
+  → CitationChecker
 ```
 
-## 如何新增景点 mock data
+系统**不再**为每类问题堆叠固定 template 或大量关键词 if-else。  
+`QueryUnderstanding` 产出通用 **SemanticFrame**；**AnswerModeRouter** 决定是否需要工具证据、是否允许 **model prior**；**KnowledgePriorTool** 将低置信度常识建议包装为 `Evidence`（`source_type=model_prior`），Composer 仍只读 Evidence 作答。
 
-1. `tools/mock/data.py` → `PLACE_REGISTRY` / `PLACE_ALIASES` / `MOCK_REVIEWS`
-2. `config.py` → `supported_cities`（如需要）
-3. `agents/intent_agent.py` → RegionGate 关键词（如需要）
-4. `evals/golden_queries.json` + 评测用例
+**精确实时事实**（开放时间、票价、今日天气、实时人流）必须 `evidence_required`，禁止 model prior。
 
-Catalog 层通过 `MockPlaceCatalogBackend` 自动读取上述注册表，**无需**修改 Composer/Scorer。
+### 用户需求理解层
+
+| 组件 | 职责 |
+|------|------|
+| `ConversationContext` | 会话级上下文（`last_places`、`last_travel_date`、画像） |
+| `QueryUnderstandingAgent` | 改写 + 指代 + TravelTask + **SemanticFrame** |
+| `SemanticFrame` | 通用语义：`query_scope` / `decision_type` / `information_needs` 等 |
+| `AnswerModeRouter` | 决定 evidence_required / model_prior_allowed / clarification |
+| `EvidencePolicy` | 各 claim 是否允许 model prior、所需 source_type |
+| `KnowledgePriorTool` | 低置信度 advisory Evidence（≤0.6），非官方事实 |
+| `TravelTaskToUserGoalAdapter` | TravelTask → UserGoal（景点级路径兼容） |
+| `ClarificationGate` | `needs_clarification=true` 时暂停工具调用 |
+| `TravelToolRegistry` | 统一 `run_tool`；含 `knowledge_prior`；每请求 `clear_traces` |
+
+**城市级季节建议示例**（如「札幌适合几月份去？」）：
+- `query_scope=city`，`decision_type=best_time_to_visit`
+- `AnswerMode=model_prior_allowed` → `KnowledgePriorTool` 生成季节建议 Evidence
+- **不要求**用户提供具体景点；回答含季节规律说明与 limitations
+
+### Capability-based Tool Router
+
+用户问的是**信息需求**（人流、适老、天气），不是工具名。链路先把自然语言转成 `TravelTask` + `InformationNeed`，再由 `ToolRouter` 按 **capabilities** 动态选工具：
+
+| 用户问题 | 工具组合 |
+|---------|---------|
+| 这里人流量怎么样？ | `reviews` + `places` + `fallback` |
+| 故宫今天人多吗？ | 同上 + `weather` + `reservation_policy` |
+| 适合带爸妈吗？ | `reviews` + `transit` + `official` + `restaurant` |
+
+**人流量**：当前无实时人流 API，使用评价 + 地图代理 + fallback，回答中标注估算性质。
+
+---
 
 ## Real Data Pilot（真实数据试点）
 
-首期接入 **Weather / Places / 官方白名单页面** 三类真实工具，以及 **MCP adapter 占位**。所有真实 API 响应必须先归一化为 `Evidence[]`，Composer / Scorer / CitationChecker **不得**直接读取原始 response。
+首期接入 **Weather / Places / 官方白名单页面** 及 **MCP adapter 占位**。真实 API 响应必须先归一化为 `Evidence[]`；Composer / Scorer / CitationChecker **不得**直接读取原始 response。
 
 ### 工具模式 `TOOL_MODE`
 
 | 值 | 行为 |
 |----|------|
-| `mock` | 仅 mock 工具（评测默认、与 Mock MVP 完全一致） |
-| `real` | 优先真实工具；失败时仍回退 mock |
-| `hybrid`（默认） | 先调 real tool；超时、失败、缺 API key 时 fallback mock，并在 `Evidence.limitations` 与 `tool_trace` 中标记 `fallback_used=true` |
+| `mock` | 仅 mock 工具（`ToolRegistry(use_mock=True)` 或显式设置） |
+| `real` | 优先真实工具；失败仍回退 mock |
+| `hybrid`（默认） | 先调 real；超时 / 失败 / 缺 key 时 fallback mock，并在 `Evidence.limitations` 与 `tool_trace` 标记 `fallback_used=true` |
 
 ```env
 TOOL_MODE=hybrid
@@ -209,7 +142,7 @@ REAL_TOOL_CACHE_TTL_SECONDS=3600
 ### 配置 Weather API
 
 1. 在 [OpenWeatherMap](https://openweathermap.org/api) 申请 API key  
-2. `.env` 中设置：
+2. `backend/.env`：
 
 ```env
 ENABLE_REAL_WEATHER=true
@@ -218,7 +151,7 @@ WEATHER_API_KEY=your_openweather_key
 
 ### 配置 Places API
 
-试点使用 OpenStreetMap Nominatim（需 `PLACES_API_KEY` 作为启用开关，不向第三方发送该 key）：
+试点使用 OpenStreetMap Nominatim（`PLACES_API_KEY` 作为启用开关，不向第三方发送该 key）：
 
 ```env
 ENABLE_REAL_PLACES=true
@@ -227,7 +160,7 @@ PLACES_API_KEY=pilot
 
 ### 配置官方页面白名单
 
-在 `backend/app/config.py` 的 `official_page_whitelist` 或环境变量中维护景点 → 官方 URL 映射（仅政府/官方旅游站，不做全网爬虫）。示例：`Kiyomizu-dera`、`Fushimi Inari`、`Senso-ji`。
+在 `backend/app/config.py` 的 `official_page_whitelist` 维护景点 → 官方 URL（仅政府 / 官方旅游站，不做全网爬虫）。内置示例：`Kiyomizu-dera`、`Fushimi Inari`、`Senso-ji`。
 
 ```env
 ENABLE_REAL_OFFICIAL_PAGE=true
@@ -239,70 +172,112 @@ ENABLE_REAL_OFFICIAL_PAGE=true
 MCP_ENABLED=true
 ```
 
-占位 adapter：`weather_mcp`、`places_mcp`、`official_reader_mcp`（`app/tools/adapters/mcp_tool_adapter.py`）。MCP 返回须经 `Evidence` schema 校验后方可进入主链路。
+占位：`weather_mcp`、`places_mcp`、`official_reader_mcp`（`app/tools/adapters/mcp_tool_adapter.py`）。MCP 返回须经 `Evidence` schema 校验。
 
-### 运行测试
+### 试点 Golden Queries
 
-```bash
-cd backend
-# Mock 评测（必须全部通过）
-python -m compileall app
-pytest app/evals -q
+`backend/app/evals/real_data_pilot_queries.json` — 5 条京都 / 东京 query；mock 模式可跑；hybrid + API key 后 weather / places 可走真实数据。
 
-# 真实 API 集成测试（无 key 自动 skip）
-pytest app/evals/integration -m real_api -q
-```
+### 数据合规
 
-### Golden Queries（试点）
-
-`backend/app/evals/real_data_pilot_queries.json` — 5 条京都/东京试点 query；mock 模式可跑；hybrid + API key 后 weather/places 可走真实数据。
-
-### 数据合规提醒
-
-- **当前仍不建议**直接接入大规模评论抓取。  
-- 评论平台、OTA 数据需单独处理 **ToS 与授权**；勿存储未经授权的评论全文。  
+- **当前仍不建议**大规模评论抓取。  
+- 评论平台、OTA 需单独处理 **ToS 与授权**；勿存储未经授权的评论全文。  
 - 不绕过登录、验证码、反爬；不大规模爬取网页。
 
-## 如何替换真实 API（扩展）
+---
 
-### 1. 实现 `BaseTravelTool`（返回 `list[Evidence]`）
+## 架构要点
 
-真实实现位于 `backend/app/tools/real/`：`RealWeatherTool`、`RealPlacesTool`、`RealOfficialPageTool`。
+- **Catalog 层**：`place_catalog` 隔离 mock 数据与回答层
+- **字段级 evidence**：`field_evidence_summary`（每字段 value + source_ids + confidence）
+- **CitationChecker**：claim / value 级引用校验
+- **Hybrid 工具链**：`HybridTravelTool` + `app/storage/tool_cache.py`（TTL 缓存，`cache_hit` 记入 trace）
+- **Tool 抽象**：`BaseTravelTool` → `Evidence[]` → `PlaceFactSheet` → Composer
 
-### 2. `TravelToolRegistry` 按 `TOOL_MODE` 注册
+## 功能范围
 
-`hybrid` 模式下 `weather` / `places` / `official` 为 `HybridTravelTool`（real → mock fallback）。
+- 单景点情报卡、多景点比较、轻量行程
+- Web UI + REST API
+- `visible_trace` / `field_evidence_summary` / `tool_traces` / `limitations` / `citation_check_result`
+- Golden + P0–P4 架构评测 + Real Data Pilot 集成测试
 
-### 3. 配置密钥（`backend/.env`）
+## 目录结构
 
-见上文 Real Data Pilot 各小节。
-
-### 4. 验收
-
-```bash
-cd backend
-python -m compileall app
-pytest app/evals -q
+```text
+Evidence-first Travel Intelligence Agent/
+├── README.md
+├── RUNBOOK.md
+├── image.png
+└── backend/
+    ├── .env.example
+    ├── pytest.ini
+    ├── requirements.txt
+    └── app/
+        ├── main.py                 # FastAPI + 静态 UI
+        ├── config.py               # TOOL_MODE、API keys、官方白名单
+        ├── static/                 # Web UI（index.html / app.js）
+        ├── catalog/
+        ├── policies/
+        │   └── evidence_policy.py
+        ├── orchestrator/
+        │   ├── answer_mode_router.py
+        │   ├── state_machine.py
+        │   ├── evidence_aggregator.py
+        │   └── citation_check.py
+        ├── agents/
+        ├── storage/
+        │   └── tool_cache.py
+        ├── tools/
+        │   ├── real/               # RealWeatherTool, RealPlacesTool, RealOfficialPageTool
+        │   ├── adapters/           # MCPToolAdapter
+        │   ├── hybrid_tool.py
+        │   ├── knowledge_prior_tool.py
+        │   ├── capability_registry.py
+        │   ├── tool_router.py
+        │   └── registry.py
+        ├── schemas/
+        └── evals/
+            ├── golden_queries.json
+            ├── semantic_routing_tests.py
+            ├── real_data_pilot_queries.json
+            └── integration/        # @pytest.mark.real_api
 ```
 
-**原则**：工具产 `Evidence` → Aggregator 产 `PlaceFactSheet`；Composer/Scorer 只读 FactSheet；不让 LLM 编造事实。
+## 如何新增景点 mock data
+
+1. `tools/mock/data.py` → `PLACE_REGISTRY` / `PLACE_ALIASES` / `MOCK_REVIEWS`
+2. `config.py` → `supported_cities`（如需要）
+3. `evals/golden_queries.json` + 评测用例
+
+Catalog 通过 `MockPlaceCatalogBackend` 自动读取，**无需**修改 Composer / Scorer。
 
 ## 运行评测
 
 ```bash
 cd backend
 python -m compileall app
-pytest app/evals -q
+pytest app/evals -q                              # mock 评测（须全部通过）
+pytest app/evals/integration -m real_api -q      # 真实 API（无 key 自动 skip）
 ```
+
+## 故障排查
+
+| 现象 | 处理 |
+|------|------|
+| `ModuleNotFoundError: No module named 'app'` | 先 `cd backend`，再运行 uvicorn / pytest |
+| 端口占用 | `uvicorn ... --port 8001` |
+| 回答过于模板化 | 检查 `LLM_MODE=mock`；配置 `DEEPSEEK_API_KEY` 后设 `LLM_MODE=anthropic` |
+| 真实天气未生效 | 确认 `ENABLE_REAL_WEATHER=true` 且 `WEATHER_API_KEY` 已设置；查看 `tool_traces` 是否 `fallback_used` |
+
+更多见 [RUNBOOK.md §11 故障排查](RUNBOOK.md)。
 
 ## 当前限制
 
 - 重点支持 **日本、中国、韩国**；景点库覆盖有限
-- 数据主要为 **mock**；评论合规需在真实接入时单独处理
-- **CitationChecker** 为规则级 claim/value 检测，非完美事实验证
-- **实时人流、实时排队、地图热力** 等需后续真实 API；当前为评价/代理估算
-- LLM Review 抽取接口已预留，默认关闭
-- 未接入 PostgreSQL / Redis / 生产前端
+- 数据以 **mock** 为主；真实试点仅 weather / places / 官方白名单
+- **实时人流、排队、地图热力** 尚未接入；当前为评价 / 代理估算
+- **CitationChecker** 为规则级检测，非完美事实验证
+- 未接入 PostgreSQL / Redis / 生产级前端
 
 ## 设计原则
 

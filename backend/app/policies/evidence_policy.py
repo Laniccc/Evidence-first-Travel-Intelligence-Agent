@@ -1,0 +1,97 @@
+from pydantic import BaseModel, Field
+
+
+class ClaimPolicy(BaseModel):
+    model_prior_allowed: bool = False
+    required_source_types: list[str] = Field(default_factory=list)
+    preferred_source_types: list[str] = Field(default_factory=list)
+    allowed_estimation_sources: list[str] = Field(default_factory=list)
+    requires_live_data: bool = False
+    requires_exact_fact: bool = False
+
+
+CLAIM_POLICIES: dict[str, ClaimPolicy] = {
+    "opening_hours": ClaimPolicy(
+        model_prior_allowed=False,
+        required_source_types=["official", "map"],
+        requires_exact_fact=True,
+    ),
+    "ticket_price": ClaimPolicy(
+        model_prior_allowed=False,
+        required_source_types=["official", "ticketing"],
+        requires_exact_fact=True,
+    ),
+    "weather_today": ClaimPolicy(
+        model_prior_allowed=False,
+        required_source_types=["weather_api"],
+        requires_live_data=True,
+        requires_exact_fact=True,
+    ),
+    "weather": ClaimPolicy(
+        model_prior_allowed=False,
+        required_source_types=["weather_api"],
+        requires_live_data=True,
+    ),
+    "current_crowd": ClaimPolicy(
+        model_prior_allowed=False,
+        allowed_estimation_sources=["review", "map_proxy", "event"],
+        requires_live_data=True,
+    ),
+    "crowd_level": ClaimPolicy(
+        model_prior_allowed=False,
+        allowed_estimation_sources=["review", "map_proxy", "event"],
+    ),
+    "best_time_to_visit": ClaimPolicy(
+        model_prior_allowed=True,
+        preferred_source_types=["climate_api", "tourism_board", "model_prior"],
+    ),
+    "seasonality": ClaimPolicy(
+        model_prior_allowed=True,
+        preferred_source_types=["climate_api", "tourism_board", "model_prior"],
+    ),
+    "general_travel_advice": ClaimPolicy(
+        model_prior_allowed=True,
+        preferred_source_types=["model_prior", "tourism_board"],
+    ),
+    "reservation_policy": ClaimPolicy(
+        model_prior_allowed=False,
+        required_source_types=["official"],
+        requires_exact_fact=True,
+    ),
+    "transit": ClaimPolicy(
+        model_prior_allowed=False,
+        preferred_source_types=["transit_api", "map"],
+    ),
+}
+
+
+FORBIDDEN_MODEL_PRIOR_CLAIMS = frozenset(
+    {
+        "opening_hours",
+        "ticket_price",
+        "weather_today",
+        "weather",
+        "current_crowd",
+        "crowd_level",
+        "reservation_policy",
+    }
+)
+
+
+class EvidencePolicy:
+    @classmethod
+    def get(cls, need_key: str) -> ClaimPolicy:
+        return CLAIM_POLICIES.get(need_key, ClaimPolicy(model_prior_allowed=False))
+
+    @classmethod
+    def model_prior_allowed_for(cls, need_key: str) -> bool:
+        return cls.get(need_key).model_prior_allowed
+
+    @classmethod
+    def requires_evidence_for(cls, need_key: str) -> bool:
+        policy = cls.get(need_key)
+        return not policy.model_prior_allowed or policy.requires_exact_fact or policy.requires_live_data
+
+    @classmethod
+    def forbidden_model_prior_claims(cls) -> frozenset[str]:
+        return FORBIDDEN_MODEL_PRIOR_CLAIMS

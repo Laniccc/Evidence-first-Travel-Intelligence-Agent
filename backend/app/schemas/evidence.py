@@ -17,6 +17,7 @@ class SourceType(str, Enum):
     WEB = "web"
     BLOG = "blog"
     SOCIAL = "social"
+    MODEL_PRIOR = "model_prior"
     UNKNOWN = "unknown"
 
 
@@ -47,6 +48,8 @@ class ClaimType(str, Enum):
     LODGING = "lodging"
     SAFETY = "safety"
     ACCESSIBILITY = "accessibility"
+    TRAVEL_ADVICE = "travel_advice"
+    SEASONALITY = "seasonality"
 
 
 class Claim(BaseModel):

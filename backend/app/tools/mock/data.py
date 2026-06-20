@@ -197,7 +197,8 @@ CITY_COUNTRY = {
     "shanghai": ("China", "Shanghai"),
     "seoul": ("South Korea", "Seoul"),
     "busan": ("South Korea", "Busan"),
-    "jeju": ("South Korea", "Jeju"),
+    "sapporo": ("Japan", "Sapporo"),
+    "札幌": ("Japan", "Sapporo"),
 }
 
 LOCATION_ALIASES = {
