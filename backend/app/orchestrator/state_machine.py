@@ -6,9 +6,8 @@ from app.agents.intent_agent import IntentAgent, RegionGateAgent
 from app.agents.place_research_agent import PlaceResearchAgent
 from app.agents.review_mining_agent import ReviewAspectMiningAgent, VerifierAgent
 from app.agents.suitability_scorer import TravelSuitabilityScorer
-from app.agents.travel_task_to_user_goal_adapter import TravelTaskToUserGoalAdapter
+from app.agents.travel_task_to_user_goal_adapter import SUPPORTED_REGIONS, TravelTaskToUserGoalAdapter
 from app.catalog.place_catalog import get_place_catalog
-from app.config import get_settings
 from app.llm_client import LLMClient
 from app.orchestrator.citation_check import CitationChecker
 from app.orchestrator.evidence_aggregator import EvidenceAggregator
@@ -60,13 +59,17 @@ class TravelAgentStateMachine:
         if not state.region_gate.supported:
             return self._unsupported(state)
 
-        task_confidence = state.travel_task.confidence if state.travel_task else 0.0
-        if state.travel_task and task_confidence >= 0.5:
+        qu_confidence = state.query_understanding.confidence if state.query_understanding else 0.0
+        if TravelTaskToUserGoalAdapter.should_use_task(
+            state.travel_task,
+            state.query_understanding,
+            qu_confidence,
+        ):
             state.user_goal = TravelTaskToUserGoalAdapter.to_user_goal(state.travel_task, ctx)
             TraceRecorder.add(state, f"✓ 已从 TravelTask 生成 UserGoal：{state.user_goal.intent_type.value}")
         else:
             state.user_goal = await IntentAgent.run(gate_query, self.llm, ctx)
-            TraceRecorder.add(state, f"✓ IntentAgent fallback（TravelTask confidence={task_confidence:.2f}）：{state.user_goal.intent_type.value}")
+            TraceRecorder.add(state, f"✓ IntentAgent fallback：{state.user_goal.intent_type.value}")
 
         self._complete_context(state, ctx)
         TraceRecorder.add(state, f"✓ 识别用户画像：{', '.join(p.value for p in state.user_goal.party) or '一般游客'}")
@@ -112,8 +115,7 @@ class TravelAgentStateMachine:
         memory: ConversationMemory,
     ) -> RegionGateResult:
         task = state.travel_task
-        supported = get_settings().supported_countries
-        if task and task.country in supported:
+        if task and task.country in SUPPORTED_REGIONS:
             return RegionGateResult(
                 supported=True,
                 country=task.country,
