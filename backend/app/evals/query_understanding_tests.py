@@ -157,10 +157,29 @@ def test_query_understanding_agent_does_not_import_mock_data():
     source = inspect.getsource(QueryUnderstandingAgent)
     assert "mock_data" not in source
     assert "PLACE_REGISTRY" not in source
+    assert "app.tools.mock" not in source
+    assert "_backend" not in source
     agent = QueryUnderstandingAgent(LLMClient())
     hints = agent.catalog.list_known_places(limit=5)
     assert len(hints) >= 1
     assert all(isinstance(name, str) for name in hints)
+
+
+def test_crowd_router_marks_estimated_without_live_tool():
+    task = TravelTask(
+        task_type=TravelTaskType.CROWD_INQUIRY,
+        country="Japan",
+        city="Kyoto",
+        places=[],
+    )
+    needs = InformationNeedPlanner.plan(task)
+    plan = ToolRouter().route(needs, task)
+    assert "reviews" in plan.selected_tools
+    assert "places" in plan.selected_tools
+    assert "fallback" in plan.selected_tools
+    assert plan.fallback_used is True
+    assert "crowd_level" in plan.estimated_only_needs
+    assert any("无实时人流" in e for e in plan.routing_explanation)
 
 
 def test_crowd_router_does_not_mark_estimated_when_live_tool_exists():

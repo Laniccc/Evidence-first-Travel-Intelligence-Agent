@@ -42,15 +42,22 @@ class TravelTaskToUserGoalAdapter:
         place_candidates = [p.canonical_name or p.original_name for p in task.places if (p.canonical_name or p.original_name)]
 
         preferences = list(dict.fromkeys((profile.preferences or []) + (ctx.preferences or [])))
-        constraints = list(dict.fromkeys((profile.constraints or []) + (ctx.constraints or []) + task.constraints))
+        constraints = list(
+            dict.fromkeys(
+                (profile.constraints or [])
+                + (ctx.constraints or [])
+                + (task.constraints or [])
+                + (task.assumptions or [])
+            )
+        )
 
         return UserGoal(
             intent_type=cls.TASK_INTENT_MAP.get(task.task_type, IntentType.GENERAL),
             destination_country=task.country,
             destination_city=task.city,
             place_candidates=place_candidates,
-            travel_date=task.travel_date or ctx.travel_date,
-            start_location=task.start_location or ctx.start_location,
+            travel_date=task.travel_date,
+            start_location=task.start_location,
             party=party,
             budget_level=budget,
             pace=pace,
