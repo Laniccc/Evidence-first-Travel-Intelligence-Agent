@@ -28,12 +28,32 @@ class TravelToolRegistry:
     def clear_traces(self) -> None:
         self.traces.clear()
 
+    def record_error(
+        self,
+        tool_name: str,
+        input: dict,
+        error: str,
+        latency_ms: float = 0.0,
+    ) -> None:
+        self._append_trace(
+            ToolTrace(
+                tool_name=tool_name,
+                input=input,
+                evidence_ids=[],
+                latency_ms=latency_ms,
+                status="error",
+                error=error,
+            )
+        )
+
+    def record_skipped_tool(self, tool_name: str, error: str, **kwargs: Any) -> None:
+        """Backward-compatible alias for record_error."""
+        self.record_error(tool_name, input=dict(kwargs), error=error)
+
     async def run_tool(self, tool_name: str, **kwargs: Any) -> list:
         tool = getattr(self, tool_name, None)
         if tool is None:
-            self._append_trace(
-                ToolTrace(tool_name=tool_name, input=kwargs, status="error", error="tool not found")
-            )
+            self.record_error(tool_name, input=dict(kwargs), error="tool not found")
             return []
         start = time.perf_counter()
         try:
@@ -52,22 +72,8 @@ class TravelToolRegistry:
             return result
         except Exception as exc:
             latency = (time.perf_counter() - start) * 1000
-            self._append_trace(
-                ToolTrace(
-                    tool_name=tool_name,
-                    input=kwargs,
-                    latency_ms=latency,
-                    status="error",
-                    error=str(exc),
-                )
-            )
+            self.record_error(tool_name, input=dict(kwargs), error=str(exc), latency_ms=latency)
             return []
-
-    def record_skipped_tool(self, tool_name: str, error: str, **kwargs: Any) -> None:
-        """Record a skipped/failed invocation without calling the underlying tool."""
-        self._append_trace(
-            ToolTrace(tool_name=tool_name, input=dict(kwargs), status="error", error=error)
-        )
 
     def _append_trace(self, trace: ToolTrace) -> None:
         self.traces.append(trace)

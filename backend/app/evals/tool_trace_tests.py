@@ -63,6 +63,7 @@ def test_no_direct_tool_run_in_place_research():
     assert not re.search(r"self\.tools\.\w+\.run\(", source)
     assert "getattr(self.tools" not in source
     assert "run_tool" in source
+    assert "record_error" in source
 
 
 @pytest.mark.asyncio
