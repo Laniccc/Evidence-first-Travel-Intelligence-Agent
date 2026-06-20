@@ -1,3 +1,4 @@
+from app.schemas.query_understanding import QueryUnderstandingResult
 from app.schemas.travel_task import TravelTask, TravelTaskType
 from app.schemas.user_profile import UserProfile
 from app.schemas.user_query import (
@@ -11,6 +12,7 @@ from app.schemas.user_query import (
 )
 
 SUPPORTED_REGIONS = {"Japan", "China", "South Korea"}
+LOW_CONFIDENCE_THRESHOLD = 0.35
 
 
 class TravelTaskToUserGoalAdapter:
@@ -106,9 +108,32 @@ class TravelTaskToUserGoalAdapter:
         return TransportPreference.UNKNOWN
 
     @staticmethod
-    def has_usable_task(task: TravelTask | None, confidence: float) -> bool:
-        if not task:
-            return False
+    def can_generate_user_goal(task: TravelTask) -> bool:
         if task.places or task.country:
             return True
-        return confidence >= 0.5
+        if task.city and task.task_type == TravelTaskType.ITINERARY_PLANNING:
+            return True
+        return False
+
+    @classmethod
+    def should_use_task(
+        cls,
+        task: TravelTask | None,
+        query_understanding: QueryUnderstandingResult | None,
+        confidence: float,
+    ) -> bool:
+        """Use TravelTask adapter unless QU missing, task missing, or confidence is very low with no mappable goal."""
+        if query_understanding is None or task is None:
+            return False
+        if cls.can_generate_user_goal(task):
+            return True
+        return confidence >= LOW_CONFIDENCE_THRESHOLD
+
+    @staticmethod
+    def has_usable_task(task: TravelTask | None, confidence: float) -> bool:
+        """Backward-compatible helper; prefer should_use_task with query_understanding."""
+        if not task:
+            return False
+        if TravelTaskToUserGoalAdapter.can_generate_user_goal(task):
+            return True
+        return confidence >= LOW_CONFIDENCE_THRESHOLD

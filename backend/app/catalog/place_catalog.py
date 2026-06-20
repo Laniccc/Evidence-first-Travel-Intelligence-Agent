@@ -33,6 +33,9 @@ class MockPlaceCatalogBackend:
     def find_places_in_text(self, text: str) -> list[str]:
         return mock_catalog.find_places_in_text(text)
 
+    def list_known_places(self, limit: int = 25) -> list[str]:
+        return list(mock_catalog.PLACE_REGISTRY.keys())[:limit]
+
 
 class PlaceCatalogService:
     def __init__(self, backend: MockPlaceCatalogBackend | None = None) -> None:
@@ -58,6 +61,9 @@ class PlaceCatalogService:
 
     def find_places_in_text(self, text: str) -> list[str]:
         return self._backend.find_places_in_text(text)
+
+    def list_known_places(self, limit: int = 25) -> list[str]:
+        return self._backend.list_known_places(limit=limit)
 
     def resolve_place_context(self, original_name: str) -> PlaceContext:
         canonical = self.normalize_place_name(original_name) or original_name

@@ -60,7 +60,7 @@ class TravelAgentStateMachine:
             return self._unsupported(state)
 
         qu_confidence = state.query_understanding.confidence if state.query_understanding else 0.0
-        if TravelTaskToUserGoalAdapter.has_usable_task(state.travel_task, qu_confidence):
+        if TravelTaskToUserGoalAdapter.should_use_task(state.travel_task, state.query_understanding, qu_confidence):
             state.user_goal = TravelTaskToUserGoalAdapter.to_user_goal(state.travel_task, ctx)
             TraceRecorder.add(state, f"✓ 已从 TravelTask 生成 UserGoal：{state.user_goal.intent_type.value}")
         else:

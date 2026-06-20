@@ -42,6 +42,12 @@ class ToolRouter:
     def __init__(self, registry: CapabilityRegistry | None = None) -> None:
         self.registry = registry or CapabilityRegistry()
 
+    def _tool_has_live_crowd(self, tool_name: str) -> bool:
+        cap = self.registry.get(tool_name)
+        if not cap:
+            return False
+        return bool(self.LIVE_CROWD_CAPABILITIES.intersection(cap.capabilities))
+
     def route(self, needs: list[InformationNeed], task: TravelTask) -> ToolExecutionPlan:
         selected: set[str] = set()
         mapping: dict[str, list[str]] = {}
@@ -65,7 +71,8 @@ class ToolRouter:
                         selected.add(tool_name)
 
             if need.need_type == InformationNeedType.CROWD_LEVEL:
-                if not any(t in self.LIVE_CROWD_CAPABILITIES for t in caps):
+                has_live_crowd_tool = any(self._tool_has_live_crowd(t) for t in tools_for_need)
+                if not has_live_crowd_tool:
                     for tool_name, _ in self.registry.tools_for_capability("crowd_level", country):
                         if tool_name in {"reviews", "places"} and tool_name not in tools_for_need:
                             tools_for_need.append(tool_name)

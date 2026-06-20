@@ -1,16 +1,22 @@
+import inspect
 import re
 from unittest.mock import AsyncMock, patch
 
 import pytest
 
 from app.agents.conversation_context_builder import ConversationContextBuilder
+from app.agents.information_need_planner import InformationNeedPlanner
 from app.agents.query_understanding_agent import QueryUnderstandingAgent
 from app.agents.rule_based_understanding import RuleBasedUnderstanding
 from app.llm_client import LLMClient
 from app.orchestrator.state_machine import TravelAgentStateMachine
 from app.schemas.conversation_context import ConversationContext
-from app.schemas.travel_task import TravelTaskType
-from app.schemas.user_query import TravelAgentState
+from app.schemas.conversation_memory import ConversationMemory
+from app.schemas.travel_task import TravelTask, TravelTaskType
+from app.schemas.user_query import RegionGateResult, TravelAgentState
+from app.tools.capabilities import FreshnessLevel, ToolCapability
+from app.tools.capability_registry import CapabilityRegistry
+from app.tools.tool_router import ToolRouter
 
 
 def _assert_no_facts(result) -> None:
@@ -121,12 +127,62 @@ async def test_visible_trace_contains_query_understanding():
 @pytest.mark.asyncio
 async def test_state_machine_uses_travel_task_not_intent_agent():
     sm = TravelAgentStateMachine()
-    with patch("app.agents.intent_agent.IntentAgent.run", new_callable=AsyncMock) as intent_mock:
+    with patch("app.orchestrator.state_machine.IntentAgent.run", new_callable=AsyncMock) as intent_mock:
         intent_mock.side_effect = RuntimeError("IntentAgent should not be called")
         resp = await sm.run("京都清水寺适合带父母去吗？", {"party": ["elderly"]})
     assert resp.answer
     assert "TravelTask" in " ".join(resp.visible_trace)
     intent_mock.assert_not_awaited()
+
+
+def test_region_gate_prefers_travel_task_country():
+    sm = TravelAgentStateMachine()
+    state = TravelAgentState(session_id="s", query_id="q", raw_user_query="适合带父母去吗？")
+    state.travel_task = TravelTask(
+        task_type=TravelTaskType.SINGLE_PLACE_SUITABILITY,
+        country="Japan",
+        city="Kyoto",
+        places=[],
+    )
+    with patch("app.orchestrator.state_machine.RegionGateAgent.run") as gate_mock:
+        gate_mock.return_value = RegionGateResult(supported=False, reason="should not be used")
+        result = sm._resolve_region_gate(state, "适合带父母去吗？", "适合带父母去吗？", ConversationMemory())
+    gate_mock.assert_not_called()
+    assert result.supported is True
+    assert result.country == "Japan"
+    assert result.city == "Kyoto"
+
+
+def test_query_understanding_agent_does_not_import_mock_data():
+    source = inspect.getsource(QueryUnderstandingAgent)
+    assert "mock_data" not in source
+    assert "PLACE_REGISTRY" not in source
+    agent = QueryUnderstandingAgent(LLMClient())
+    hints = agent.catalog.list_known_places(limit=5)
+    assert len(hints) >= 1
+    assert all(isinstance(name, str) for name in hints)
+
+
+def test_crowd_router_does_not_mark_estimated_when_live_tool_exists():
+    registry = CapabilityRegistry()
+    registry._tools["live_crowd_sensor"] = ToolCapability(
+        tool_name="live_crowd_sensor",
+        capabilities=["crowd_level", "live_crowd"],
+        freshness=FreshnessLevel.LIVE,
+        confidence_by_capability={"crowd_level": 0.92, "live_crowd": 0.95},
+    )
+    task = TravelTask(
+        task_type=TravelTaskType.CROWD_INQUIRY,
+        country="Japan",
+        city="Kyoto",
+        places=[],
+    )
+    needs = InformationNeedPlanner.plan(task)
+    plan = ToolRouter(registry=registry).route(needs, task)
+    assert "live_crowd_sensor" in plan.selected_tools
+    assert "crowd_level" not in plan.estimated_only_needs
+    crowd_explanations = [e for e in plan.routing_explanation if "无实时人流" in e]
+    assert crowd_explanations == []
 
 
 @pytest.mark.asyncio

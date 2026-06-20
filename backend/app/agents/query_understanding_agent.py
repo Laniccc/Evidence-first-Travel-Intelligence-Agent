@@ -52,13 +52,7 @@ class QueryUnderstandingAgent:
     ) -> QueryUnderstandingResult:
         system = (PROMPTS_DIR / "query_understanding.system.md").read_text(encoding="utf-8")
         user_tmpl = (PROMPTS_DIR / "query_understanding.user.md").read_text(encoding="utf-8")
-        hints = list(self.catalog._backend.PLACE_REGISTRY.keys())[:20] if hasattr(self.catalog, "_backend") else []
-        try:
-            from app.tools.mock import data as mock_data
-
-            hints = list(mock_data.PLACE_REGISTRY.keys())[:25]
-        except Exception:
-            pass
+        hints = self.catalog.list_known_places(limit=25)
 
         user = (
             user_tmpl.replace("{{raw_user_query}}", raw_query)
