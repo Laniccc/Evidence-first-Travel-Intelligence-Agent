@@ -10,6 +10,8 @@
 
 ## Agent 回答链路（主流程）
 
+![证据优先 Travel Agent 当前状态流程图](image.png)
+
 ```text
 User Query
   → ConversationContextBuilder

@@ -89,7 +89,7 @@ curl http://127.0.0.1:8000/health
 curl http://127.0.0.1:8000/api/travel/supported-regions
 ```
 
-API 文档：浏览器打开 `http://127.0.0.1:8000/docs`
+API 文档：浏览器打开 `http://127.0.0.1:8000/`（用户界面）或 `http://127.0.0.1:8000/admin`（Swagger API 后台）
 
 ---
 
