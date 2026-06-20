@@ -34,10 +34,6 @@
 ```bash
 cd "E:\学习文件\研究生\就业\Agent学习\Evidence-first Travel Intelligence Agent\backend"
 
-python -m venv .venv
-.venv\Scripts\activate          # Windows
-# source .venv/bin/activate     # macOS / Linux
-
 pip install -r requirements.txt
 copy .env.example .env          # Windows
 # cp .env.example .env          # macOS / Linux
@@ -78,7 +74,6 @@ python -c "from app.config import get_settings; s=get_settings(); print('llm_mod
 
 ```bash
 cd backend
-.venv\Scripts\activate
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
@@ -236,7 +231,6 @@ User Query
 | 路径/模式 | 说明 |
 |-----------|------|
 | `backend/.env` / `.env` | API 密钥 |
-| `backend/.venv/` | Python 虚拟环境 |
 | `__pycache__/`、`.pytest_cache/` | 缓存 |
 | `*.pat`、`github-pat.txt`、`*.gitcredentials` | 令牌或凭据文件 |
 | `node_modules/`、`.next/` | 前端构建产物（预留） |
@@ -328,7 +322,7 @@ git push -u origin main
 - [ ] `uvicorn app.main:app --reload` 可访问 `/health`
 - [ ] `POST /api/travel/query` 返回 `answer` + `visible_trace` + `evidence_summary`
 - [ ] `cd backend && pytest -q` 全部通过
-- [ ] 上传前确认 `.env` 与 `.venv` 未被 `git add`
+- [ ] 上传前确认 `.env` 未被 `git add`
 - [ ] GitHub 空仓库已创建（若使用默认 RemoteUrl）
 - [ ] 已配置 PAT 或运行 `setup_project_credentials.ps1`
 - [ ] `.\upload_to_github.ps1` 推送成功
