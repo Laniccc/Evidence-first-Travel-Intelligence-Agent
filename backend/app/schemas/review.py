@@ -40,6 +40,7 @@ class ReviewInput(BaseModel):
 class ReviewAspect(BaseModel):
     aspect: ReviewAspectName
     sentiment: str
+    severity: str = "unknown"
     frequency: float = 0.0
     recent_trend: str = "unknown"
     evidence_examples: list[str] = Field(default_factory=list)

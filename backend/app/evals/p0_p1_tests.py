@@ -30,9 +30,13 @@ def test_compile_imports():
 
 @pytest.mark.asyncio
 async def test_weather_called_when_city_backfilled():
+    from app.schemas.user_query import TravelAgentState
+
     goal = IntentAgent.parse_deterministic("京都清水寺适合带父母去吗？")
     sm = TravelAgentStateMachine()
-    sm._backfill_location_from_places(goal)
+    state = TravelAgentState(session_id="t", query_id="q", raw_user_query="京都清水寺适合带父母去吗？", user_goal=goal)
+    sm._backfill_location_from_places(state)
+    goal = state.user_goal
     assert goal.place_candidates
     assert goal.destination_city == "Kyoto"
     assert goal.destination_country == "Japan"
@@ -78,8 +82,12 @@ async def test_no_unbacked_ticket_price():
 def test_composer_does_not_depend_on_registry_directly():
     source = inspect.getsource(ComposerAgent)
     assert "PLACE_REGISTRY" not in source
+    assert "mock_data" not in source
     scorer_source = inspect.getsource(__import__("app.agents.suitability_scorer", fromlist=["TravelSuitabilityScorer"]).TravelSuitabilityScorer)
     assert "PLACE_REGISTRY" not in scorer_source
+    assert "mock_data" not in scorer_source
+    citation_source = inspect.getsource(__import__("app.orchestrator.citation_check", fromlist=["CitationChecker"]).CitationChecker)
+    assert "mock_data" not in citation_source
 
 
 def test_conflict_resolution_prefers_official():
@@ -126,11 +134,12 @@ def test_itinerary_uses_registered_places_only():
     )
     plan = ItineraryAgent.build(goal)
     place_names = [i.place_name for i in plan.items if i.place_name]
-    from app.tools.mock_data import PLACE_REGISTRY
+    from app.catalog.place_catalog import get_place_catalog
 
+    catalog = get_place_catalog()
     assert place_names, "itinerary should include registered places"
     for name in place_names:
-        assert name in PLACE_REGISTRY
+        assert catalog.is_registered(name)
 
 
 def test_source_selection_differs_by_intent():

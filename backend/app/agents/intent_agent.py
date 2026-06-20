@@ -1,5 +1,7 @@
 import re
 
+from app.catalog.location_resolver import iter_city_country, iter_location_aliases, resolve_start_location
+from app.catalog.place_catalog import get_place_catalog
 from app.schemas.user_query import (
     BudgetLevel,
     IntentType,
@@ -10,7 +12,6 @@ from app.schemas.user_query import (
     UserContext,
     UserGoal,
 )
-from app.tools.mock_data import CITY_COUNTRY, LOCATION_ALIASES, find_places_in_text, normalize_place_name
 
 
 class RegionGateAgent:
@@ -29,11 +30,11 @@ class RegionGateAgent:
             for kw in keywords:
                 if kw.lower() in lower:
                     scores[country] += 1
-        for alias, (country, city_name, _) in LOCATION_ALIASES.items():
+        for alias, (country, city_name, _) in iter_location_aliases():
             if alias.lower() in lower:
                 scores[country] += 2
                 city = city_name
-        for c_key, (country, city_name) in CITY_COUNTRY.items():
+        for c_key, (country, city_name) in iter_city_country():
             if c_key in lower:
                 scores[country] += 2
                 city = city_name
@@ -70,8 +71,9 @@ class IntentAgent:
 
     @classmethod
     def parse_deterministic(cls, query: str, user_context: UserContext | None = None) -> UserGoal:
+        catalog = get_place_catalog()
         region = RegionGateAgent.run(query)
-        places = find_places_in_text(query)
+        places = catalog.find_places_in_text(query)
         intent = IntentType.SINGLE_PLACE
         if any(m in query for m in cls.COMPARE_MARKERS) or (len(places) >= 2 and "哪个" in query):
             intent = IntentType.COMPARE_PLACES
@@ -87,25 +89,28 @@ class IntentAgent:
             party.append(PartyType.COUPLE)
         if any(x in query for x in ["亲子", "孩子", "儿童", "family"]):
             party.append(PartyType.FAMILY)
-        if "第一次" in query:
-            pass
 
         pace = PaceType.RELAXED if any(x in query for x in ["轻松", "不想太累", "别太累"]) else PaceType.UNKNOWN
         start_location = None
-        for alias, (_, _, loc) in LOCATION_ALIASES.items():
+        for alias, (_, _, loc) in iter_location_aliases():
             if alias in query or alias.lower() in query.lower():
                 start_location = loc
                 break
         m = re.search(r"住在(.{1,12})", query)
         if m:
             start_location = m.group(1).strip("，。 ")
+        if start_location:
+            resolved = resolve_start_location(start_location)
+            if resolved:
+                start_location = resolved[2]
 
         ctx = user_context or UserContext()
+        normalized_query_place = catalog.normalize_place_name(query)
         return UserGoal(
             intent_type=intent,
             destination_country=region.country,
             destination_city=region.city,
-            place_candidates=places or ([normalize_place_name(query)] if normalize_place_name(query) else []),
+            place_candidates=places or ([normalized_query_place] if normalized_query_place else []),
             travel_date=ctx.travel_date,
             start_location=ctx.start_location or start_location,
             party=ctx.party or party,

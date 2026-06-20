@@ -31,6 +31,7 @@ class RecommendationResult(BaseModel):
 
 
 class StructuredResult(BaseModel):
+    status: str | None = None
     recommendation: RecommendationResult | None = None
     places: list[dict] = Field(default_factory=list)
     comparison: list[ComparisonRow] | None = None
@@ -48,8 +49,11 @@ class TravelQueryResponse(BaseModel):
     structured_result: StructuredResult
     visible_trace: list[str] = Field(default_factory=list)
     evidence_summary: list[dict] = Field(default_factory=list)
+    field_evidence_summary: list[dict] = Field(default_factory=list)
     conflicts: list[dict] = Field(default_factory=list)
     limitations: list[str] = Field(default_factory=list)
     confidence: float = 0.0
+    citation_check_result: dict | None = None
+    tool_traces: list[dict] = Field(default_factory=list)
     session_id: str | None = None
     query_id: str | None = None

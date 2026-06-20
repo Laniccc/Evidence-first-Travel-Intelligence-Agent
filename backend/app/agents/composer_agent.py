@@ -1,16 +1,13 @@
+from app.catalog.destination_catalog import CULTURAL_SETS
+from app.catalog.location_resolver import resolve_start_location
+from app.catalog.place_catalog import get_place_catalog
 from app.schemas.evidence import Evidence
 from app.schemas.itinerary import ItineraryItem, ItineraryPlan
 from app.schemas.place_factsheet import PlaceFactSheet
 from app.schemas.response import ComparisonRow, RecommendationResult
 from app.schemas.review import ReviewAspectName, ReviewAspectResult
+from app.schemas.travel_task import TravelTaskType
 from app.schemas.user_query import TravelAgentState, UserGoal
-from app.tools.mock_data import (
-    LOCATION_ALIASES,
-    get_place_location,
-    normalize_place_name,
-    registered_places_for_city,
-    registered_places_for_country,
-)
 
 
 class ComposerAgent:
@@ -82,17 +79,80 @@ class ComposerAgent:
                 *[f"- {l}" for l in state.limitations[:3]],
                 "",
                 "证据摘要：",
-                *[f"- {e.source_name} ({e.source_type.value})" for e in state.evidence[:5]],
+                *ComposerAgent._evidence_summary_lines(state, fact_sheet),
             ]
         )
         return "\n".join(lines)
+
+    @staticmethod
+    def compose_crowd_inquiry(
+        place_name: str,
+        fact_sheet: PlaceFactSheet,
+        review: ReviewAspectResult,
+        state: TravelAgentState,
+    ) -> str:
+        crowd = fact_sheet.crowd_risk
+        crowd_label = "较高" if ComposerAgent._level_high(crowd, 0.7) else "中等" if crowd is not None else "证据不足"
+        queue_aspect = next((a for a in review.aspects if a.aspect == ReviewAspectName.QUEUE_TIME), None)
+        queue_note = "评价中提及排队" if queue_aspect else "排队信息有限"
+
+        lines = [
+            f"关于 {place_name} 的人流情况：",
+            "",
+            "重要说明：",
+            "- 未接入实时人流/热力数据，以下为基于评价摘要、地图热门程度代理与日期因素的估算，不代表现场实时人数。",
+            "",
+            "估算结论：",
+            f"- 拥挤风险：{crowd_label}" + (f"（代理值 {crowd:.2f}）" if crowd is not None else ""),
+            f"- 排队情况：{queue_note}",
+        ]
+        if fact_sheet.weather:
+            lines.append(f"- 天气因素：{fact_sheet.weather}")
+        if fact_sheet.reservation_policy:
+            lines.append(f"- 预约政策：{fact_sheet.reservation_policy}（可能影响入场人流）")
+
+        crowd_reviews = [a for a in review.aspects if a.aspect in {ReviewAspectName.CROWD_LEVEL, ReviewAspectName.QUEUE_TIME}]
+        if crowd_reviews:
+            lines.extend(["", "评价维度依据："])
+            for a in crowd_reviews[:3]:
+                lines.append(f"- {a.aspect.value}: {a.sentiment} (severity={a.severity})")
+
+        lines.extend(["", "建议：", "- 尽量避开周末上午高峰", "- 出发前再次确认官方公告与预约要求"])
+        if state.limitations:
+            lines.extend(["", "限制说明：", *[f"- {l}" for l in state.limitations[:4]]])
+        return "\n".join(lines)
+
+    @staticmethod
+    def _evidence_summary_lines(state: TravelAgentState, fact_sheet: PlaceFactSheet | None = None) -> list[str]:
+        if state.field_evidence_summary:
+            return [
+                f"- {row['field']}: {row['value']} ({', '.join(row.get('source_names') or []) or 'aggregated'})"
+                for row in state.field_evidence_summary[:8]
+            ]
+        if fact_sheet:
+            return [
+                f"- {row['field']}: {row['value']}"
+                for row in fact_sheet.to_field_evidence_summary()[:5]
+            ]
+        return [f"- {e.source_name} ({e.source_type.value})" for e in state.evidence[:5] if isinstance(e, Evidence)]
 
     @staticmethod
     def compose_compare(
         ranked: list[tuple[str, RecommendationResult, ReviewAspectResult, PlaceFactSheet]],
         state: TravelAgentState,
     ) -> str:
-        lines = ["总体推荐：", *[f"{i + 1}. {name}（{rec.overall_recommendation}, score={rec.overall_score}）" for i, (name, rec, _, _) in enumerate(ranked)]]
+        lines: list[str] = []
+        if state.place_contexts:
+            countries = {c.country for c in state.place_contexts if c.country}
+            cities = {c.city for c in state.place_contexts if c.city}
+            if len(countries) > 1:
+                lines.append("注意：以下为跨国比较，交通成本和行程组合复杂度更高。")
+            elif len(cities) > 1:
+                lines.append("注意：以下为跨城比较，交通成本和行程组合复杂度更高。")
+            if lines:
+                lines.append("")
+
+        lines += ["总体推荐：", *[f"{i + 1}. {name}（{rec.overall_recommendation}, score={rec.overall_score}）" for i, (name, rec, _, _) in enumerate(ranked)]]
         lines += ["", "比较表：", "景点 | 适合度 | 交通 | 步行强度 | 拥挤风险 | 亮点 | 风险 | 推荐人群"]
         for row in state.structured_result.get("comparison", []):
             lines.append(
@@ -165,42 +225,34 @@ class ComposerAgent:
 
 
 class ItineraryAgent:
-    CULTURAL_SETS = {
-        ("South Korea", "Seoul"): ["Gyeongbokgung Palace", "Bukchon Hanok Village", "N Seoul Tower"],
-        ("Japan", "Kyoto"): ["Kiyomizu-dera", "Arashiyama Bamboo Grove", "Fushimi Inari"],
-        ("Japan", "Tokyo"): ["Senso-ji", "Meiji Shrine"],
-        ("China", "Beijing"): ["Forbidden City", "Temple of Heaven", "Summer Palace"],
-    }
-
     @classmethod
     def _registered_only(cls, places: list[str]) -> list[str]:
+        catalog = get_place_catalog()
         result: list[str] = []
         for place in places:
-            canonical = normalize_place_name(place) or place
-            if canonical not in result:
-                from app.tools.mock_data import PLACE_REGISTRY
-
-                if canonical in PLACE_REGISTRY:
-                    result.append(canonical)
+            canonical = catalog.normalize_place_name(place) or place
+            if canonical not in result and catalog.is_registered(canonical):
+                result.append(canonical)
         return result
 
     @classmethod
     def build(cls, goal: UserGoal) -> ItineraryPlan:
+        catalog = get_place_catalog()
         country = goal.destination_country or "South Korea"
         city = goal.destination_city or "Seoul"
         if goal.start_location:
-            for alias, (c_country, c_city, _) in LOCATION_ALIASES.items():
-                if goal.start_location.lower() in {alias.lower(), alias}:
-                    country, city = c_country, c_city
+            resolved = resolve_start_location(goal.start_location)
+            if resolved:
+                country, city, _ = resolved
 
-        raw_places = cls.CULTURAL_SETS.get((country, city), [])
+        raw_places = CULTURAL_SETS.get((country, city), [])
         places = cls._registered_only(raw_places)
         if goal.place_candidates:
             places = cls._registered_only(goal.place_candidates[:4]) or places
         if not places:
-            places = registered_places_for_city(country, city)[:3]
+            places = catalog.registered_places_for_city(country, city)[:3]
         if not places:
-            places = registered_places_for_country(country)[:3]
+            places = catalog.registered_places_for_country(country)[:3]
 
         pace = goal.pace.value if goal.pace.value != "unknown" else "relaxed"
         slots = [("09:00", "11:30"), ("12:30", "14:00"), ("14:30", "17:00"), ("17:30", "19:00")]
