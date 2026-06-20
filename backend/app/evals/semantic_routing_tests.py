@@ -3,6 +3,7 @@ import pytest
 from app.agents.semantic_frame_builder import SemanticFrameBuilder
 from app.orchestrator.answer_mode_router import AnswerModeRouter
 from app.orchestrator.state_machine import TravelAgentStateMachine
+from app.schemas.user_query import TravelAgentState
 from app.policies.evidence_policy import EvidencePolicy
 from app.schemas.conversation_context import ConversationContext
 from app.schemas.evidence import ClaimType, SourceType
@@ -22,10 +23,38 @@ def _qu_result(raw: str, task: TravelTask, **kwargs) -> QueryUnderstandingResult
     )
 
 
-def test_model_prior_enums_importable():
-    from app.schemas.evidence import ClaimType, SourceType
-    from app.tools.knowledge_prior_tool import KnowledgePriorTool
+@pytest.mark.asyncio
+async def test_response_exposes_semantic_frame_and_answer_mode():
+    sm = TravelAgentStateMachine()
+    resp = await sm.run("札幌适合几月份去？")
+    assert resp.answer_mode == "model_prior_allowed"
+    assert resp.semantic_frame_summary is not None
+    assert resp.semantic_frame_summary["query_scope"] == "city"
+    assert resp.semantic_frame_summary["decision_type"] == "best_time_to_visit"
+    assert "best_time_to_visit" in resp.semantic_frame_summary["information_needs"]
 
+
+def test_query_understanding_result_serializes_semantic_frame():
+    from app.agents.rule_based_understanding import RuleBasedUnderstanding
+    from app.schemas.conversation_context import ConversationContext
+
+    qu = RuleBasedUnderstanding.understand("札幌适合几月份去？", ConversationContext())
+    dumped = qu.model_dump()
+    assert "semantic_frame" in dumped
+    assert dumped["semantic_frame"] is not None
+    assert dumped["semantic_frame"]["decision_type"] == "best_time_to_visit"
+    restored = QueryUnderstandingResult.model_validate(dumped)
+    assert restored.semantic_frame is not None
+    assert restored.semantic_frame.query_scope.value == "city"
+
+
+def test_travel_agent_state_has_semantic_routing_fields():
+    state = TravelAgentState(session_id="s", query_id="q", raw_user_query="test")
+    assert state.semantic_frame is None
+    assert state.answer_mode_decision is None
+
+
+def test_model_prior_enums_importable():
     assert SourceType.MODEL_PRIOR.value == "model_prior"
     assert ClaimType.SEASONALITY.value == "seasonality"
     assert ClaimType.TRAVEL_ADVICE.value == "travel_advice"

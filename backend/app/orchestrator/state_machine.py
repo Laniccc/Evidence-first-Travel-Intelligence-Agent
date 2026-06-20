@@ -2,12 +2,18 @@
 
 Main pipeline::
 
-    User Query
-      → QueryUnderstandingPromptState → SemanticFrame
-      → AnswerModeRouter
-      → (clarification | evidence | model prior | estimation)
-      → Tools / KnowledgePriorTool → Evidence
-      → Aggregator → Composer → CitationChecker
+    S0 UserInput
+      → S1 BuildConversationContext
+      → S2 QueryUnderstanding → SemanticFrame
+      → S3 AnswerModeRouting → AnswerModeDecision
+      → (early: clarification | model prior | evidence-preferred+prior)
+      → S4 Region/Policy Check
+      → S5 Planning (UserGoal + InformationNeed + ToolRouter)
+      → S6 Tool/Knowledge Execution
+      → S7 Evidence Aggregation
+      → S8 Compose
+      → S9 Citation/Limitations
+      → S10 Response
 """
 
 from uuid import uuid4
@@ -24,7 +30,9 @@ from app.llm_client import LLMClient
 from app.orchestrator.answer_mode_router import AnswerModeRouter
 from app.orchestrator.citation_check import CitationChecker
 from app.orchestrator.evidence_aggregator import EvidenceAggregator
+from app.orchestrator.states.answer_composition_state import AnswerCompositionState
 from app.orchestrator.states.query_understanding_state import QueryUnderstandingPromptState
+from app.tools.capability_registry import CapabilityRegistry
 from app.orchestrator.trace import TraceRecorder
 from app.schemas.conversation_memory import ConversationMemory
 from app.schemas.evidence import Evidence
@@ -35,7 +43,6 @@ from app.schemas.review import ReviewAspectResult
 from app.schemas.travel_task import TravelTaskType
 from app.schemas.semantic_frame import AnswerMode, DecisionType
 from app.schemas.user_query import ConflictRecord, IntentType, RegionGateResult, TravelAgentState, UserContext, UserGoal
-from app.tools.capability_registry import CapabilityRegistry
 from app.tools import ToolRegistry
 from app.tools.tool_router import ToolRouter
 
@@ -50,91 +57,63 @@ class TravelAgentStateMachine:
         self.verifier = VerifierAgent()
         self.aggregator = EvidenceAggregator()
         self.catalog = get_place_catalog()
-        self.tool_router = ToolRouter()
+        self.capability_registry = CapabilityRegistry()
+        self.tool_router = ToolRouter(self.capability_registry)
         self.answer_mode_router = AnswerModeRouter()
         self.query_understanding_state = QueryUnderstandingPromptState(self.llm)
+        self.answer_composition_state = AnswerCompositionState(self.llm)
+
+    async def _run_answer_composition(self, state: TravelAgentState, **compose_kwargs) -> TravelAgentState:
+        return await self.answer_composition_state.run(state, **compose_kwargs)
 
     async def run(self, query: str, user_context: dict | None = None, session_id: str | None = None) -> TravelQueryResponse:
         self.tools.clear_traces()
-        ctx = UserContext.model_validate(user_context or {})
-        memory = ConversationMemory.from_user_context(user_context)
-        state = TravelAgentState(
-            session_id=session_id or str(uuid4()),
-            query_id=str(uuid4()),
-            raw_user_query=query,
-            conversation_memory=memory,
-        )
+        ctx, memory, state = self._build_conversation_context(query, user_context, session_id)
 
-        # Phase 1: QueryUnderstanding → SemanticFrame
+        # S2: QueryUnderstanding → SemanticFrame
         state = await self._run_query_understanding(state, ctx, user_context)
         if state.next_state == "clarification_response":
             confidence = state.query_understanding.confidence if state.query_understanding else 0.3
             return self._to_response(state, confidence)
 
-        # Phase 2: AnswerModeRouter（在 InformationNeedPlanner 之前）
-        state = self._route_answer_mode(state)
-        mode = state.answer_mode_decision.answer_mode if state.answer_mode_decision else None
+        # S3: AnswerModeRouting（早于 RegionGate / place 判断）
+        state = self._run_answer_mode_routing(state)
+        decision = state.answer_mode_decision
+        mode = decision.answer_mode if decision else AnswerMode.EVIDENCE_REQUIRED
+
         if mode == AnswerMode.CLARIFICATION_REQUIRED:
-            state.next_state = "clarification_response"
-            state.final_response = (
-                state.rewritten_query_result.clarification_prompt
-                if state.rewritten_query_result and state.rewritten_query_result.clarification_prompt
-                else "请补充具体地点或出行时间，以便继续分析。"
-            )
-            return self._to_response(state, state.query_understanding.confidence if state.query_understanding else 0.3)
+            return self._clarification_from_answer_mode(state)
         if mode == AnswerMode.UNSUPPORTED:
             state.final_response = "暂无法理解该问题类型，请补充国家/城市/景点或换一种问法。"
             return self._to_response(state, 0.25)
+        if mode == AnswerMode.MODEL_PRIOR_ALLOWED:
+            gate_query = state.rewritten_query_result.rewritten_query if state.rewritten_query_result else query
+            blocked = self._apply_region_gate(state, query, gate_query, memory)
+            if blocked:
+                return blocked
+            return await self._run_advisory(state, try_tools_first=False)
+        if mode == AnswerMode.EVIDENCE_PREFERRED and decision and decision.allow_knowledge_prior:
+            gate_query = state.rewritten_query_result.rewritten_query if state.rewritten_query_result else query
+            return await self._run_evidence_preferred_or_prior(state, ctx, query, gate_query, memory)
 
         gate_query = state.rewritten_query_result.rewritten_query if state.rewritten_query_result else query
 
-        # Phase 3: RegionGate
-        state.region_gate = self._resolve_region_gate(state, query, gate_query, memory)
-        TraceRecorder.add(state, f"✓ 识别目的地区域：{state.region_gate.country or '未知'}")
-        if not state.region_gate.supported:
-            return self._unsupported(state)
+        # S4: RegionGate
+        blocked = self._apply_region_gate(state, query, gate_query, memory)
+        if blocked:
+            return blocked
 
-        # Phase 4: UserGoal
+        # S5: UserGoal + context
         state.user_goal = await self._resolve_user_goal(state, ctx, gate_query)
         self._complete_context(state, ctx)
         TraceRecorder.add(state, f"✓ 识别用户画像：{', '.join(p.value for p in state.user_goal.party) or '一般游客'}")
 
-        # Phase 5: 按 AnswerMode 分发（在 ToolRouter 主链之前）
+        # S6–S10: 按 AnswerMode 进入工具链 / 聚合 / 合成
         return await self._dispatch_by_answer_mode(state)
-
-    def _route_answer_mode(self, state: TravelAgentState) -> TravelAgentState:
-        if not state.semantic_frame and state.query_understanding:
-            from app.agents.semantic_frame_builder import SemanticFrameBuilder
-
-            state.semantic_frame = SemanticFrameBuilder.attach(state.raw_user_query, state.query_understanding)
-        caps = set(CapabilityRegistry().all_tool_names())
-        state.answer_mode_decision = self.answer_mode_router.route(state.semantic_frame, caps)
-        decision = state.answer_mode_decision
-        TraceRecorder.add(
-            state,
-            f"✓ AnswerMode：{decision.answer_mode.value}（{decision.reason[:72]}）",
-        )
-        if decision.limitations_to_add:
-            state.limitations.extend(decision.limitations_to_add)
-        return state
 
     async def _dispatch_by_answer_mode(self, state: TravelAgentState) -> TravelQueryResponse:
         decision = state.answer_mode_decision
         mode = decision.answer_mode if decision else AnswerMode.EVIDENCE_REQUIRED
-
-        if mode == AnswerMode.MODEL_PRIOR_ALLOWED:
-            return await self._run_advisory(state, try_tools_first=bool(decision.optional_tools))
-
-        if mode == AnswerMode.EVIDENCE_PREFERRED:
-            if self._has_place_target(state):
-                resp = await self._run_evidence_pipeline(state)
-                if state.evidence:
-                    return resp
-                if decision.allow_knowledge_prior:
-                    TraceRecorder.add(state, "✓ 工具证据不足，回退 KnowledgePriorTool")
-                    return await self._run_advisory(state)
-                return resp
-            return await self._run_advisory(state, try_tools_first=True)
 
         if mode == AnswerMode.ESTIMATION_ALLOWED:
             tool_names = self._plan_tool_execution(state)
@@ -144,8 +123,6 @@ class TravelAgentStateMachine:
 
         if not state.travel_task:
             state.limitations.append("TravelTask 缺失，后续路由可能受限。")
-            if decision and decision.allow_knowledge_prior:
-                return await self._run_advisory(state)
             return self._to_response(state, 0.25)
 
         return await self._run_evidence_pipeline(state)
@@ -170,15 +147,6 @@ class TravelAgentStateMachine:
         if task_type == TravelTaskType.CROWD_INQUIRY:
             return await self._run_crowd_inquiry(state, tool_names)
         return await self._run_single(state, tool_names)
-
-    def _has_place_target(self, state: TravelAgentState) -> bool:
-        if state.user_goal and state.user_goal.place_candidates:
-            return True
-        if state.travel_task and state.travel_task.places:
-            return True
-        if state.semantic_frame and state.semantic_frame.entities.places:
-            return True
-        return False
 
     async def _run_advisory(self, state: TravelAgentState, try_tools_first: bool = False) -> TravelQueryResponse:
         frame = state.semantic_frame
@@ -230,10 +198,103 @@ class TravelAgentStateMachine:
                     }
                 )
 
-        state.final_response = ComposerAgent.compose_advisory(target, evidence, state)
+        state = await self._run_answer_composition(
+            state,
+            compose_mode="advisory",
+            target_label=target,
+        )
         base_conf = min((ev.confidence for ev in evidence), default=0.55) if evidence else 0.45
         confidence = self._citation_check(state, [], [], base_conf)
         return self._to_response(state, confidence)
+
+    def _apply_region_gate(
+        self,
+        state: TravelAgentState,
+        raw_query: str,
+        gate_query: str,
+        memory: ConversationMemory,
+    ) -> TravelQueryResponse | None:
+        state.region_gate = self._resolve_region_gate(state, raw_query, gate_query, memory)
+        TraceRecorder.add(state, f"✓ 识别目的地区域：{state.region_gate.country or '未知'}")
+        if not state.region_gate.supported:
+            return self._unsupported(state)
+        return None
+
+    def _build_conversation_context(
+        self,
+        query: str,
+        user_context: dict | None,
+        session_id: str | None,
+    ) -> tuple[UserContext, ConversationMemory, TravelAgentState]:
+        ctx = UserContext.model_validate(user_context or {})
+        memory = ConversationMemory.from_user_context(user_context)
+        state = TravelAgentState(
+            session_id=session_id or str(uuid4()),
+            query_id=str(uuid4()),
+            raw_user_query=query,
+            conversation_memory=memory,
+        )
+        return ctx, memory, state
+
+    def _run_answer_mode_routing(self, state: TravelAgentState) -> TravelAgentState:
+        frame = state.semantic_frame
+        if not frame:
+            state.limitations.append("SemanticFrame 缺失，回退到 TravelTask 路由。")
+            return state
+
+        available_caps = self.tool_router.available_capabilities()
+        decision = self.answer_mode_router.route(frame, available_caps)
+        state.answer_mode_decision = decision
+        TraceRecorder.add(
+            state,
+            f"✓ 已判定回答模式：{decision.answer_mode.value}（{decision.reason}）",
+        )
+        state.limitations.extend(decision.limitations_to_add)
+        return state
+
+    def _clarification_from_answer_mode(self, state: TravelAgentState) -> TravelQueryResponse:
+        state.next_state = "clarification_response"
+        state.final_response = (
+            state.rewritten_query_result.clarification_prompt
+            if state.rewritten_query_result and state.rewritten_query_result.clarification_prompt
+            else "请补充具体地点或出行时间，以便继续分析。"
+        )
+        confidence = state.query_understanding.confidence if state.query_understanding else 0.3
+        return self._to_response(state, confidence)
+
+    async def _run_evidence_preferred_or_prior(
+        self,
+        state: TravelAgentState,
+        ctx: UserContext,
+        raw_query: str,
+        gate_query: str,
+        memory: ConversationMemory,
+    ) -> TravelQueryResponse:
+        if not self._has_place_target_from_frame(state):
+            blocked = self._apply_region_gate(state, raw_query, gate_query, memory)
+            if blocked:
+                return blocked
+            return await self._run_advisory(state, try_tools_first=True)
+
+        blocked = self._apply_region_gate(state, raw_query, gate_query, memory)
+        if blocked:
+            return blocked
+
+        state.user_goal = await self._resolve_user_goal(state, ctx, gate_query)
+        self._complete_context(state, ctx)
+
+        resp = await self._run_evidence_pipeline(state)
+        if state.evidence:
+            return resp
+        TraceRecorder.add(state, "✓ 工具证据不足，回退 KnowledgePriorTool")
+        return await self._run_advisory(state)
+
+    def _has_place_target_from_frame(self, state: TravelAgentState) -> bool:
+        if state.semantic_frame and state.semantic_frame.entities.places:
+            return True
+        if state.travel_task and state.travel_task.places:
+            return True
+        return False
 
     async def _run_query_understanding(
         self,
@@ -437,7 +498,13 @@ class TravelAgentStateMachine:
         review_result = await self.review_agent.run(canonical, goal)
         recommendation = self.scorer.score_place(canonical, fact_sheet, review_result, goal, [])
 
-        state.final_response = ComposerAgent.compose_crowd_inquiry(canonical, fact_sheet, review_result, state)
+        state = await self._run_answer_composition(
+            state,
+            compose_mode="crowd",
+            place_name=canonical,
+            fact_sheet=fact_sheet,
+            review=review_result,
+        )
         state.structured_result = StructuredResult(
             recommendation=recommendation,
             places=[{"name": canonical, "fact_sheet": fact_sheet.model_dump()}],
@@ -450,8 +517,6 @@ class TravelAgentStateMachine:
         goal = state.user_goal
         place = goal.place_candidates[0] if goal and goal.place_candidates else None
         if not place:
-            if state.answer_mode_decision and state.answer_mode_decision.allow_knowledge_prior:
-                return await self._run_advisory(state)
             state.limitations.append("未能识别具体景点，返回区域级有限建议。")
             state.final_response = "请提供具体景点名称，以便生成证据驱动的情报卡。"
             return self._to_response(state, 0.2)
@@ -487,7 +552,14 @@ class TravelAgentStateMachine:
         state.scores.confidence = recommendation.confidence
         TraceRecorder.add(state, "✓ 完成画像适配评分")
 
-        state.final_response = ComposerAgent.compose_single(canonical, recommendation, review_result, fact_sheet, state)
+        state = await self._run_answer_composition(
+            state,
+            compose_mode="single",
+            place_name=canonical,
+            recommendation=recommendation,
+            review=review_result,
+            fact_sheet=fact_sheet,
+        )
         state.structured_result = StructuredResult(
             recommendation=recommendation,
             places=[{"name": canonical, "fact_sheet": fact_sheet.model_dump()}],
@@ -535,7 +607,7 @@ class TravelAgentStateMachine:
             comparison=[r.model_dump() for r in rows],
             places=[{"name": n, "fact_sheet": fs.model_dump()} for n, _, _, fs in ranked],
         ).model_dump()
-        state.final_response = ComposerAgent.compose_compare(ranked, state)
+        state = await self._run_answer_composition(state, compose_mode="compare", ranked=ranked)
 
         reviews = [r for _, _, r, _ in ranked]
         top_conf = ranked[0][1].confidence if ranked else 0.5
@@ -577,7 +649,7 @@ class TravelAgentStateMachine:
             itinerary=plan.model_dump(),
             places=[{"name": p} for p in places],
         ).model_dump()
-        state.final_response = ComposerAgent.compose_itinerary(plan, state)
+        state = await self._run_answer_composition(state, compose_mode="itinerary", plan=plan)
         confidence = self._citation_check(state, [], [], 0.74)
         return self._to_response(state, confidence)
 
@@ -607,6 +679,24 @@ class TravelAgentStateMachine:
         TraceRecorder.add(state, "✓ 完成引用与限制检查")
         return result.confidence
 
+    @staticmethod
+    def _semantic_frame_summary(state: TravelAgentState) -> dict | None:
+        sf = state.semantic_frame
+        if not sf:
+            return None
+        return {
+            "query_scope": sf.query_scope.value,
+            "task_family": sf.task_family.value,
+            "decision_type": sf.decision_type.value,
+            "time_scope": sf.time_scope.value,
+            "entities": sf.entities.model_dump(),
+            "information_needs": sf.information_needs,
+            "requires_exact_fact": sf.requires_exact_fact,
+            "requires_live_data": sf.requires_live_data,
+            "can_answer_with_model_prior": sf.can_answer_with_model_prior,
+            "confidence": sf.confidence,
+        }
+
     def _to_response(self, state: TravelAgentState, confidence: float) -> TravelQueryResponse:
         self._sync_tool_traces(state)
         evidence_summary = [
@@ -622,6 +712,9 @@ class TravelAgentStateMachine:
             if isinstance(ev, Evidence)
         ]
         structured = StructuredResult.model_validate(state.structured_result or {})
+        answer_mode = (
+            state.answer_mode_decision.answer_mode.value if state.answer_mode_decision else None
+        )
         return TravelQueryResponse(
             answer=state.final_response or "",
             structured_result=structured,
@@ -635,4 +728,6 @@ class TravelAgentStateMachine:
             tool_traces=[t.model_dump() for t in state.tool_traces],
             session_id=state.session_id,
             query_id=state.query_id,
+            semantic_frame_summary=self._semantic_frame_summary(state),
+            answer_mode=answer_mode,
         )

@@ -22,6 +22,7 @@ class HybridTravelTool(BaseTravelTool):
         settings: Settings | None = None,
         real_enabled: bool = True,
         requires_api_key: bool = True,
+        allow_mock_fallback: bool | None = None,
     ) -> None:
         self.name = name
         self.real_tool = real_tool
@@ -29,6 +30,9 @@ class HybridTravelTool(BaseTravelTool):
         self.settings = settings or get_settings()
         self.real_enabled = real_enabled
         self.requires_api_key = requires_api_key
+        if allow_mock_fallback is None:
+            allow_mock_fallback = self.settings.tool_mode == "hybrid"
+        self.allow_mock_fallback = allow_mock_fallback
         self.last_run_meta: dict[str, Any] = {}
 
     def real_is_available(self) -> bool:
@@ -71,9 +75,13 @@ class HybridTravelTool(BaseTravelTool):
                 if result:
                     cache.set(self.name, result, **cache_payload)
                     return result
+                self.last_run_meta["real_empty"] = True
             except Exception as exc:
-                logger.warning("Real tool %s failed, falling back: %s", self.name, exc)
+                logger.warning("Real tool %s failed: %s", self.name, exc)
                 self.last_run_meta["real_error"] = str(exc)
+
+        if not self.allow_mock_fallback:
+            return []
 
         self.last_run_meta["fallback_used"] = True
         result = await self.mock_tool.run(**kwargs)

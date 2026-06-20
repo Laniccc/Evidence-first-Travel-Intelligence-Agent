@@ -57,3 +57,5 @@ class TravelQueryResponse(BaseModel):
     tool_traces: list[dict] = Field(default_factory=list)
     session_id: str | None = None
     query_id: str | None = None
+    semantic_frame_summary: dict | None = None
+    answer_mode: str | None = None

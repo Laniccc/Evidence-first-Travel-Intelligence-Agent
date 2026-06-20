@@ -9,8 +9,8 @@ conversation_context:
 supported_regions:
 {{supported_regions}}
 
-known_place_hints:
-{{known_place_hints}}
+entity_hints（LLM 语义地点提取结果，优先于固定 registry；仅用于识别 city/country/POI，不代表开放时间等事实）:
+{{entity_hints}}
 
 current_date:
 {{current_date}}

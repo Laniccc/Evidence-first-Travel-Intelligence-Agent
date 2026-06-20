@@ -1,0 +1,92 @@
+import pytest
+
+from app.agents.place_entity_extractor import GEO_CITY_ALIASES, LLMPlaceEntityExtractor
+from app.agents.semantic_frame_builder import SemanticFrameBuilder
+from app.catalog.place_resolver import MockCatalogResolver, PlaceResolver
+from app.schemas.conversation_context import ConversationContext
+from app.schemas.place_candidate import PlaceResolutionSource
+from app.schemas.query_understanding import QueryUnderstandingResult
+from app.schemas.travel_task import TravelTask, TravelTaskType
+
+
+@pytest.fixture(autouse=True)
+def _clear_place_cache():
+    from pathlib import Path
+
+    from app.storage.place_cache import PlaceCache
+
+    path = PlaceCache().path
+    if path.exists():
+        path.unlink()
+    yield
+    if path.exists():
+        path.unlink()
+
+
+def test_place_entity_extractor_sapporo_without_mock_registry(monkeypatch):
+    monkeypatch.setitem(GEO_CITY_ALIASES, "札幌", ("Japan", "Sapporo"))
+    mentions = LLMPlaceEntityExtractor.extract_sync("札幌适合几月份去？", ConversationContext())
+    assert any(m.entity_type == "city" and m.city == "Sapporo" for m in mentions)
+
+
+def test_place_resolver_prefers_geocode_over_mock_catalog(monkeypatch):
+    async def never_mock(self, raw_query, mention, context):
+        raise AssertionError("MockCatalogResolver should not run when geocode succeeds")
+
+    monkeypatch.setattr(MockCatalogResolver, "resolve", never_mock)
+    candidates = PlaceResolver.resolve_sync("札幌适合几月份去？", ConversationContext(), llm_client=None)
+    city_hit = next(c for c in candidates if c.is_city)
+    assert city_hit.city == "Sapporo"
+    assert city_hit.country == "Japan"
+    assert city_hit.resolution_source in {
+        PlaceResolutionSource.LLM_GEocode,
+        PlaceResolutionSource.LOCAL_CACHE,
+    }
+
+
+def test_semantic_frame_city_scope_without_place_registry_poi():
+    raw = "札幌适合几月份去？"
+    task = TravelTask(
+        task_type=TravelTaskType.OPEN_ENDED_ADVICE,
+        country="Japan",
+        city="Sapporo",
+        key_concerns=["seasonality"],
+    )
+    qu = QueryUnderstandingResult(rewritten_query=raw, travel_task=task, confidence=0.85)
+    candidates = PlaceResolver.resolve_sync(raw, ConversationContext())
+    frame = SemanticFrameBuilder.build(raw, qu, candidates)
+    assert frame.query_scope.value == "city"
+    assert frame.entities.city == "Sapporo"
+    assert frame.entities.country == "Japan"
+    assert frame.entities.places == []
+    assert frame.decision_type.value == "best_time_to_visit"
+
+
+def test_poi_identification_does_not_imply_opening_hours_fact():
+    raw = "札幌电视塔今天几点关门？"
+    candidates = PlaceResolver.resolve_sync(raw, ConversationContext())
+    poi = next((c for c in candidates if c.is_poi), None)
+    assert poi is not None
+    assert "塔" in poi.mention or "电视" in poi.mention
+    task = TravelTask(
+        task_type=TravelTaskType.PLACE_FACT_LOOKUP,
+        country=poi.country or "Japan",
+        city=poi.city or "Sapporo",
+        key_concerns=["opening_hours"],
+    )
+    qu = QueryUnderstandingResult(rewritten_query=raw, travel_task=task, confidence=0.8)
+    frame = SemanticFrameBuilder.build(raw, qu, candidates)
+    assert frame.requires_exact_fact is True
+    assert frame.can_answer_with_model_prior is False
+    assert "opening_hours" in frame.information_needs
+
+
+@pytest.mark.asyncio
+async def test_sapporo_best_month_end_to_end():
+    from app.orchestrator.state_machine import TravelAgentStateMachine
+
+    sm = TravelAgentStateMachine()
+    resp = await sm.run("札幌适合几月份去？")
+    assert resp.semantic_frame_summary["query_scope"] == "city"
+    assert resp.semantic_frame_summary["entities"]["city"] == "Sapporo"
+    assert resp.answer_mode == "model_prior_allowed"

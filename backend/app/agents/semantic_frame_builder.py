@@ -1,7 +1,7 @@
 import re
 
-from app.catalog.location_resolver import resolve_city_country_from_text
-from app.catalog.place_catalog import get_place_catalog
+from app.catalog.place_resolver import PlaceResolver
+from app.schemas.place_candidate import PlaceCandidate
 from app.schemas.query_understanding import QueryUnderstandingResult
 from app.schemas.semantic_frame import (
     DecisionType,
@@ -25,18 +25,16 @@ class SemanticFrameBuilder:
     """Derive SemanticFrame from query understanding output — primary routing input."""
 
     @classmethod
-    def build(cls, raw_query: str, qu: QueryUnderstandingResult) -> SemanticFrame:
+    def build(
+        cls,
+        raw_query: str,
+        qu: QueryUnderstandingResult,
+        place_candidates: list[PlaceCandidate] | None = None,
+    ) -> SemanticFrame:
         task = qu.travel_task
-        catalog = get_place_catalog()
         text = raw_query.strip()
-        places = [p.canonical_name for p in task.places] if task.places else catalog.find_places_in_text(text)
-
-        country = task.country
-        city = task.city
-        if not city or not country:
-            resolved = resolve_city_country_from_text(text)
-            if resolved:
-                country, city = resolved
+        candidates = place_candidates if place_candidates is not None else PlaceResolver.resolve_sync(text)
+        country, city, places = cls._entities_from_candidates(candidates, task)
 
         entities = SemanticEntities(country=country, city=city, places=places)
         decision_type = cls._infer_decision_type(text, places, qu)
@@ -99,12 +97,34 @@ class SemanticFrameBuilder:
         )
 
     @classmethod
-    def attach(cls, raw_query: str, qu: QueryUnderstandingResult) -> SemanticFrame:
+    def ensure_result(
+        cls,
+        raw_query: str,
+        qu: QueryUnderstandingResult,
+        place_candidates: list[PlaceCandidate] | None = None,
+    ) -> QueryUnderstandingResult:
+        """Return a new QueryUnderstandingResult with semantic_frame set in the constructor."""
         if qu.semantic_frame is not None:
-            return qu.semantic_frame
-        frame = cls.build(raw_query, qu)
-        qu.semantic_frame = frame
-        return frame
+            return qu
+        frame = cls.build(raw_query, qu, place_candidates)
+        return QueryUnderstandingResult(
+            rewritten_query=qu.rewritten_query,
+            semantic_frame=frame,
+            travel_task=qu.travel_task,
+            resolved_references=qu.resolved_references,
+            missing_critical_info=qu.missing_critical_info,
+            needs_clarification=qu.needs_clarification,
+            clarification_question=qu.clarification_question,
+            assumptions=qu.assumptions,
+            confidence=qu.confidence,
+            key_concerns=qu.key_concerns,
+        )
+
+    @classmethod
+    def attach(cls, raw_query: str, qu: QueryUnderstandingResult) -> SemanticFrame:
+        """Deprecated: use ensure_result(). Kept for callers that only need the frame."""
+        ensured = cls.ensure_result(raw_query, qu)
+        return ensured.semantic_frame  # type: ignore[return-value]
 
     @classmethod
     def _infer_decision_type(cls, text: str, places: list[str], qu: QueryUnderstandingResult) -> DecisionType:
@@ -232,3 +252,33 @@ class SemanticFrameBuilder:
         if decision_type == DecisionType.BEST_TIME_TO_VISIT:
             return TaskFamily.ADVISORY
         return mapping.get(task_type, TaskFamily.UNKNOWN)
+
+    @classmethod
+    def _entities_from_candidates(
+        cls,
+        candidates: list[PlaceCandidate],
+        task,
+    ) -> tuple[str | None, str | None, list[str]]:
+        pois = [
+            c.canonical_name or c.mention
+            for c in candidates
+            if c.is_poi and (c.canonical_name or c.mention)
+        ]
+        city = next(
+            (c.city or c.canonical_name for c in candidates if c.is_city and (c.city or c.canonical_name)),
+            None,
+        )
+        country = next((c.country for c in candidates if c.country), None)
+        if task.places and not pois:
+            pois = [p.canonical_name for p in task.places]
+        if task.city and not city:
+            city = task.city
+        if task.country and not country:
+            country = task.country
+        if (not city or not country) and candidates:
+            for c in candidates:
+                if not country and c.country:
+                    country = c.country
+                if not city and c.city:
+                    city = c.city
+        return country, city, pois

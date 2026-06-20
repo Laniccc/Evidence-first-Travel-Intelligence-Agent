@@ -47,6 +47,15 @@ class ToolRouter:
     def __init__(self, registry: CapabilityRegistry | None = None) -> None:
         self.registry = registry or CapabilityRegistry()
 
+    def available_capabilities(self) -> set[str]:
+        """Logical execution tool names available for AnswerModeRouter."""
+        caps: set[str] = set()
+        for name in self.registry.all_tool_names():
+            caps.add(self.registry.execution_tool_name(name))
+            if not name.startswith(("real_", "mock_")) and not name.endswith("_mcp"):
+                caps.add(name)
+        return caps
+
     def _tools_have_live_crowd(self, tool_names: list[str]) -> bool:
         for tool_name in tool_names:
             for live_cap in self.LIVE_CROWD_CAPABILITIES:

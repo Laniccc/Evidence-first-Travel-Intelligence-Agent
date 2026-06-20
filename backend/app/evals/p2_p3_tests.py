@@ -16,6 +16,8 @@ from app.schemas.place_factsheet import PlaceFactSheet
 from app.schemas.review import ReviewAspectResult, ReviewInputItem
 from app.schemas.user_query import IntentType, TravelAgentState, UserGoal
 from app.tools import ToolRegistry
+from app.tools.hybrid_tool import HybridTravelTool
+from app.agents.semantic_frame_builder import SemanticFrameBuilder
 from app.tools.mock.data import build_official_evidence, build_weather_evidence
 
 
@@ -217,10 +219,97 @@ async def test_all_tools_return_evidence_list():
             assert isinstance(ev, Evidence)
 
 
+def test_tool_registry_registers_all_tools():
+    tools = ToolRegistry(use_mock=True)
+    for name in tools.registered_tool_names():
+        assert getattr(tools, name, None) is not None
+
+
 def test_tool_registry_selects_mock_tools():
     tools = ToolRegistry(use_mock=True)
     assert tools.official.__class__.__name__.startswith("Mock")
     assert tools.weather.__class__.__name__.startswith("Mock")
+
+
+def test_tool_registry_hybrid_mode_wraps_real_tools():
+    tools = ToolRegistry(tool_mode="hybrid")
+    assert tools.tool_mode == "hybrid"
+    assert isinstance(tools.official, HybridTravelTool)
+    assert tools.official.allow_mock_fallback is True
+    assert tools.knowledge_prior is not None
+
+
+def test_tool_registry_real_mode_disallows_mock_fallback():
+    tools = ToolRegistry(tool_mode="real")
+    assert tools.tool_mode == "real"
+    assert isinstance(tools.weather, HybridTravelTool)
+    assert tools.weather.allow_mock_fallback is False
+
+
+@pytest.mark.asyncio
+async def test_real_mode_weather_does_not_fallback_to_mock(monkeypatch):
+    from app.tools.real.weather_tool import RealWeatherTool
+
+    monkeypatch.setenv("ENABLE_REAL_WEATHER", "true")
+    monkeypatch.setenv("WEATHER_API_KEY", "test-key")
+    tools = ToolRegistry(tool_mode="real")
+
+    async def fail_run(**kwargs):
+        raise RuntimeError("real weather unavailable")
+
+    monkeypatch.setattr(RealWeatherTool, "run", fail_run)
+
+    result = await tools.run_tool("weather", city="Kyoto", country="Japan")
+    assert result == []
+    assert tools.traces[-1].status == "error"
+    assert tools.traces[-1].fallback_used is False
+    assert "unavailable" in (tools.traces[-1].error or "") or "no evidence" in (tools.traces[-1].error or "")
+
+
+@pytest.mark.asyncio
+async def test_hybrid_mode_weather_falls_back_to_mock(monkeypatch):
+    from app.tools.real.weather_tool import RealWeatherTool
+
+    monkeypatch.setenv("ENABLE_REAL_WEATHER", "true")
+    monkeypatch.setenv("WEATHER_API_KEY", "test-key")
+    tools = ToolRegistry(tool_mode="hybrid")
+
+    async def fail_run(**kwargs):
+        raise RuntimeError("real weather failed")
+
+    monkeypatch.setattr(RealWeatherTool, "run", fail_run)
+
+    result = await tools.run_tool("weather", city="Kyoto", country="Japan")
+    assert len(result) >= 1
+    assert tools.traces[-1].fallback_used is True
+
+
+def test_tool_registry_accepts_llm_client_and_registers_knowledge_prior():
+    tools = ToolRegistry(llm_client=object(), use_mock=True)
+    assert tools.llm is not None
+    assert tools.knowledge_prior is not None
+    assert tools.tool_mode == "mock"
+
+
+@pytest.mark.asyncio
+async def test_tool_registry_run_tool_knowledge_prior():
+    tools = ToolRegistry(use_mock=True)
+    frame = SemanticFrameBuilder.build_city_best_time(
+        raw_query="札幌适合几月份去？",
+        city="Sapporo",
+        country="Japan",
+        rewritten_query="札幌适合几月份去？",
+        confidence=0.85,
+    )
+    result = await tools.run_tool(
+        "knowledge_prior",
+        raw_query="札幌适合几月份去？",
+        semantic_frame=frame,
+    )
+    assert isinstance(result, list)
+    assert len(result) == 1
+    assert tools.traces[-1].tool_name == "knowledge_prior"
+    assert tools.traces[-1].status == "ok"
 
 
 @pytest.mark.asyncio

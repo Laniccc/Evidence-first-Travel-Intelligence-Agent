@@ -1,7 +1,7 @@
 from datetime import date
 
 from app.agents.semantic_frame_builder import SemanticFrameBuilder
-from app.catalog.location_resolver import resolve_city_country_from_text
+from app.catalog.place_resolver import PlaceResolver
 from app.catalog.place_catalog import get_place_catalog
 from app.schemas.conversation_context import ConversationContext
 from app.schemas.place_context import PlaceContext
@@ -56,7 +56,10 @@ class RuleBasedUnderstanding:
                 if concern_key not in concerns:
                     concerns.append(concern_key)
 
-        place_from_query = catalog.find_places_in_text(text)
+        candidates = PlaceResolver.resolve_sync(text, context)
+        place_from_query = [
+            c.canonical_name or c.mention for c in candidates if c.is_poi and (c.canonical_name or c.mention)
+        ]
         is_compare = any(m in text for m in COMPARE_MARKERS) or len(place_from_query) >= 2
         has_deictic = any(m in text for m in DEICTIC_MARKERS) or any(m in text.lower() for m in ["here", "this place", "that place"])
         is_time_followup = any(m in text for m in TIME_FOLLOWUP_MARKERS) and not place_from_query
@@ -99,7 +102,20 @@ class RuleBasedUnderstanding:
                 assumptions.append("继承上一轮景点上下文，更新出行时间假设。")
                 rewritten = f"{resolved_place} 在指定日期的出行评估"
         elif place_from_query:
-            places = [cls._place_context_from_name(p, catalog) for p in place_from_query]
+            places = []
+            for c in candidates:
+                if c.is_poi:
+                    places.append(
+                        PlaceContext(
+                            original_name=c.mention,
+                            canonical_name=c.canonical_name or c.mention,
+                            country=c.country,
+                            city=c.city,
+                            source="query_understanding",
+                        )
+                    )
+            if not places:
+                places = [cls._place_context_from_name(p, catalog) for p in place_from_query]
             resolved_place = places[0].canonical_name
             resolved["place"] = resolved_place
 
@@ -161,9 +177,10 @@ class RuleBasedUnderstanding:
             country = places[0].country or country
             city = places[0].city or city
         elif not country or not city:
-            loc = resolve_city_country_from_text(text)
-            if loc:
-                country, city = loc
+            city_hit = next((c for c in candidates if c.is_city), None)
+            if city_hit:
+                country = city_hit.country or country
+                city = city_hit.city or city_hit.canonical_name or city
 
         is_best_time_city = (
             not places
@@ -214,21 +231,22 @@ class RuleBasedUnderstanding:
 
         qu = QueryUnderstandingResult(
             rewritten_query=rewritten,
+            travel_task=task,
             resolved_references=resolved,
             missing_critical_info=missing,
             needs_clarification=False,
             assumptions=assumptions,
-            travel_task=task,
             confidence=confidence,
             key_concerns=task.key_concerns,
+            semantic_frame=(
+                SemanticFrameBuilder.build_city_best_time(text, country, city, rewritten, confidence)
+                if is_best_time_city and country and city
+                else None
+            ),
         )
-        if is_best_time_city and country and city:
-            qu.semantic_frame = SemanticFrameBuilder.build_city_best_time(
-                text, country, city, rewritten, confidence
-            )
-        else:
-            qu.semantic_frame = SemanticFrameBuilder.build(text, qu)
-        return qu
+        if qu.semantic_frame is not None:
+            return qu
+        return SemanticFrameBuilder.ensure_result(text, qu, candidates)
 
     @staticmethod
     def _place_context_from_name(name: str, catalog) -> PlaceContext:
@@ -313,15 +331,16 @@ class RuleBasedUnderstanding:
         missing: list[str],
     ) -> QueryUnderstandingResult:
         task = TravelTask(rewritten_query=raw, key_concerns=concerns, confidence=0.3)
-        return QueryUnderstandingResult(
+        qu = QueryUnderstandingResult(
             rewritten_query=raw,
+            travel_task=task,
             missing_critical_info=missing,
             needs_clarification=True,
             clarification_question=question,
-            travel_task=task,
             confidence=0.3,
             key_concerns=concerns,
         )
+        return SemanticFrameBuilder.ensure_result(raw, qu)
 
     @staticmethod
     def needs_llm(text: str, result: QueryUnderstandingResult) -> bool:

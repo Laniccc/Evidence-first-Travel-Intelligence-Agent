@@ -103,6 +103,39 @@ def test_query_understanding_no_fact_generation():
 
 
 @pytest.mark.asyncio
+async def test_query_understanding_prompt_state_writes_semantic_frame():
+    from app.orchestrator.states.query_understanding_state import QueryUnderstandingPromptState
+    from app.schemas.user_query import UserContext
+
+    qu_state = QueryUnderstandingPromptState(LLMClient())
+    agent_state = TravelAgentState(
+        session_id="test",
+        query_id="q1",
+        raw_user_query="札幌适合几月份去？",
+    )
+    out = await qu_state.run(agent_state, UserContext())
+    assert out.semantic_frame is not None
+    assert out.semantic_frame.query_scope.value == "city"
+    assert out.semantic_frame.decision_type.value == "best_time_to_visit"
+    trace = " ".join(out.visible_trace)
+    assert "SemanticFrame" in trace
+    assert "city/best_time_to_visit" in trace or "city" in trace
+
+
+@pytest.mark.asyncio
+async def test_answer_mode_routing_state_runs_after_semantic_frame():
+    from app.schemas.user_query import UserContext
+
+    sm = TravelAgentStateMachine()
+    state = TravelAgentState(session_id="s", query_id="q", raw_user_query="札幌适合几月份去？")
+    state = await sm.query_understanding_state.run(state, UserContext())
+    assert state.semantic_frame is not None
+    state = sm._run_answer_mode_routing(state)
+    assert state.answer_mode_decision is not None
+    assert state.answer_mode_decision.answer_mode.value == "model_prior_allowed"
+
+
+@pytest.mark.asyncio
 async def test_state_machine_stops_on_clarification():
     sm = TravelAgentStateMachine()
     resp = await sm.run("这里人流量怎么样？")
@@ -153,16 +186,16 @@ def test_region_gate_prefers_travel_task_country():
     assert result.city == "Kyoto"
 
 
-def test_query_understanding_agent_does_not_import_mock_data():
+def test_query_understanding_agent_uses_entity_hints_not_registry():
+    import inspect
+
     source = inspect.getsource(QueryUnderstandingAgent)
+    assert "list_known_places" not in source
     assert "mock_data" not in source
     assert "PLACE_REGISTRY" not in source
-    assert "app.tools.mock" not in source
-    assert "_backend" not in source
+    assert "resolve_places_for_query" in source
     agent = QueryUnderstandingAgent(LLMClient())
-    hints = agent.catalog.list_known_places(limit=5)
-    assert len(hints) >= 1
-    assert all(isinstance(name, str) for name in hints)
+    assert not hasattr(agent, "catalog")
 
 
 def test_crowd_router_marks_estimated_without_live_tool():
