@@ -108,6 +108,12 @@ class CapabilityRegistry:
     def get(self, tool_name: str) -> ToolCapability | None:
         return self._tools.get(tool_name)
 
+    def tool_has_capability(self, tool_name: str, capability: str) -> bool:
+        cap = self._tools.get(tool_name)
+        if not cap:
+            return False
+        return capability in cap.capabilities
+
     def tools_for_capability(self, capability: str, country: str | None = None) -> list[tuple[str, float]]:
         matches: list[tuple[str, float]] = []
         for name, cap in self._tools.items():
