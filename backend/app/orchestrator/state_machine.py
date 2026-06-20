@@ -6,7 +6,7 @@ from app.agents.intent_agent import IntentAgent, RegionGateAgent
 from app.agents.place_research_agent import PlaceResearchAgent
 from app.agents.review_mining_agent import ReviewAspectMiningAgent, VerifierAgent
 from app.agents.suitability_scorer import TravelSuitabilityScorer
-from app.agents.travel_task_extractor import TravelTaskExtractor
+from app.agents.travel_task_to_user_goal_adapter import SUPPORTED_REGIONS, TravelTaskToUserGoalAdapter
 from app.catalog.place_catalog import get_place_catalog
 from app.llm_client import LLMClient
 from app.orchestrator.citation_check import CitationChecker
@@ -50,71 +50,29 @@ class TravelAgentStateMachine:
 
         state = await self.query_understanding_state.run(state, ctx, user_context)
         if state.next_state == "clarification_response":
-            return self._to_response(state, 0.35)
+            confidence = state.query_understanding.confidence if state.query_understanding else 0.3
+            return self._to_response(state, confidence)
 
         gate_query = state.rewritten_query_result.rewritten_query if state.rewritten_query_result else query
-        state.region_gate = RegionGateAgent.run(query)
-        if not state.region_gate.supported:
-            state.region_gate = RegionGateAgent.run(gate_query)
-        if not state.region_gate.supported:
-            for key in ("here", "place"):
-                pname = state.rewritten_query_result.resolved_references.get(key)
-                if pname:
-                    loc = self.catalog.get_place_location(pname)
-                    if loc:
-                        state.region_gate = RegionGateResult(
-                            supported=True,
-                            country=loc.country,
-                            city=loc.city,
-                            reason=f"Resolved from place catalog: {pname}",
-                        )
-                        break
-        if not state.region_gate.supported:
-            for place in self.catalog.find_places_in_text(gate_query) or self.catalog.find_places_in_text(query):
-                loc = self.catalog.get_place_location(place)
-                if loc:
-                    state.region_gate = RegionGateResult(
-                        supported=True,
-                        country=loc.country,
-                        city=loc.city,
-                        reason=f"Resolved from place catalog: {place}",
-                    )
-                    break
-        if not state.region_gate.supported and memory.last_country:
-            state.region_gate = RegionGateResult(
-                supported=True,
-                country=memory.last_country,
-                city=memory.last_city,
-                reason="Resolved from conversation memory",
-            )
+        state.region_gate = self._resolve_region_gate(state, query, gate_query, memory)
         TraceRecorder.add(state, f"✓ 识别目的地区域：{state.region_gate.country or '未知'}")
         if not state.region_gate.supported:
             return self._unsupported(state)
 
-        rewrite_text = gate_query
-        state.user_goal = await IntentAgent.run(rewrite_text, self.llm, ctx)
-        TraceRecorder.add(state, f"✓ 识别意图：{state.user_goal.intent_type.value}")
+        qu_confidence = state.query_understanding.confidence if state.query_understanding else 0.0
+        if TravelTaskToUserGoalAdapter.has_usable_task(state.travel_task, qu_confidence):
+            state.user_goal = TravelTaskToUserGoalAdapter.to_user_goal(state.travel_task, ctx)
+            TraceRecorder.add(state, f"✓ 已从 TravelTask 生成 UserGoal：{state.user_goal.intent_type.value}")
+        else:
+            state.user_goal = await IntentAgent.run(gate_query, self.llm, ctx)
+            TraceRecorder.add(state, f"✓ IntentAgent fallback：{state.user_goal.intent_type.value}")
 
         self._complete_context(state, ctx)
         TraceRecorder.add(state, f"✓ 识别用户画像：{', '.join(p.value for p in state.user_goal.party) or '一般游客'}")
 
-        if state.travel_task:
-            TravelTaskExtractor.sync_user_goal_intent(state.travel_task, state.user_goal)
-            if state.travel_task.places and not state.user_goal.place_candidates:
-                state.user_goal.place_candidates = [p.canonical_name for p in state.travel_task.places]
-            if state.travel_task.travel_date:
-                state.user_goal.travel_date = state.travel_task.travel_date
-            if state.travel_task.user_profile and state.travel_task.user_profile.party:
-                from app.schemas.user_query import PartyType
-
-                for p in state.travel_task.user_profile.party:
-                    try:
-                        pt = PartyType(p)
-                        if pt not in state.user_goal.party:
-                            state.user_goal.party.append(pt)
-                    except ValueError:
-                        pass
-            self._backfill_location_from_places(state)
+        if not state.travel_task:
+            state.limitations.append("TravelTask 缺失，后续路由可能受限。")
+            return self._to_response(state, 0.25)
 
         state.information_needs = InformationNeedPlanner.plan(state.travel_task)
         need_summary = ", ".join(f"{n.need_type.value}({n.priority.value})" for n in state.information_needs[:6])
@@ -145,6 +103,59 @@ class TravelAgentStateMachine:
             return await self._run_crowd_inquiry(state, tool_names)
         return await self._run_single(state, tool_names)
 
+    def _resolve_region_gate(
+        self,
+        state: TravelAgentState,
+        raw_query: str,
+        gate_query: str,
+        memory: ConversationMemory,
+    ) -> RegionGateResult:
+        task = state.travel_task
+        if task and task.country in SUPPORTED_REGIONS:
+            return RegionGateResult(
+                supported=True,
+                country=task.country,
+                city=task.city,
+                reason="Resolved from TravelTask country/city",
+            )
+
+        region = RegionGateAgent.run(raw_query)
+        if not region.supported:
+            region = RegionGateAgent.run(gate_query)
+
+        if not region.supported and state.rewritten_query_result:
+            for key in ("here", "这里", "place", "这个地方"):
+                pname = state.rewritten_query_result.resolved_references.get(key)
+                if pname:
+                    loc = self.catalog.get_place_location(pname)
+                    if loc:
+                        return RegionGateResult(
+                            supported=True,
+                            country=loc.country,
+                            city=loc.city,
+                            reason=f"Resolved from place catalog: {pname}",
+                        )
+
+        if not region.supported:
+            for place in self.catalog.find_places_in_text(gate_query) or self.catalog.find_places_in_text(raw_query):
+                loc = self.catalog.get_place_location(place)
+                if loc:
+                    return RegionGateResult(
+                        supported=True,
+                        country=loc.country,
+                        city=loc.city,
+                        reason=f"Resolved from place catalog: {place}",
+                    )
+
+        if not region.supported and memory.last_country:
+            return RegionGateResult(
+                supported=True,
+                country=memory.last_country,
+                city=memory.last_city,
+                reason="Resolved from conversation memory",
+            )
+        return region
+
     def _build_place_contexts(self, goal: UserGoal) -> list[PlaceContext]:
         return [self.catalog.resolve_place_context(place) for place in goal.place_candidates]
 
@@ -173,33 +184,35 @@ class TravelAgentStateMachine:
         goal = state.user_goal
         if not goal:
             return
-        if ctx.travel_date:
+        if ctx.travel_date and not goal.travel_date:
             goal.travel_date = ctx.travel_date
         if ctx.party:
-            goal.party = ctx.party
-        if ctx.start_location:
+            for p in ctx.party:
+                if p not in goal.party:
+                    goal.party.append(p)
+        if ctx.start_location and not goal.start_location:
             goal.start_location = ctx.start_location
         if state.query_understanding:
             goal.constraints = list(dict.fromkeys(goal.constraints + state.query_understanding.assumptions))
-        elif state.rewritten_query_result:
-            goal.constraints = list(dict.fromkeys(goal.constraints + state.rewritten_query_result.assumptions))
         if not goal.place_candidates:
             maybe = self.catalog.normalize_place_name(state.raw_user_query)
             if maybe:
                 goal.place_candidates = [maybe]
-            elif state.rewritten_query_result and state.rewritten_query_result.resolved_references.get("here"):
-                goal.place_candidates = [state.rewritten_query_result.resolved_references["here"]]
+            elif state.rewritten_query_result:
+                for key in ("here", "这里", "place"):
+                    ref = state.rewritten_query_result.resolved_references.get(key)
+                    if ref:
+                        goal.place_candidates = [ref]
+                        break
         self._backfill_location_from_places(state)
         if not goal.destination_city and state.region_gate and state.region_gate.city:
             goal.destination_city = state.region_gate.city
         if not goal.destination_country and state.region_gate and state.region_gate.country:
             goal.destination_country = state.region_gate.country
 
-        assumptions = []
+        assumptions: list[str] = []
         if state.query_understanding:
             assumptions.extend(state.query_understanding.assumptions)
-        elif state.rewritten_query_result:
-            assumptions.extend(state.rewritten_query_result.assumptions)
         if not goal.travel_date:
             assumptions.append("未提供出行日期，天气评估使用默认近日假设。")
         if not goal.party:
@@ -269,7 +282,7 @@ class TravelAgentStateMachine:
 
         canonical = self.catalog.normalize_place_name(place) or place
         self._backfill_location_from_places(state)
-        if not self.catalog.is_registered(canonical):
+        if not self.catalog.has_place(canonical):
             state.limitations.append(f"{place} 暂无结构化 mock 数据，部分结论可能不完整。")
 
         place_ctx = self._place_context_for(state, place, 0)

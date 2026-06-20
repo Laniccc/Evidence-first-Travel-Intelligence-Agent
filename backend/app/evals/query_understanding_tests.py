@@ -1,4 +1,5 @@
 import re
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -103,6 +104,8 @@ async def test_state_machine_stops_on_clarification():
     assert len(resp.tool_traces) == 0
     assert len(resp.evidence_summary) == 0
     assert "景点" in resp.answer or "区域" in resp.answer
+    trace = " ".join(resp.visible_trace)
+    assert "转写" in trace or "会话上下文" in trace
 
 
 @pytest.mark.asyncio
@@ -113,3 +116,27 @@ async def test_visible_trace_contains_query_understanding():
     assert "会话上下文" in trace or "构建" in trace
     assert "转写" in trace
     assert "TravelTask" in trace
+
+
+@pytest.mark.asyncio
+async def test_state_machine_uses_travel_task_not_intent_agent():
+    sm = TravelAgentStateMachine()
+    with patch("app.agents.intent_agent.IntentAgent.run", new_callable=AsyncMock) as intent_mock:
+        intent_mock.side_effect = RuntimeError("IntentAgent should not be called")
+        resp = await sm.run("京都清水寺适合带父母去吗？", {"party": ["elderly"]})
+    assert resp.answer
+    assert "TravelTask" in " ".join(resp.visible_trace)
+    intent_mock.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_clarification_does_not_call_tools():
+    sm = TravelAgentStateMachine()
+
+    async def boom(*args, **kwargs):
+        raise RuntimeError("tools must not run on clarification")
+
+    with patch.object(sm.tools, "run_tool", side_effect=boom):
+        resp = await sm.run("这里人流量怎么样？")
+    assert len(resp.tool_traces) == 0
+    assert len(resp.evidence_summary) == 0

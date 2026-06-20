@@ -47,6 +47,9 @@ class PlaceCatalogService:
     def is_registered(self, place_name: str) -> bool:
         return self._backend.is_registered(place_name)
 
+    def has_place(self, place_name: str) -> bool:
+        return self.is_registered(place_name)
+
     def registered_places_for_city(self, country: str, city: str) -> list[str]:
         return self._backend.registered_places_for_city(country, city)
 

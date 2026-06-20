@@ -8,21 +8,23 @@
 
 **运维手册**：[RUNBOOK.md](RUNBOOK.md)
 
-## Agent 回答链路（P5：受控 Query Understanding State）
+## Agent 回答链路（主流程）
 
 ```text
 User Query
-  → BuildConversationContext（ConversationContextBuilder）
-  → QueryUnderstandingPromptState（固定进入，不可跳过）
-  → QueryUnderstandingSubAgent（RuleBased + optional LLM structured）
-  → TravelTask Validation / ClarificationGate
-  → RegionGate + IntentAgent（fallback 兼容）
-  → InformationNeedPlanner → ToolRouter
-  → Tool Execution → Evidence
+  → ConversationContextBuilder
+  → QueryUnderstandingPromptState（固定进入）
+  → TravelTask
+  → ClarificationGate（如需澄清则直接返回）
+  → TravelTaskToUserGoalAdapter
+  → RegionGate（优先 TravelTask.country/city）
+  → QueryPlan / ToolRouter
+  → Tools → Evidence
   → EvidenceAggregator → ReviewMining → Scorer → Composer → CitationChecker
 ```
 
-**QueryUnderstandingPromptState 不是最终回答器**——它只做需求转写与 `TravelTask` 生成，不生成开放时间/票价/天气/人流等事实。
+**QueryUnderstandingPromptState 不是最终回答器**——它只做需求转写与 `TravelTask` 生成，不生成开放时间/票价/天气/人流等事实。  
+`IntentAgent` 仅在 QueryUnderstanding 置信度低且无可用 TravelTask 时作为 fallback。
 
 ### 用户需求理解层
 
@@ -33,6 +35,7 @@ User Query
 | `QueryUnderstandingAgent` | 受控子代理：改写 + 指代 + TravelTask |
 | `RuleBasedUnderstanding` | 离线规则解析（置信度 ≥0.75 时优先） |
 | `QueryUnderstandingPromptState` | 状态机固定 state，写入 `visible_trace` |
+| `TravelTaskToUserGoalAdapter` | TravelTask → UserGoal（主路径） |
 | `ClarificationGate` | `needs_clarification=true` 时暂停工具调用 |
 
 **表达处理示例：**
