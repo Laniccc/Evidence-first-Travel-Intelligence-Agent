@@ -8,3 +8,5 @@ class ToolTrace(BaseModel):
     latency_ms: float = 0.0
     status: str = "ok"
     error: str | None = None
+    fallback_used: bool = False
+    cache_hit: bool = False

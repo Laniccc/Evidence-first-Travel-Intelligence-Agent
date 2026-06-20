@@ -2,9 +2,9 @@
 
 面向日本、中国、韩国的 **Evidence-first Travel Intelligence Agent**。
 
-> **当前版本：Mock MVP** — 不是真实旅游查询系统。  
-> 开放时间、票价、交通、天气、评价等均来自 **mock tools**（`backend/app/tools/mock/`），经证据链路聚合后生成回答；**不来自 LLM 训练记忆**。  
-> 接入真实 API 前请勿将输出当作真实票务/开放信息。
+> **当前版本：Mock MVP + Real Data Pilot（小范围真实数据）** — 默认 `TOOL_MODE=hybrid`：优先真实 Weather / Places / 官方白名单页面，失败或无 API key 时回退 mock。  
+> 开放时间、票价、交通、评价等仍以 **mock tools** 为主；天气与地点在配置密钥后可走真实 API。  
+> **不来自 LLM 训练记忆**；未配置真实 API 时行为与 Mock MVP 一致。
 
 **运维手册**：[RUNBOOK.md](RUNBOOK.md)
 
@@ -160,9 +160,11 @@ backend/app/
   prompts/
     query_understanding.system.md
     query_understanding.user.md
-    capability_registry.py
-    tool_router.py          # need → tool routing
-    fallback_tool.py
+  tools/
+    real/                     # RealWeatherTool, RealPlacesTool, RealOfficialPageTool
+    adapters/                 # MCPToolAdapter 占位
+    hybrid_tool.py            # real → mock fallback + cache
+    storage/tool_cache.py     # TTL 缓存
   schemas/
     place_factsheet.py      # FactValue + to_field_evidence_summary()
     place_context.py
@@ -182,34 +184,98 @@ backend/app/
 
 Catalog 层通过 `MockPlaceCatalogBackend` 自动读取上述注册表，**无需**修改 Composer/Scorer。
 
-## 如何替换真实 API
+## Real Data Pilot（真实数据试点）
+
+首期接入 **Weather / Places / 官方白名单页面** 三类真实工具，以及 **MCP adapter 占位**。所有真实 API 响应必须先归一化为 `Evidence[]`，Composer / Scorer / CitationChecker **不得**直接读取原始 response。
+
+### 工具模式 `TOOL_MODE`
+
+| 值 | 行为 |
+|----|------|
+| `mock` | 仅 mock 工具（评测默认、与 Mock MVP 完全一致） |
+| `real` | 优先真实工具；失败时仍回退 mock |
+| `hybrid`（默认） | 先调 real tool；超时、失败、缺 API key 时 fallback mock，并在 `Evidence.limitations` 与 `tool_trace` 中标记 `fallback_used=true` |
+
+```env
+TOOL_MODE=hybrid
+ENABLE_REAL_WEATHER=false
+ENABLE_REAL_PLACES=false
+ENABLE_REAL_OFFICIAL_PAGE=false
+MCP_ENABLED=false
+REAL_TOOL_TIMEOUT_SECONDS=8
+REAL_TOOL_CACHE_TTL_SECONDS=3600
+```
+
+### 配置 Weather API
+
+1. 在 [OpenWeatherMap](https://openweathermap.org/api) 申请 API key  
+2. `.env` 中设置：
+
+```env
+ENABLE_REAL_WEATHER=true
+WEATHER_API_KEY=your_openweather_key
+```
+
+### 配置 Places API
+
+试点使用 OpenStreetMap Nominatim（需 `PLACES_API_KEY` 作为启用开关，不向第三方发送该 key）：
+
+```env
+ENABLE_REAL_PLACES=true
+PLACES_API_KEY=pilot
+```
+
+### 配置官方页面白名单
+
+在 `backend/app/config.py` 的 `official_page_whitelist` 或环境变量中维护景点 → 官方 URL 映射（仅政府/官方旅游站，不做全网爬虫）。示例：`Kiyomizu-dera`、`Fushimi Inari`、`Senso-ji`。
+
+```env
+ENABLE_REAL_OFFICIAL_PAGE=true
+```
+
+### 启用 MCP adapter
+
+```env
+MCP_ENABLED=true
+```
+
+占位 adapter：`weather_mcp`、`places_mcp`、`official_reader_mcp`（`app/tools/adapters/mcp_tool_adapter.py`）。MCP 返回须经 `Evidence` schema 校验后方可进入主链路。
+
+### 运行测试
+
+```bash
+cd backend
+# Mock 评测（必须全部通过）
+python -m compileall app
+pytest app/evals -q
+
+# 真实 API 集成测试（无 key 自动 skip）
+pytest app/evals/integration -m real_api -q
+```
+
+### Golden Queries（试点）
+
+`backend/app/evals/real_data_pilot_queries.json` — 5 条京都/东京试点 query；mock 模式可跑；hybrid + API key 后 weather/places 可走真实数据。
+
+### 数据合规提醒
+
+- **当前仍不建议**直接接入大规模评论抓取。  
+- 评论平台、OTA 数据需单独处理 **ToS 与授权**；勿存储未经授权的评论全文。  
+- 不绕过登录、验证码、反爬；不大规模爬取网页。
+
+## 如何替换真实 API（扩展）
 
 ### 1. 实现 `BaseTravelTool`（返回 `list[Evidence]`）
 
-```python
-# backend/app/tools/real/weather_tool.py
-class LiveWeatherTool(BaseTravelTool):
-    name = "weather"
-    async def run(self, city: str, country: str, **kwargs) -> list[Evidence]:
-        ...
-```
+真实实现位于 `backend/app/tools/real/`：`RealWeatherTool`、`RealPlacesTool`、`RealOfficialPageTool`。
 
-### 2. 在 `TravelToolRegistry` 中注册
+### 2. `TravelToolRegistry` 按 `TOOL_MODE` 注册
 
-```python
-# backend/app/tools/registry.py
-from app.tools.real.weather_tool import LiveWeatherTool
-self.weather = LiveWeatherTool()  # 替换 MockWeatherTool
-```
-
-或通过 `use_mock=False` 分支加载 `app/tools/real/` 实现。
+`hybrid` 模式下 `weather` / `places` / `official` 为 `HybridTravelTool`（real → mock fallback）。
 
 ### 3. 配置密钥（`backend/.env`）
 
-```env
-WEATHER_API_KEY=...
-MAPS_API_KEY=...
-```
+见上文 Real Data Pilot 各小节。
 
 ### 4. 验收
 

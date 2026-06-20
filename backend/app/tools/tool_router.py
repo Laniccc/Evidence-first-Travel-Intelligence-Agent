@@ -34,6 +34,11 @@ class ToolExecutionPlan(BaseModel):
     unsupported_needs: list[str] = Field(default_factory=list)
     routing_explanation: list[str] = Field(default_factory=list)
     estimated_only_needs: list[str] = Field(default_factory=list)
+    primary_tool: dict[str, str] = Field(default_factory=dict)
+    fallback_tools: dict[str, list[str]] = Field(default_factory=dict)
+    selected_reason: dict[str, str] = Field(default_factory=dict)
+    requires_api_key: dict[str, bool] = Field(default_factory=dict)
+    estimated_only: dict[str, bool] = Field(default_factory=dict)
 
 
 class ToolRouter:
@@ -58,6 +63,12 @@ class ToolRouter:
         estimated: list[str] = []
 
         country = task.country
+        primary_tool: dict[str, str] = {}
+        fallback_tools: dict[str, list[str]] = {}
+        selected_reason: dict[str, str] = {}
+        requires_api_key: dict[str, bool] = {}
+        estimated_only: dict[str, bool] = {}
+
         for need in needs:
             need_key = need.need_type.value
             caps = NEED_TO_CAPABILITY.get(need.need_type, [need.need_type.value])
@@ -67,22 +78,35 @@ class ToolRouter:
                 for tool_name, conf in self.registry.tools_for_capability(cap, country):
                     if tool_name == "fallback":
                         continue
-                    if tool_name not in tools_for_need:
-                        tools_for_need.append(tool_name)
-                        selected.add(tool_name)
+                    exec_name = self.registry.execution_tool_name(tool_name)
+                    if exec_name not in tools_for_need:
+                        tools_for_need.append(exec_name)
+                        selected.add(exec_name)
+                        if need_key not in primary_tool:
+                            primary_tool[need_key] = tool_name
+                            selected_reason[need_key] = f"highest confidence {conf:.2f} for {cap}"
+                            cap_meta = self.registry.get(tool_name)
+                            requires_api_key[need_key] = bool(cap_meta and cap_meta.requires_api_key)
+                            p, fallbacks = self.registry.pilot_chain_for_execution_tool(exec_name)
+                            if p:
+                                primary_tool[need_key] = p
+                            if fallbacks:
+                                fallback_tools[need_key] = fallbacks
 
             if need.need_type == InformationNeedType.CROWD_LEVEL:
                 has_live_crowd_tool = self._tools_have_live_crowd(tools_for_need)
                 if not has_live_crowd_tool:
                     for tool_name, _ in self.registry.tools_for_capability("crowd_level", country):
-                        if tool_name in {"reviews", "places"} and tool_name not in tools_for_need:
-                            tools_for_need.append(tool_name)
-                            selected.add(tool_name)
+                        exec_name = self.registry.execution_tool_name(tool_name)
+                        if exec_name in {"reviews", "places"} and exec_name not in tools_for_need:
+                            tools_for_need.append(exec_name)
+                            selected.add(exec_name)
                     if need.fallback_allowed:
                         tools_for_need.append("fallback")
                         selected.add("fallback")
                         fallback_used = True
                         estimated.append(need_key)
+                        estimated_only[need_key] = True
                         explanations.append(
                             "crowd_level 无实时人流工具，使用 reviews + places + fallback 估算"
                         )
@@ -126,4 +150,9 @@ class ToolRouter:
             unsupported_needs=unsupported,
             routing_explanation=explanations,
             estimated_only_needs=estimated,
+            primary_tool=primary_tool,
+            fallback_tools=fallback_tools,
+            selected_reason=selected_reason,
+            requires_api_key=requires_api_key,
+            estimated_only=estimated_only,
         )

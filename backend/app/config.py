@@ -19,6 +19,25 @@ class Settings(BaseSettings):
     deepseek_model: str = "deepseek-v4-pro"
     llm_mode: Literal["auto", "mock", "anthropic"] = "auto"
 
+    tool_mode: Literal["mock", "real", "hybrid"] = "hybrid"
+    enable_real_weather: bool = False
+    enable_real_places: bool = False
+    enable_real_official_page: bool = False
+    mcp_enabled: bool = False
+    real_tool_timeout_seconds: float = 8.0
+    real_tool_cache_ttl_seconds: int = 3600
+
+    weather_api_key: str | None = None
+    places_api_key: str | None = None
+
+    official_page_whitelist: dict[str, str] = {
+        "Kiyomizu-dera": "https://www.kyoto-travel.jp/en/shrine_temple/100.html",
+        "Fushimi Inari": "https://inari.jp/en/",
+        "Senso-ji": "https://www.senso-ji.jp/english/",
+        "Tokyo Skytree": "https://www.tokyo-skytree.jp/en/",
+        "Forbidden City": "https://www.dpm.org.cn/",
+    }
+
     evidence_confidence_threshold: float = 0.55
     low_confidence_threshold: float = 0.35
 
