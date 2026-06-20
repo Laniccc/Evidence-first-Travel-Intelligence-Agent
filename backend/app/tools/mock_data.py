@@ -271,6 +271,22 @@ def find_places_in_text(text: str) -> list[str]:
     return found
 
 
+def get_place_location(place_name: str) -> tuple[str, str] | None:
+    canonical = normalize_place_name(place_name) or place_name
+    meta = PLACE_REGISTRY.get(canonical)
+    if not meta:
+        return None
+    return meta["country"], meta["city"]
+
+
+def registered_places_for_city(country: str, city: str) -> list[str]:
+    return [name for name, meta in PLACE_REGISTRY.items() if meta["country"] == country and meta["city"] == city]
+
+
+def registered_places_for_country(country: str) -> list[str]:
+    return [name for name, meta in PLACE_REGISTRY.items() if meta["country"] == country]
+
+
 def build_official_evidence(place_name: str) -> Evidence | None:
     meta = PLACE_REGISTRY.get(place_name)
     if not meta:
@@ -290,6 +306,7 @@ def build_official_evidence(place_name: str) -> Evidence | None:
             Claim(claim_type=ClaimType.TICKET_PRICE, value=meta["ticket_price"], normalized_value=meta["ticket_price"], confidence=0.9),
             Claim(claim_type=ClaimType.RESERVATION, value=meta["reservation"], normalized_value=meta["reservation"], confidence=0.9),
             Claim(claim_type=ClaimType.ADDRESS, value=meta["address"], normalized_value=meta["address"], confidence=0.95),
+            Claim(claim_type=ClaimType.SAFETY, value=meta["walking_intensity"], normalized_value=meta["walking_intensity"], confidence=0.72),
         ],
     )
 
@@ -308,7 +325,7 @@ def build_map_evidence(place_name: str) -> Evidence | None:
         confidence=0.85,
         claims=[
             Claim(claim_type=ClaimType.ADDRESS, value=meta["address"], confidence=0.9),
-            Claim(claim_type=ClaimType.CROWD, value="High on weekends", confidence=0.75),
+            Claim(claim_type=ClaimType.CROWD, value=meta["crowd_risk"], normalized_value=meta["crowd_risk"], confidence=0.75),
             Claim(claim_type=ClaimType.ACCESSIBILITY, value=meta["accessibility"], normalized_value=meta["accessibility"], confidence=0.7),
         ],
     )
@@ -328,7 +345,7 @@ def build_transit_evidence(place_name: str) -> Evidence | None:
         confidence=0.8,
         claims=[
             Claim(claim_type=ClaimType.TRANSIT, value=meta["transit"], normalized_value=meta["transit"], confidence=0.82),
-            Claim(claim_type=ClaimType.TRANSIT, value={"transport_convenience": meta["transport_convenience"]}, normalized_value=meta["transport_convenience"], confidence=0.78),
+            Claim(claim_type=ClaimType.TRANSIT, value=meta["transport_convenience"], normalized_value=meta["transport_convenience"], confidence=0.78),
         ],
     )
 

@@ -1,8 +1,7 @@
 from app.schemas.evidence import ClaimType, Evidence, SourceType
-from app.schemas.review import PersonaImplication, ReviewAspect, ReviewAspectName, ReviewAspectResult, ReviewInput, ReviewInputItem
-from app.schemas.user_query import PartyType, UserGoal
+from app.schemas.review import PersonaImplication, ReviewAspect, ReviewAspectName, ReviewAspectResult, ReviewInputItem
+from app.schemas.user_query import UserGoal
 from app.tools import ToolRegistry
-from app.tools.mock_data import PLACE_REGISTRY
 
 
 ASPECT_KEYWORDS = {
@@ -29,30 +28,6 @@ class ReviewAspectMiningAgent:
         reviews = [ReviewInputItem(**r) for r in raw]
         profile = {"party": [p.value for p in goal.party], "pace": goal.pace.value, "preferences": goal.preferences}
         result = self._mine(place_name, reviews, profile)
-        meta = PLACE_REGISTRY.get(place_name, {})
-        for aspect_name in [
-            ReviewAspectName.WALKING_INTENSITY,
-            ReviewAspectName.ELDERLY_FRIENDLINESS,
-            ReviewAspectName.CROWD_LEVEL,
-            ReviewAspectName.TRANSPORT_CONVENIENCE,
-            ReviewAspectName.FIRST_TIMER_FIT,
-        ]:
-            key = aspect_name.value
-            if key in meta and not any(a.aspect == aspect_name for a in result.aspects):
-                score = meta[key] if key in meta else meta.get(key.replace("_friendliness", "_friendliness"))
-                if score is None and key == "walking_intensity":
-                    score = meta.get("walking_intensity")
-                sentiment = "negative" if score and score > 0.7 else "neutral" if score and score > 0.45 else "positive"
-                result.aspects.append(
-                    ReviewAspect(
-                        aspect=aspect_name,
-                        sentiment=sentiment,
-                        frequency=0.6,
-                        recent_trend="stable",
-                        evidence_examples=[f"Structured profile score: {score}"],
-                        confidence=0.72,
-                    )
-                )
         return result
 
     def _mine(self, place_name: str, reviews: list[ReviewInputItem], profile: dict) -> ReviewAspectResult:
@@ -131,21 +106,28 @@ class VerifierAgent:
                 if claim.claim_type == ClaimType.TICKET_PRICE:
                     prices.setdefault(str(claim.normalized_value or claim.value), []).append(ev.source_name)
         if len(hours) > 1:
+            winner = None
+            from app.orchestrator.policies import SourceSelectionPolicy
+
+            winner = SourceSelectionPolicy.resolve_conflict_winners(evidence, "opening_hours")
             conflicts.append(
                 {
                     "field": "opening_hours",
                     "description": "Multiple opening hour values detected across sources.",
                     "sources": [s for group in hours.values() for s in group],
-                    "resolution": "Prefer official source when available.",
+                    "resolution": f"Prefer official source when available ({winner or 'official priority'}).",
                 }
             )
         if len(prices) > 1:
+            from app.orchestrator.policies import SourceSelectionPolicy
+
+            winner = SourceSelectionPolicy.resolve_conflict_winners(evidence, "ticket_price")
             conflicts.append(
                 {
                     "field": "ticket_price",
                     "description": "Ticket price differs across sources.",
                     "sources": [s for group in prices.values() for s in group],
-                    "resolution": "Prefer official source when available.",
+                    "resolution": f"Prefer official source when available ({winner or 'official priority'}).",
                 }
             )
         return conflicts

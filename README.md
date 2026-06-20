@@ -1,102 +1,137 @@
 # Evidence-first Travel Intelligence Agent
 
-面向日本、中国、韩国的 **Evidence-first Travel Intelligence Agent** MVP。系统通过 mock/real 工具收集结构化 `Evidence`，再经状态机、评价挖掘、画像评分与 Composer 生成可追溯回答。
+面向日本、中国、韩国的 **Evidence-first Travel Intelligence Agent**。
 
-**完整运维说明见 [RUNBOOK.md](RUNBOOK.md)**（安装、配置、API、评测、GitHub 上传）。
+> **当前状态：Mock MVP**  
+> 景点开放时间、票价、交通、天气、评价等均来自 `backend/app/tools/mock_data.py` 的结构化 mock 工具，经 `Evidence` → `PlaceFactSheet` 聚合后，再由评分器与 Composer 生成回答。  
+> **不会**在缺少证据时编造关键事实；接入真实 API 前请勿将输出当作真实票务/开放信息。
 
-## 功能范围（MVP）
+**运维手册**：[RUNBOOK.md](RUNBOOK.md)
 
-- 单景点情报卡（官方信息 / 交通 / 天气 / 评价 / 画像评分）
-- 多景点比较（并行检索 + 比较表 + 排序）
-- 轻量一日/半日行程建议
+## 架构要点（P0/P1）
+
+```text
+用户查询
+  → Region Gate / Intent / Context（含景点城市回填）
+  → SourceSelectionPolicy（按意图选择工具）
+  → Tools → Evidence[]
+  → EvidenceAggregator → PlaceFactSheet（统一事实表）
+  → ReviewAspectMining → ReviewAspectResult
+  → TravelSuitabilityScorer（仅读 FactSheet + Review + UserGoal）
+  → ComposerAgent（仅读 FactSheet + Review + Recommendation）
+  → CitationChecker（无证据支撑则降置信度 + limitations）
+```
+
+`TravelSuitabilityScorer` 与 `ComposerAgent` **不直接读取** `PLACE_REGISTRY`。
+
+## 功能范围（Mock MVP）
+
+- 单景点情报卡
+- 多景点比较
+- 轻量一日/半日行程（仅使用已注册景点）
 - `visible_trace` / `evidence_summary` / `conflicts` / `limitations`
-- Golden queries 基础评测
+- Golden + P0/P1 评测
 
 ## 快速开始
-
-### 1. 安装依赖
 
 ```bash
 cd backend
 python -m venv .venv
-# Windows
-.venv\Scripts\activate
+.venv\Scripts\activate          # Windows
 pip install -r requirements.txt
 copy .env.example .env
-```
-
-### 2. 启动 API
-
-```bash
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-### 3. 调用示例
+### DeepSeek V4-Pro（与 ClaudeAgent_A 相同方式）
+
+```env
+LLM_MODE=anthropic
+DEEPSEEK_API_KEY=sk-...
+DEEPSEEK_MODEL=deepseek-v4-pro
+ANTHROPIC_BASE_URL=https://api.deepseek.com/anthropic
+```
+
+离线演示可设 `LLM_MODE=mock`（不调用 LLM，evidence 链路仍完整）。
+
+### API 示例
 
 ```bash
 curl -X POST http://127.0.0.1:8000/api/travel/query ^
   -H "Content-Type: application/json" ^
-  -d "{\"query\":\"京都清水寺适合带父母去吗？\",\"user_context\":{\"party\":[\"elderly\"],\"pace\":\"relaxed\"}}"
-```
-
-```bash
-curl http://127.0.0.1:8000/api/travel/supported-regions
+  -d "{\"query\":\"京都清水寺适合带父母去吗？\",\"user_context\":{\"party\":[\"elderly\"]}}"
 ```
 
 ## 目录结构
 
 ```text
-backend/
-  app/
-    main.py                 # FastAPI 入口
-    config.py               # 配置
-    llm_client.py           # Claude SDK 封装（无 key 时 mock）
-    orchestrator/
-      state_machine.py      # S0-S12 状态链
-      policies.py           # SourcePriorityPolicy
-      confidence.py
-      trace.py
-    agents/
-      intent_agent.py
-      place_research_agent.py
-      review_mining_agent.py
-      suitability_scorer.py
-      composer_agent.py
-    tools/
-      mock_data.py          # 东亚三国 mock 景点库
-      *_tool.py             # MockOfficial/Review/Weather/Transit/Places...
-    schemas/
-    evals/
-      golden_queries.json
+backend/app/
+  orchestrator/
+    state_machine.py       # S0–S12 状态链
+    evidence_aggregator.py   # Evidence → PlaceFactSheet
+    citation_check.py        # 引用与限制检查
+    policies.py              # SourcePriority + SourceSelection
+  agents/
+    place_research_agent.py  # 按策略调用 tools
+    suitability_scorer.py
+    composer_agent.py
+  tools/mock_data.py         # Mock 景点库（仅 tools 层使用）
+  schemas/place_factsheet.py
+  evals/
+    golden_queries.json
+    p0_p1_tests.py
 ```
 
-## 状态链
+## 如何替换真实 API
 
-`TravelAgentStateMachine` 实现：
+### 1. 新建 Tool（必须返回 `Evidence`）
 
-`Region Gate → Intent → Context → Query Plan → Source Selection → Retrieval → Validation → Normalization → Conflict Detection → Review Mining → Suitability Scoring → Compose → Citation Check`
+```python
+# backend/app/tools/weather_tool_live.py
+class LiveWeatherTool(BaseTool):
+    name = "weather"
+    async def run(self, city: str, country: str, travel_date: str | None = None, **kwargs) -> list[Evidence]:
+        # 调用真实天气 API
+        return [Evidence(source_type=SourceType.WEATHER_API, claims=[...], ...)]
+```
 
-## 替换真实 API
+### 2. 在 `ToolRegistry` 中替换 mock
 
-1. 在 `app/tools/` 新增真实 tool，实现 `BaseTool.run()` 并返回 `Evidence`
-2. 在 `ToolRegistry` 中注入真实 tool 替代 mock
-3. 配置 `.env`：
+```python
+# backend/app/tools/__init__.py
+self.weather = LiveWeatherTool()  # 替换 MockWeatherTool
+```
+
+### 3. 配置密钥（`backend/.env`）
 
 ```env
-ANTHROPIC_API_KEY=sk-...
-LLM_MODE=anthropic
+WEATHER_API_KEY=...
+MAPS_API_KEY=...
+DEEPSEEK_API_KEY=...
 ```
 
-4. 为地图/天气/交通/评论配置各自 API key（可在 `config.py` 扩展）
+### 4. 扩展 `config.py` 读取新密钥
 
-原则：**工具产 evidence，Composer 只基于 evidence 总结，禁止 LLM 直接编造开放时间/票价/路线。**
+### 5. 验收
 
-## 新增国家/城市/景点
+```bash
+cd backend
+python -m compileall app
+pytest app/evals -q
+```
 
-1. 在 `app/tools/mock_data.py` 的 `PLACE_REGISTRY` / `PLACE_ALIASES` 添加条目
-2. 在 `config.py` 的 `supported_cities` 添加城市
-3. 在 `IntentAgent.COUNTRY_KEYWORDS` 添加识别词
-4. 在 `evals/golden_queries.json` 增加验收样例
+**原则**：
+
+- 工具产 `Evidence`，Aggregator 产 `PlaceFactSheet`
+- Composer / Scorer 只消费 FactSheet，不读 registry、不让 LLM 编造开放时间/票价
+- 评论数据遵守平台条款，仅存摘要与 aspect
+
+## 新增景点（mock 阶段）
+
+1. `tools/mock_data.py` → `PLACE_REGISTRY` / `PLACE_ALIASES` / `MOCK_REVIEWS`
+2. `config.py` → `supported_cities`
+3. `agents/intent_agent.py` → 识别关键词
+4. `evals/golden_queries.json` + `p0_p1_tests.py` 补充用例
 
 ## 运行评测
 
@@ -105,35 +140,26 @@ cd backend
 pytest app/evals -q
 ```
 
+包含：`test_compile_imports`、`test_weather_called_when_city_backfilled`、`test_conflict_resolution_prefers_official` 等 P0/P1 用例。
+
 ## 设计原则
 
-- Evidence-first：关键结论必须可追溯到 Evidence
-- Source-aware / Conflict-aware / Persona-aware
-- State-machine constrained：工具调用由状态链控制
-- East Asia first：日本 / 中国 / 韩国
+- Evidence-first / Source-aware / Conflict-aware / Persona-aware
+- State-machine constrained
+- East Asia first（日本 / 中国 / 韩国）
 
-## 后续扩展
+## 已知限制（Mock MVP）
 
-- PostgreSQL + pgvector 持久化 evidence
-- Redis 缓存
-- Next.js Evidence Panel / Trace Timeline 前端
-- 真实 MCP servers：`destination_mcp`, `review_mcp`, `weather_mcp` 等
-- 复杂行程规划、长期记忆、购票跳转
-
-## 限制说明
-
-当前为 MVP mock 阶段：
-
-- 景点库覆盖有限
-- 天气/交通/评论为 mock 或摘要级数据
-- 未接入真实 OTA/评论全文存储
-- 无 key 时 LLM 使用 deterministic mock，不影响 evidence 链路演示
+- 景点库覆盖有限（`PLACE_REGISTRY`）
+- 天气/交通/评论为 mock 或摘要级
+- 未接入 PostgreSQL / Redis / 前端
+- LLM 辅助 intent 解析；核心事实来自 tools
 
 ## 上传 GitHub
 
 ```powershell
-.\upload_to_github.ps1 -DryRun   # 预览
-.\upload_to_github.ps1           # 提交并推送
+.\upload_to_github.ps1 -DryRun
+.\upload_to_github.ps1
 ```
 
-凭据配置与故障排查见 [RUNBOOK.md §12](RUNBOOK.md#12-上传项目到-github)。
+详见 [RUNBOOK.md §12](RUNBOOK.md#12-上传项目到-github)。

@@ -14,21 +14,24 @@ class LLMClient:
             try:
                 import anthropic
 
-                self._client = anthropic.Anthropic(api_key=self.settings.anthropic_api_key)
+                api_key = self.settings.llm_api_key()
+                if api_key:
+                    self._client = anthropic.Anthropic(
+                        api_key=api_key,
+                        base_url=self.settings.anthropic_base_url,
+                    )
             except Exception:
                 self._client = None
 
     def _should_use_anthropic(self) -> bool:
         if self.settings.llm_mode == "mock":
             return False
-        if self.settings.llm_mode == "anthropic":
-            return bool(self.settings.anthropic_api_key)
-        return bool(self.settings.anthropic_api_key)
+        return bool(self.settings.llm_api_key())
 
     async def complete(self, system: str, user: str, max_tokens: int = 1200) -> str:
         if self._client:
             message = self._client.messages.create(
-                model=self.settings.anthropic_model,
+                model=self.settings.llm_model(),
                 max_tokens=max_tokens,
                 system=system,
                 messages=[{"role": "user", "content": user}],

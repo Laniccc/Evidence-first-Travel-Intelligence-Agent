@@ -13,7 +13,10 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
 
     anthropic_api_key: str | None = None
-    anthropic_model: str = "claude-sonnet-4-20250514"
+    anthropic_base_url: str = "https://api.deepseek.com/anthropic"
+    anthropic_model: str = "deepseek-v4-pro"
+    deepseek_api_key: str | None = None
+    deepseek_model: str = "deepseek-v4-pro"
     llm_mode: Literal["auto", "mock", "anthropic"] = "auto"
 
     evidence_confidence_threshold: float = 0.55
@@ -25,6 +28,12 @@ class Settings(BaseSettings):
         "China": ["Beijing", "Shanghai", "Hangzhou", "Suzhou", "Xi'an", "Chengdu", "Chongqing", "Guangzhou", "Shenzhen", "Nanjing", "Xiamen", "Qingdao"],
         "South Korea": ["Seoul", "Busan", "Jeju", "Gyeongju", "Incheon", "Daegu"],
     }
+
+    def llm_api_key(self) -> str | None:
+        return self.deepseek_api_key or self.anthropic_api_key
+
+    def llm_model(self) -> str:
+        return self.deepseek_model or self.anthropic_model
 
 
 @lru_cache
