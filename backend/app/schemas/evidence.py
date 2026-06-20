@@ -50,6 +50,7 @@ class ClaimType(str, Enum):
     ACCESSIBILITY = "accessibility"
     TRAVEL_ADVICE = "travel_advice"
     SEASONALITY = "seasonality"
+    BEST_TIME_TO_VISIT = "best_time_to_visit"
 
 
 class Claim(BaseModel):

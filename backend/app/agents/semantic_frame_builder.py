@@ -72,6 +72,41 @@ class SemanticFrameBuilder:
         return frame
 
     @classmethod
+    def build_city_best_time(
+        cls,
+        raw_query: str,
+        country: str,
+        city: str,
+        rewritten_query: str,
+        confidence: float,
+    ) -> SemanticFrame:
+        """Explicit SemanticFrame for city-level best-time questions (e.g. 札幌适合几月份去？)."""
+        return SemanticFrame(
+            raw_query=raw_query.strip(),
+            normalized_request=rewritten_query,
+            query_scope=QueryScope.CITY,
+            task_family=TaskFamily.ADVISORY,
+            decision_type=DecisionType.BEST_TIME_TO_VISIT,
+            entities=SemanticEntities(country=country, city=city, places=[]),
+            time_scope=TimeScope.SEASONAL,
+            key_concerns=["seasonality"],
+            information_needs=["best_time_to_visit", "seasonality"],
+            confidence=confidence,
+            requires_live_data=False,
+            requires_exact_fact=False,
+            can_answer_with_model_prior=True,
+            needs_clarification=False,
+        )
+
+    @classmethod
+    def attach(cls, raw_query: str, qu: QueryUnderstandingResult) -> SemanticFrame:
+        if qu.semantic_frame is not None:
+            return qu.semantic_frame
+        frame = cls.build(raw_query, qu)
+        qu.semantic_frame = frame
+        return frame
+
+    @classmethod
     def _infer_decision_type(cls, text: str, places: list[str], qu: QueryUnderstandingResult) -> DecisionType:
         if _OPENING_HOURS_PATTERN.search(text) and places:
             return DecisionType.FACT_LOOKUP

@@ -22,6 +22,33 @@ def _qu_result(raw: str, task: TravelTask, **kwargs) -> QueryUnderstandingResult
     )
 
 
+def test_model_prior_enums_importable():
+    from app.schemas.evidence import ClaimType, SourceType
+    from app.tools.knowledge_prior_tool import KnowledgePriorTool
+
+    assert SourceType.MODEL_PRIOR.value == "model_prior"
+    assert ClaimType.SEASONALITY.value == "seasonality"
+    assert ClaimType.TRAVEL_ADVICE.value == "travel_advice"
+    assert ClaimType.BEST_TIME_TO_VISIT.value == "best_time_to_visit"
+    assert KnowledgePriorTool.name == "knowledge_prior"
+
+
+def test_rule_based_qu_attaches_semantic_frame_for_sapporo():
+    from app.agents.rule_based_understanding import RuleBasedUnderstanding
+    from app.schemas.conversation_context import ConversationContext
+
+    raw = "札幌适合几月份去？"
+    qu = RuleBasedUnderstanding.understand(raw, ConversationContext())
+    assert qu.semantic_frame is not None
+    sf = qu.semantic_frame
+    assert sf.query_scope == QueryScope.CITY
+    assert sf.decision_type == DecisionType.BEST_TIME_TO_VISIT
+    assert sf.information_needs == ["best_time_to_visit", "seasonality"]
+    assert sf.can_answer_with_model_prior is True
+    assert sf.requires_exact_fact is False
+    assert sf.requires_live_data is False
+
+
 def test_semantic_frame_sapporo_best_time():
     raw = "札幌适合几月份去？"
     task = TravelTask(
@@ -67,6 +94,7 @@ async def test_knowledge_prior_tool_generates_low_confidence_evidence():
     assert evidence
     ev = evidence[0]
     assert ev.source_type == SourceType.MODEL_PRIOR
+    assert ev.claims[0].claim_type == ClaimType.BEST_TIME_TO_VISIT
     assert ev.confidence <= 0.6
     assert ev.retrieved_at is not None
     assert MODEL_PRIOR_LIMITATION in ev.limitations

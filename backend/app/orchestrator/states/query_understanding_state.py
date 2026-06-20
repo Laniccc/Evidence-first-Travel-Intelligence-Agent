@@ -2,17 +2,14 @@ from app.agents.conversation_context_builder import ConversationContextBuilder
 from app.agents.query_understanding_agent import QueryUnderstandingAgent
 from app.agents.semantic_frame_builder import SemanticFrameBuilder
 from app.config import get_settings
-from app.orchestrator.answer_mode_router import AnswerModeRouter
 from app.orchestrator.clarification_gate import ClarificationGate
 from app.orchestrator.trace import TraceRecorder
 from app.schemas.rewritten_query import RewrittenQueryResult
-from app.schemas.semantic_frame import AnswerMode
 from app.schemas.user_query import TravelAgentState, UserContext
-from app.tools.capability_registry import CapabilityRegistry
 
 
 class QueryUnderstandingPromptState:
-    """Fixed controlled state — always runs before tool routing."""
+    """Fixed controlled state — always runs before AnswerMode routing."""
 
     def __init__(self, llm_client) -> None:
         self.context_builder = ConversationContextBuilder()
@@ -37,19 +34,7 @@ class QueryUnderstandingPromptState:
         )
         state.query_understanding = result
         state.travel_task = result.travel_task
-
-        semantic_frame = result.semantic_frame or SemanticFrameBuilder.build(state.raw_user_query, result)
-        result.semantic_frame = semantic_frame
-        state.semantic_frame = semantic_frame
-
-        caps = set(CapabilityRegistry().all_tool_names())
-        state.answer_mode_decision = AnswerModeRouter().route(semantic_frame, caps)
-        TraceRecorder.add(
-            state,
-            f"✓ AnswerMode：{state.answer_mode_decision.answer_mode.value}（{state.answer_mode_decision.reason[:60]}）",
-        )
-        if state.answer_mode_decision.limitations_to_add:
-            state.limitations.extend(state.answer_mode_decision.limitations_to_add)
+        state.semantic_frame = SemanticFrameBuilder.attach(state.raw_user_query, result)
 
         state.rewritten_query_result = RewrittenQueryResult(
             rewritten_query=result.rewritten_query,
@@ -63,21 +48,18 @@ class QueryUnderstandingPromptState:
         )
 
         TraceRecorder.add(state, f"✓ 已完成用户问题转写：{result.rewritten_query[:80]}")
+        if result.semantic_frame:
+            sf = result.semantic_frame
+            TraceRecorder.add(
+                state,
+                f"✓ SemanticFrame：scope={sf.query_scope.value} decision={sf.decision_type.value}",
+            )
         if result.resolved_references:
             refs = ", ".join(f"{k}={v}" for k, v in result.resolved_references.items())
             TraceRecorder.add(state, f"✓ 已解析上下文指代：{refs}")
         TraceRecorder.add(state, f"✓ 已生成 TravelTask：{result.travel_task.task_type.value}")
 
         if ClarificationGate.apply(state):
-            return state
-
-        if state.answer_mode_decision.answer_mode == AnswerMode.CLARIFICATION_REQUIRED:
-            state.next_state = "clarification_response"
-            state.final_response = (
-                state.rewritten_query_result.clarification_prompt
-                if state.rewritten_query_result and state.rewritten_query_result.clarification_prompt
-                else "请补充具体地点或出行时间，以便继续分析。"
-            )
             return state
 
         state.next_state = "continue"

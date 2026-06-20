@@ -5,6 +5,7 @@ from app.schemas.semantic_frame import (
     DecisionType,
     QueryScope,
     SemanticFrame,
+    TaskFamily,
     TimeScope,
 )
 
@@ -61,7 +62,6 @@ class AnswerModeRouter:
 
       if frame.can_answer_with_model_prior and frame.decision_type in {
           DecisionType.GENERAL_ADVICE,
-          DecisionType.WHETHER_TO_GO,
           DecisionType.HOW_TO_CHOOSE,
       }:
           return AnswerModeDecision(
@@ -71,6 +71,30 @@ class AnswerModeRouter:
               allow_partial_answer=True,
               reason="稳定常识类建议，允许 KnowledgePriorTool",
           )
+
+      if frame.query_scope == QueryScope.PLACE and frame.entities.places:
+          tools = self._default_place_tools(frame, caps)
+          mode = AnswerMode.EVIDENCE_REQUIRED if self._requires_exact_evidence(frame) else AnswerMode.EVIDENCE_PREFERRED
+          return AnswerModeDecision(
+              answer_mode=mode,
+              required_tools=tools,
+              optional_tools=["knowledge_prior"] if frame.can_answer_with_model_prior else [],
+              allow_knowledge_prior=frame.can_answer_with_model_prior,
+              allow_partial_answer=True,
+              reason="景点级问题默认走工具证据链",
+          )
+
+      if frame.decision_type in {DecisionType.WHETHER_TO_GO, DecisionType.HOW_TO_CHOOSE} and frame.query_scope in {
+          QueryScope.CITY,
+          QueryScope.COUNTRY,
+      }:
+          if frame.can_answer_with_model_prior:
+              return AnswerModeDecision(
+                  answer_mode=AnswerMode.MODEL_PRIOR_ALLOWED,
+                  allow_knowledge_prior=True,
+                  allow_partial_answer=True,
+                  reason="目的地级是否值得去，允许 model prior",
+              )
 
       if any(n in {"crowd_level", "current_crowd"} for n in frame.information_needs):
           return AnswerModeDecision(
@@ -94,6 +118,26 @@ class AnswerModeRouter:
                   allow_partial_answer=True,
                   reason="优先工具证据，失败可回退 model prior",
               )
+
+      if frame.query_scope == QueryScope.ITINERARY or frame.task_family == TaskFamily.PLANNING:
+          tools = self._tools_for_needs(["transit", "opening_hours", "weather", "nearby_food"], caps, required=True)
+          return AnswerModeDecision(
+              answer_mode=AnswerMode.EVIDENCE_REQUIRED,
+              required_tools=tools or ["transit", "official", "weather", "restaurant"],
+              allow_knowledge_prior=False,
+              allow_partial_answer=True,
+              reason="行程规划需工具证据",
+          )
+
+      if frame.task_family == TaskFamily.COMPARISON:
+          tools = self._tools_for_needs(["crowd_level", "transit", "opening_hours"], caps, required=True)
+          return AnswerModeDecision(
+              answer_mode=AnswerMode.EVIDENCE_REQUIRED,
+              required_tools=tools or ["reviews", "transit", "official"],
+              allow_knowledge_prior=False,
+              allow_partial_answer=True,
+              reason="多景点比较需工具证据",
+          )
 
       if frame.can_answer_with_model_prior:
           return AnswerModeDecision(
@@ -161,3 +205,12 @@ class AnswerModeRouter:
               if not caps or tool in caps or required:
                   tools.append(tool)
       return tools
+
+  def _default_place_tools(self, frame: SemanticFrame, caps: set[str]) -> list[str]:
+      tools = ["official", "reviews", "transit"]
+      if frame.time_scope in {TimeScope.CURRENT, TimeScope.SPECIFIC_DATE} or "weather" in frame.information_needs:
+          tools.append("weather")
+      if "crowd_level" in frame.information_needs or "current_crowd" in frame.information_needs:
+          tools.append("places")
+      selected = [t for t in tools if not caps or t in caps]
+      return selected or tools

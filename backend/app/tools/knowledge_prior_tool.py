@@ -64,7 +64,7 @@ class KnowledgePriorTool(BaseTravelTool):
         place = frame.entities.places[0] if frame.entities.places else None
 
         claim_type = (
-            ClaimType.SEASONALITY
+            ClaimType.BEST_TIME_TO_VISIT
             if frame.decision_type == DecisionType.BEST_TIME_TO_VISIT
             else ClaimType.TRAVEL_ADVICE
         )

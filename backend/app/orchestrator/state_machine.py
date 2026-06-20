@@ -21,6 +21,7 @@ from app.agents.suitability_scorer import TravelSuitabilityScorer
 from app.agents.travel_task_to_user_goal_adapter import SUPPORTED_REGIONS, TravelTaskToUserGoalAdapter
 from app.catalog.place_catalog import get_place_catalog
 from app.llm_client import LLMClient
+from app.orchestrator.answer_mode_router import AnswerModeRouter
 from app.orchestrator.citation_check import CitationChecker
 from app.orchestrator.evidence_aggregator import EvidenceAggregator
 from app.orchestrator.states.query_understanding_state import QueryUnderstandingPromptState
@@ -34,6 +35,7 @@ from app.schemas.review import ReviewAspectResult
 from app.schemas.travel_task import TravelTaskType
 from app.schemas.semantic_frame import AnswerMode, DecisionType
 from app.schemas.user_query import ConflictRecord, IntentType, RegionGateResult, TravelAgentState, UserContext, UserGoal
+from app.tools.capability_registry import CapabilityRegistry
 from app.tools import ToolRegistry
 from app.tools.tool_router import ToolRouter
 
@@ -49,6 +51,7 @@ class TravelAgentStateMachine:
         self.aggregator = EvidenceAggregator()
         self.catalog = get_place_catalog()
         self.tool_router = ToolRouter()
+        self.answer_mode_router = AnswerModeRouter()
         self.query_understanding_state = QueryUnderstandingPromptState(self.llm)
 
     async def run(self, query: str, user_context: dict | None = None, session_id: str | None = None) -> TravelQueryResponse:
@@ -62,47 +65,104 @@ class TravelAgentStateMachine:
             conversation_memory=memory,
         )
 
-        # Phase 1: QueryUnderstandingPromptState — always runs first; may short-circuit on clarification.
+        # Phase 1: QueryUnderstanding → SemanticFrame
         state = await self._run_query_understanding(state, ctx, user_context)
         if state.next_state == "clarification_response":
             confidence = state.query_understanding.confidence if state.query_understanding else 0.3
             return self._to_response(state, confidence)
 
+        # Phase 2: AnswerModeRouter（在 InformationNeedPlanner 之前）
+        state = self._route_answer_mode(state)
+        mode = state.answer_mode_decision.answer_mode if state.answer_mode_decision else None
+        if mode == AnswerMode.CLARIFICATION_REQUIRED:
+            state.next_state = "clarification_response"
+            state.final_response = (
+                state.rewritten_query_result.clarification_prompt
+                if state.rewritten_query_result and state.rewritten_query_result.clarification_prompt
+                else "请补充具体地点或出行时间，以便继续分析。"
+            )
+            return self._to_response(state, state.query_understanding.confidence if state.query_understanding else 0.3)
+        if mode == AnswerMode.UNSUPPORTED:
+            state.final_response = "暂无法理解该问题类型，请补充国家/城市/景点或换一种问法。"
+            return self._to_response(state, 0.25)
+
         gate_query = state.rewritten_query_result.rewritten_query if state.rewritten_query_result else query
 
-        # Phase 2: RegionGate — prefer TravelTask country/city over raw-query parsing.
+        # Phase 3: RegionGate
         state.region_gate = self._resolve_region_gate(state, query, gate_query, memory)
         TraceRecorder.add(state, f"✓ 识别目的地区域：{state.region_gate.country or '未知'}")
         if not state.region_gate.supported:
             return self._unsupported(state)
 
-        # Phase 3: UserGoal — TravelTaskToUserGoalAdapter primary; IntentAgent fallback only.
+        # Phase 4: UserGoal
         state.user_goal = await self._resolve_user_goal(state, ctx, gate_query)
-
         self._complete_context(state, ctx)
         TraceRecorder.add(state, f"✓ 识别用户画像：{', '.join(p.value for p in state.user_goal.party) or '一般游客'}")
 
-        mode = state.answer_mode_decision.answer_mode if state.answer_mode_decision else None
-        if mode in {AnswerMode.MODEL_PRIOR_ALLOWED, AnswerMode.EVIDENCE_PREFERRED} and not self._has_place_target(state):
-            return await self._run_advisory(state, try_tools_first=mode == AnswerMode.EVIDENCE_PREFERRED)
+        # Phase 5: 按 AnswerMode 分发（在 ToolRouter 主链之前）
+        return await self._dispatch_by_answer_mode(state)
+
+    def _route_answer_mode(self, state: TravelAgentState) -> TravelAgentState:
+        if not state.semantic_frame and state.query_understanding:
+            from app.agents.semantic_frame_builder import SemanticFrameBuilder
+
+            state.semantic_frame = SemanticFrameBuilder.attach(state.raw_user_query, state.query_understanding)
+        caps = set(CapabilityRegistry().all_tool_names())
+        state.answer_mode_decision = self.answer_mode_router.route(state.semantic_frame, caps)
+        decision = state.answer_mode_decision
+        TraceRecorder.add(
+            state,
+            f"✓ AnswerMode：{decision.answer_mode.value}（{decision.reason[:72]}）",
+        )
+        if decision.limitations_to_add:
+            state.limitations.extend(decision.limitations_to_add)
+        return state
+
+    async def _dispatch_by_answer_mode(self, state: TravelAgentState) -> TravelQueryResponse:
+        decision = state.answer_mode_decision
+        mode = decision.answer_mode if decision else AnswerMode.EVIDENCE_REQUIRED
+
+        if mode == AnswerMode.MODEL_PRIOR_ALLOWED:
+            return await self._run_advisory(state, try_tools_first=bool(decision.optional_tools))
+
+        if mode == AnswerMode.EVIDENCE_PREFERRED:
+            if self._has_place_target(state):
+                resp = await self._run_evidence_pipeline(state)
+                if state.evidence:
+                    return resp
+                if decision.allow_knowledge_prior:
+                    TraceRecorder.add(state, "✓ 工具证据不足，回退 KnowledgePriorTool")
+                    return await self._run_advisory(state)
+                return resp
+            return await self._run_advisory(state, try_tools_first=True)
+
+        if mode == AnswerMode.ESTIMATION_ALLOWED:
+            tool_names = self._plan_tool_execution(state)
+            if state.travel_task and state.travel_task.task_type == TravelTaskType.CROWD_INQUIRY:
+                return await self._run_crowd_inquiry(state, tool_names)
+            return await self._run_evidence_pipeline(state, tool_names=tool_names)
 
         if not state.travel_task:
             state.limitations.append("TravelTask 缺失，后续路由可能受限。")
-            if state.answer_mode_decision and state.answer_mode_decision.allow_knowledge_prior:
+            if decision and decision.allow_knowledge_prior:
                 return await self._run_advisory(state)
             return self._to_response(state, 0.25)
 
-        # Phase 4: InformationNeedPlanner + ToolRouter — driven by TravelTask, not IntentAgent.
-        tool_names = self._plan_tool_execution(state)
+        return await self._run_evidence_pipeline(state)
 
+    async def _run_evidence_pipeline(
+        self,
+        state: TravelAgentState,
+        tool_names: list[str] | None = None,
+    ) -> TravelQueryResponse:
+        tool_names = tool_names or self._plan_tool_execution(state)
         state.query_plan = PlaceResearchAgent.build_query_plan(state.user_goal)
-        if state.tool_execution_plan.unsupported_needs:
+        if state.tool_execution_plan and state.tool_execution_plan.unsupported_needs:
             state.limitations.append(
                 "以下信息需求暂无直接工具支撑：" + ", ".join(state.tool_execution_plan.unsupported_needs)
             )
 
-        # Phase 5: Execute by TravelTask.task_type.
-        task_type = state.travel_task.task_type
+        task_type = state.travel_task.task_type if state.travel_task else TravelTaskType.OPEN_ENDED_ADVICE
         if task_type == TravelTaskType.COMPARE_PLACES:
             return await self._run_compare(state, tool_names)
         if task_type == TravelTaskType.ITINERARY_PLANNING:

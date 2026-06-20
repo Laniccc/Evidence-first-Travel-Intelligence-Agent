@@ -1,5 +1,6 @@
 from datetime import date
 
+from app.agents.semantic_frame_builder import SemanticFrameBuilder
 from app.catalog.location_resolver import resolve_city_country_from_text
 from app.catalog.place_catalog import get_place_catalog
 from app.schemas.conversation_context import ConversationContext
@@ -211,7 +212,7 @@ class RuleBasedUnderstanding:
             confidence=confidence,
         )
 
-        return QueryUnderstandingResult(
+        qu = QueryUnderstandingResult(
             rewritten_query=rewritten,
             resolved_references=resolved,
             missing_critical_info=missing,
@@ -221,6 +222,13 @@ class RuleBasedUnderstanding:
             confidence=confidence,
             key_concerns=task.key_concerns,
         )
+        if is_best_time_city and country and city:
+            qu.semantic_frame = SemanticFrameBuilder.build_city_best_time(
+                text, country, city, rewritten, confidence
+            )
+        else:
+            qu.semantic_frame = SemanticFrameBuilder.build(text, qu)
+        return qu
 
     @staticmethod
     def _place_context_from_name(name: str, catalog) -> PlaceContext:

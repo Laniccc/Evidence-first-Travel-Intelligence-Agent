@@ -89,7 +89,11 @@ class ComposerAgent:
         advice_lines: list[str] = []
         for ev in evidence:
             for claim in ev.claims:
-                if claim.claim_type in {ClaimType.TRAVEL_ADVICE, ClaimType.SEASONALITY}:
+                if claim.claim_type in {
+                    ClaimType.TRAVEL_ADVICE,
+                    ClaimType.SEASONALITY,
+                    ClaimType.BEST_TIME_TO_VISIT,
+                }:
                     advice_lines.append(str(claim.value))
 
         lines = [

@@ -99,9 +99,12 @@ User Query
 | `TravelToolRegistry` | 统一 `run_tool`；含 `knowledge_prior`；每请求 `clear_traces` |
 
 **城市级季节建议示例**（如「札幌适合几月份去？」）：
+- `QueryUnderstandingResult.semantic_frame` 在 QU 阶段直接产出（非事后推导）
 - `query_scope=city`，`decision_type=best_time_to_visit`
-- `AnswerMode=model_prior_allowed` → `KnowledgePriorTool` 生成季节建议 Evidence
+- `state_machine` 内 `AnswerModeRouter` → `MODEL_PRIOR_ALLOWED` → `KnowledgePriorTool`
 - **不要求**用户提供具体景点；回答含季节规律说明与 limitations
+
+地点解析下一步路线图见 [docs/PLACE_RESOLUTION.md](docs/PLACE_RESOLUTION.md)（`LLMPlaceEntityExtractor` → `PlaceResolver` → Real/MCP → Mock fallback）。
 
 ### Capability-based Tool Router
 
