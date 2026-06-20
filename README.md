@@ -15,16 +15,23 @@ User Query
   → ConversationContextBuilder
   → QueryUnderstandingPromptState（固定进入）
   → TravelTask
-  → ClarificationGate（如需澄清则直接返回）
+  → ClarificationGate（如需澄清则直接返回，不调用工具）
   → TravelTaskToUserGoalAdapter
   → RegionGate（优先 TravelTask.country/city）
-  → QueryPlan / ToolRouter
-  → Tools → Evidence
-  → EvidenceAggregator → ReviewMining → Scorer → Composer → CitationChecker
+  → InformationNeedPlanner
+  → ToolRouter
+  → TravelToolRegistry.run_tool / ToolTrace（每请求 clear_traces，统一记录 evidence_ids / latency / status）
+  → Evidence
+  → EvidenceAggregator
+  → ReviewMining
+  → Scorer
+  → Composer
+  → CitationChecker
 ```
 
 **QueryUnderstandingPromptState 不是最终回答器**——它只做需求转写与 `TravelTask` 生成，不生成开放时间/票价/天气/人流等事实。  
-`IntentAgent` 仅在 QueryUnderstanding 置信度低且无可用 TravelTask 时作为 fallback。
+`IntentAgent` 仅在 QueryUnderstanding 置信度低且无可用 TravelTask 时作为 fallback。  
+`SourceSelectionPolicy` 仅作为 ToolRouter 无匹配需求时的兜底，不再是主链路入口。
 
 ### 用户需求理解层
 
@@ -37,6 +44,7 @@ User Query
 | `QueryUnderstandingPromptState` | 状态机固定 state，写入 `visible_trace` |
 | `TravelTaskToUserGoalAdapter` | TravelTask → UserGoal（主路径） |
 | `ClarificationGate` | `needs_clarification=true` 时暂停工具调用 |
+| `TravelToolRegistry` | 统一 `run_tool` / `record_skipped_tool`，每请求 `clear_traces`，输出 `tool_traces` |
 
 **表达处理示例：**
 

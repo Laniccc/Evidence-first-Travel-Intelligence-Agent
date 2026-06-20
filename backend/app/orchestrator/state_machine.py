@@ -51,6 +51,7 @@ class TravelAgentStateMachine:
         self.query_understanding_state = QueryUnderstandingPromptState(self.llm)
 
     async def run(self, query: str, user_context: dict | None = None, session_id: str | None = None) -> TravelQueryResponse:
+        self.tools.clear_traces()
         ctx = UserContext.model_validate(user_context or {})
         memory = ConversationMemory.from_user_context(user_context)
         state = TravelAgentState(
@@ -59,7 +60,6 @@ class TravelAgentStateMachine:
             raw_user_query=query,
             conversation_memory=memory,
         )
-        self.tools.clear_traces()
 
         # Phase 1: QueryUnderstandingPromptState — always runs first; may short-circuit on clarification.
         state = await self._run_query_understanding(state, ctx, user_context)
@@ -475,6 +475,7 @@ class TravelAgentStateMachine:
         return result.confidence
 
     def _to_response(self, state: TravelAgentState, confidence: float) -> TravelQueryResponse:
+        self._sync_tool_traces(state)
         evidence_summary = [
             {
                 "evidence_id": ev.evidence_id,
