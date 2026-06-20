@@ -25,10 +25,13 @@ class TravelToolRegistry:
             self.fallback = MockFallbackTool()
         self.traces: list[ToolTrace] = []
 
+    def clear_traces(self) -> None:
+        self.traces.clear()
+
     async def run_tool(self, tool_name: str, **kwargs: Any) -> list:
         tool = getattr(self, tool_name, None)
         if tool is None:
-            self.traces.append(
+            self._append_trace(
                 ToolTrace(tool_name=tool_name, input=kwargs, status="error", error="tool not found")
             )
             return []
@@ -37,13 +40,19 @@ class TravelToolRegistry:
             result = await tool.run(**kwargs)
             latency = (time.perf_counter() - start) * 1000
             evidence_ids = [ev.evidence_id for ev in result]
-            self.traces.append(
-                ToolTrace(tool_name=tool_name, input=kwargs, evidence_ids=evidence_ids, latency_ms=latency, status="ok")
+            self._append_trace(
+                ToolTrace(
+                    tool_name=tool_name,
+                    input=kwargs,
+                    evidence_ids=evidence_ids,
+                    latency_ms=latency,
+                    status="ok",
+                )
             )
             return result
         except Exception as exc:
             latency = (time.perf_counter() - start) * 1000
-            self.traces.append(
+            self._append_trace(
                 ToolTrace(
                     tool_name=tool_name,
                     input=kwargs,
@@ -53,6 +62,15 @@ class TravelToolRegistry:
                 )
             )
             return []
+
+    def record_skipped_tool(self, tool_name: str, error: str, **kwargs: Any) -> None:
+        """Record a skipped/failed invocation without calling the underlying tool."""
+        self._append_trace(
+            ToolTrace(tool_name=tool_name, input=dict(kwargs), status="error", error=error)
+        )
+
+    def _append_trace(self, trace: ToolTrace) -> None:
+        self.traces.append(trace)
 
 
 ToolRegistry = TravelToolRegistry

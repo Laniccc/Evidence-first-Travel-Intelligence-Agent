@@ -8,8 +8,14 @@ class MockFallbackTool(BaseTravelTool):
     async def run(self, **kwargs) -> list[Evidence]:
         place_name = kwargs.get("place_name", "unknown")
         need_types = kwargs.get("need_types") or []
-        country = kwargs.get("country", "Japan")
-        city = kwargs.get("city", "Kyoto")
+        country = kwargs.get("country")
+        city = kwargs.get("city")
+        tool_limitations = [
+            "Fallback source: not a live API.",
+            "Crowd/queue figures are estimates only.",
+        ]
+        if not country or not city:
+            tool_limitations.append("Location unknown for fallback estimate.")
         claims = [
             Claim(
                 claim_type=ClaimType.REVIEW_ASPECT,
@@ -48,9 +54,6 @@ class MockFallbackTool(BaseTravelTool):
                 place_name=place_name,
                 confidence=0.35,
                 claims=claims,
-                limitations=[
-                    "Fallback source: not a live API.",
-                    "Crowd/queue figures are estimates only.",
-                ],
+                limitations=tool_limitations,
             )
         ]

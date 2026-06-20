@@ -129,7 +129,9 @@ curl -X POST http://127.0.0.1:8000/api/travel/query ^
 | `evidence_summary` | 证据来源摘要 |
 | `conflicts` | 来源冲突记录 |
 | `limitations` | 限制与假设说明 |
-| `confidence` | 整体置信度 |
+| `field_evidence_summary` | 字段级证据摘要 |
+| `citation_check_result` | 引用校验结果 |
+| `tool_traces` | 工具调用轨迹 |
 
 ---
 
@@ -173,15 +175,23 @@ Evidence-first Travel Intelligence Agent/
 
 ---
 
-## 9. 状态链（S0–S12）
+## 9. 状态链（QueryUnderstanding-first）
 
-`TravelAgentStateMachine` 约束流程：
+`TravelAgentStateMachine` 主流程（`backend/app/orchestrator/state_machine.py`）：
 
 ```text
-Region Gate → Intent → Context → Query Plan → Source Selection
-→ Retrieval → Validation → Normalization → Conflict Detection
-→ Review Mining → Suitability Scoring → Compose → Citation Check
+User Query
+  → QueryUnderstandingPromptState     # 会话上下文 + 转写 + TravelTask + ClarificationGate
+  → RegionGate                        # 优先 TravelTask.country/city
+  → TravelTaskToUserGoalAdapter       # 主路径 UserGoal（IntentAgent 仅 fallback）
+  → InformationNeedPlanner + ToolRouter
+  → Tools → Evidence
+  → EvidenceAggregator → ReviewMining → Scorer → Composer → CitationChecker
 ```
+
+澄清路径（`needs_clarification=true`）在 QueryUnderstanding 后直接返回，不调用 RegionGate / IntentAgent / Tools。
+
+旧版入口 `Region Gate → Intent → ...` 已废弃；`IntentAgent` 仅在 TravelTask 不可用时作为 fallback。
 
 ---
 

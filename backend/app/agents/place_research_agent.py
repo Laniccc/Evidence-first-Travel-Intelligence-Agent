@@ -27,55 +27,118 @@ class PlaceResearchAgent:
         tool_names: list[str] | None = None,
         place_context: PlaceContext | None = None,
         tool_plan: ToolExecutionPlan | None = None,
+        limitations: list[str] | None = None,
     ) -> list[Evidence]:
         selected = tool_names or (tool_plan.selected_tools if tool_plan else None) or SourceSelectionPolicy.select_tools(goal)
         effective = self._effective_goal(goal, place_context)
-        evidence: list[Evidence] = []
-        crowd_needs = []
-        if tool_plan:
-            crowd_needs = tool_plan.estimated_only_needs
+        crowd_needs = tool_plan.estimated_only_needs if tool_plan else []
+        query_context = effective.constraints[0] if effective.constraints else place_name
 
+        evidence: list[Evidence] = []
         for tool_name in selected:
-            if tool_name == "weather":
-                if effective.destination_city and effective.destination_country:
-                    evidence.extend(
-                        await self.tools.run_tool(
-                            "weather",
-                            city=effective.destination_city,
-                            country=effective.destination_country,
-                            travel_date=effective.travel_date,
-                        )
-                    )
-                continue
-            if tool_name == "lodging":
-                if effective.destination_city and effective.destination_country:
-                    evidence.extend(
-                        await self.tools.run_tool(
-                            "lodging",
-                            city=effective.destination_city,
-                            country=effective.destination_country,
-                        )
-                    )
-                continue
-            if tool_name == "fallback":
-                evidence.extend(
-                    await self.tools.run_tool(
-                        "fallback",
-                        place_name=place_name,
-                        country=effective.destination_country or "Japan",
-                        city=effective.destination_city or "Kyoto",
-                        need_types=crowd_needs or ["crowd_level"],
-                    )
-                )
-                continue
-            evidence.extend(
-                await self.tools.run_tool(
-                    tool_name,
-                    place_name=place_name,
-                    start_location=effective.start_location,
-                )
+            batch = await self._invoke_tool(
+                tool_name=tool_name,
+                place_name=place_name,
+                goal=effective,
+                crowd_needs=crowd_needs,
+                query_context=query_context,
+                limitations=limitations,
             )
+            evidence.extend(batch)
         return evidence
+
+    async def _invoke_tool(
+        self,
+        tool_name: str,
+        place_name: str,
+        goal: UserGoal,
+        crowd_needs: list[str],
+        query_context: str,
+        limitations: list[str] | None,
+    ) -> list[Evidence]:
+        if tool_name == "weather":
+            return await self._run_weather(goal, limitations)
+        if tool_name == "lodging":
+            return await self._run_lodging(goal, limitations)
+        if tool_name == "fallback":
+            return await self._run_fallback(
+                place_name=place_name,
+                goal=goal,
+                crowd_needs=crowd_needs,
+                query_context=query_context,
+                limitations=limitations,
+            )
+        return await self.tools.run_tool(
+            tool_name,
+            place_name=place_name,
+            start_location=goal.start_location,
+        )
+
+    async def _run_weather(self, goal: UserGoal, limitations: list[str] | None) -> list[Evidence]:
+        if not (goal.destination_city and goal.destination_country):
+            if limitations is not None:
+                limitations.append("天气查询缺少 destination city/country，已记录 error trace。")
+            self.tools.record_skipped_tool(
+                "weather",
+                "missing destination_city or destination_country",
+                city=goal.destination_city,
+                country=goal.destination_country,
+                travel_date=goal.travel_date,
+            )
+            return []
+        return await self.tools.run_tool(
+            "weather",
+            city=goal.destination_city,
+            country=goal.destination_country,
+            travel_date=goal.travel_date,
+        )
+
+    async def _run_lodging(self, goal: UserGoal, limitations: list[str] | None) -> list[Evidence]:
+        if not (goal.destination_city and goal.destination_country):
+            if limitations is not None:
+                limitations.append("住宿区域查询缺少 destination city/country，已记录 error trace。")
+            self.tools.record_skipped_tool(
+                "lodging",
+                "missing destination_city or destination_country",
+                city=goal.destination_city,
+                country=goal.destination_country,
+            )
+            return []
+        return await self.tools.run_tool(
+            "lodging",
+            city=goal.destination_city,
+            country=goal.destination_country,
+        )
+
+    async def _run_fallback(
+        self,
+        place_name: str,
+        goal: UserGoal,
+        crowd_needs: list[str],
+        query_context: str,
+        limitations: list[str] | None,
+    ) -> list[Evidence]:
+        if not (goal.destination_city and goal.destination_country):
+            if limitations is not None:
+                limitations.append("fallback 缺少 destination city/country，已记录 error trace。")
+            self.tools.record_skipped_tool(
+                "fallback",
+                "missing destination_city or destination_country",
+                place_name=place_name,
+                country=goal.destination_country,
+                city=goal.destination_city,
+                need_types=crowd_needs or ["crowd_level"],
+                query_context=query_context,
+            )
+            return []
+        return await self.tools.run_tool(
+            "fallback",
+            place_name=place_name,
+            country=goal.destination_country,
+            city=goal.destination_city,
+            need_types=crowd_needs or ["crowd_level"],
+            query_context=query_context,
+        )
 
     @staticmethod
     def build_query_plan(goal: UserGoal) -> QueryPlan:

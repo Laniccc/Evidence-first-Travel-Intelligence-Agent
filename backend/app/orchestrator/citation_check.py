@@ -37,6 +37,8 @@ class CitationChecker:
             confidence=confidence,
             limitations=limitations,
             unsupported_or_mismatched_claims=mismatches,
+            mismatched_claims=mismatches,
+            confidence_delta=round(penalty, 3),
         )
 
     @staticmethod

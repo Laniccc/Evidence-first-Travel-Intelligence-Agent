@@ -1,3 +1,15 @@
+"""Evidence-first travel agent state machine (QueryUnderstanding-first).
+
+Main pipeline::
+
+    User Query
+      → QueryUnderstandingPromptState   # ConversationContext + TravelTask + clarification gate
+      → RegionGate                      # TravelTask.country/city first, then RegionGateAgent fallback
+      → TravelTaskToUserGoalAdapter     # primary UserGoal; IntentAgent only on fallback
+      → InformationNeedPlanner + ToolRouter
+      → Tools → Evidence → Aggregator → ReviewMining → Scorer → Composer → CitationChecker
+"""
+
 from uuid import uuid4
 
 from app.agents.composer_agent import ComposerAgent, ItineraryAgent
@@ -47,29 +59,24 @@ class TravelAgentStateMachine:
             raw_user_query=query,
             conversation_memory=memory,
         )
+        self.tools.clear_traces()
 
-        state = await self.query_understanding_state.run(state, ctx, user_context)
+        # Phase 1: QueryUnderstandingPromptState — always runs first; may short-circuit on clarification.
+        state = await self._run_query_understanding(state, ctx, user_context)
         if state.next_state == "clarification_response":
             confidence = state.query_understanding.confidence if state.query_understanding else 0.3
             return self._to_response(state, confidence)
 
         gate_query = state.rewritten_query_result.rewritten_query if state.rewritten_query_result else query
+
+        # Phase 2: RegionGate — prefer TravelTask country/city over raw-query parsing.
         state.region_gate = self._resolve_region_gate(state, query, gate_query, memory)
         TraceRecorder.add(state, f"✓ 识别目的地区域：{state.region_gate.country or '未知'}")
         if not state.region_gate.supported:
             return self._unsupported(state)
 
-        qu_confidence = state.query_understanding.confidence if state.query_understanding else 0.0
-        if TravelTaskToUserGoalAdapter.should_use_task(
-            state.travel_task,
-            state.query_understanding,
-            qu_confidence,
-        ):
-            state.user_goal = TravelTaskToUserGoalAdapter.to_user_goal(state.travel_task, ctx)
-            TraceRecorder.add(state, f"✓ 已从 TravelTask 生成 UserGoal：{state.user_goal.intent_type.value}")
-        else:
-            state.user_goal = await IntentAgent.run(gate_query, self.llm, ctx)
-            TraceRecorder.add(state, f"✓ IntentAgent fallback：{state.user_goal.intent_type.value}")
+        # Phase 3: UserGoal — TravelTaskToUserGoalAdapter primary; IntentAgent fallback only.
+        state.user_goal = await self._resolve_user_goal(state, ctx, gate_query)
 
         self._complete_context(state, ctx)
         TraceRecorder.add(state, f"✓ 识别用户画像：{', '.join(p.value for p in state.user_goal.party) or '一般游客'}")
@@ -78,6 +85,49 @@ class TravelAgentStateMachine:
             state.limitations.append("TravelTask 缺失，后续路由可能受限。")
             return self._to_response(state, 0.25)
 
+        # Phase 4: InformationNeedPlanner + ToolRouter — driven by TravelTask, not IntentAgent.
+        tool_names = self._plan_tool_execution(state)
+
+        state.query_plan = PlaceResearchAgent.build_query_plan(state.user_goal)
+        if state.tool_execution_plan.unsupported_needs:
+            state.limitations.append(
+                "以下信息需求暂无直接工具支撑：" + ", ".join(state.tool_execution_plan.unsupported_needs)
+            )
+
+        # Phase 5: Execute by TravelTask.task_type.
+        task_type = state.travel_task.task_type
+        if task_type == TravelTaskType.COMPARE_PLACES:
+            return await self._run_compare(state, tool_names)
+        if task_type == TravelTaskType.ITINERARY_PLANNING:
+            return await self._run_itinerary(state, tool_names)
+        if task_type == TravelTaskType.CROWD_INQUIRY:
+            return await self._run_crowd_inquiry(state, tool_names)
+        return await self._run_single(state, tool_names)
+
+    async def _run_query_understanding(
+        self,
+        state: TravelAgentState,
+        ctx: UserContext,
+        user_context: dict | None,
+    ) -> TravelAgentState:
+        return await self.query_understanding_state.run(state, ctx, user_context)
+
+    async def _resolve_user_goal(self, state: TravelAgentState, ctx: UserContext, gate_query: str) -> UserGoal:
+        qu_confidence = state.query_understanding.confidence if state.query_understanding else 0.0
+        if TravelTaskToUserGoalAdapter.should_use_task(
+            state.travel_task,
+            state.query_understanding,
+            qu_confidence,
+        ):
+            goal = TravelTaskToUserGoalAdapter.to_user_goal(state.travel_task, ctx)
+            TraceRecorder.add(state, f"✓ 已从 TravelTask 生成 UserGoal：{goal.intent_type.value}")
+            return goal
+
+        goal = await IntentAgent.run(gate_query, self.llm, ctx)
+        TraceRecorder.add(state, f"✓ IntentAgent fallback：{goal.intent_type.value}")
+        return goal
+
+    def _plan_tool_execution(self, state: TravelAgentState) -> list[str]:
         state.information_needs = InformationNeedPlanner.plan(state.travel_task)
         need_summary = ", ".join(f"{n.need_type.value}({n.priority.value})" for n in state.information_needs[:6])
         TraceRecorder.add(state, f"✓ 已生成信息需求：{need_summary}")
@@ -91,21 +141,7 @@ class TravelAgentStateMachine:
         )
         if state.tool_execution_plan.routing_explanation:
             TraceRecorder.add(state, f"✓ 路由说明：{state.tool_execution_plan.routing_explanation[0]}")
-
-        state.query_plan = PlaceResearchAgent.build_query_plan(state.user_goal)
-        if state.tool_execution_plan.unsupported_needs:
-            state.limitations.append(
-                "以下信息需求暂无直接工具支撑：" + ", ".join(state.tool_execution_plan.unsupported_needs)
-            )
-
-        task_type = state.travel_task.task_type
-        if task_type == TravelTaskType.COMPARE_PLACES:
-            return await self._run_compare(state, tool_names)
-        if task_type == TravelTaskType.ITINERARY_PLANNING:
-            return await self._run_itinerary(state, tool_names)
-        if task_type == TravelTaskType.CROWD_INQUIRY:
-            return await self._run_crowd_inquiry(state, tool_names)
-        return await self._run_single(state, tool_names)
+        return tool_names
 
     def _resolve_region_gate(
         self,
@@ -229,6 +265,9 @@ class TravelAgentStateMachine:
             rows.extend(sheet.to_field_evidence_summary())
         state.field_evidence_summary = rows
 
+    def _sync_tool_traces(self, state: TravelAgentState) -> None:
+        state.tool_traces = list(self.tools.traces)
+
     def _place_context_for(self, state: TravelAgentState, place: str, index: int) -> PlaceContext:
         if index < len(state.place_contexts):
             return state.place_contexts[index]
@@ -257,10 +296,10 @@ class TravelAgentStateMachine:
 
         place_ctx = self._place_context_for(state, place, 0)
         evidence = await self.place_research.retrieve_for_place(
-            canonical, goal, tool_names, place_ctx, state.tool_execution_plan
+            canonical, goal, tool_names, place_ctx, state.tool_execution_plan, state.limitations
         )
         state.evidence = evidence
-        state.tool_traces = list(self.tools.traces)
+        self._sync_tool_traces(state)
 
         fact_sheet = self.aggregator.aggregate(canonical, evidence, [])
         self._collect_field_summary(state, [fact_sheet])
@@ -291,10 +330,10 @@ class TravelAgentStateMachine:
 
         place_ctx = self._place_context_for(state, place, 0)
         evidence = await self.place_research.retrieve_for_place(
-            canonical, goal, tool_names, place_ctx, state.tool_execution_plan
+            canonical, goal, tool_names, place_ctx, state.tool_execution_plan, state.limitations
         )
         state.evidence = evidence
-        state.tool_traces = list(self.tools.traces)
+        self._sync_tool_traces(state)
         TraceRecorder.add(state, "✓ 查询官方/地图/交通/评价/天气证据")
 
         issues = self.verifier.validate(evidence)
@@ -342,7 +381,7 @@ class TravelAgentStateMachine:
             if "weather" in tool_names and place_ctx.country and place_ctx.city:
                 place_tools.append("weather")
             ev = await self.place_research.retrieve_for_place(
-                canonical, goal, place_tools, place_ctx, state.tool_execution_plan
+                canonical, goal, place_tools, place_ctx, state.tool_execution_plan, state.limitations
             )
             all_evidence.extend(ev)
             conflicts = [ConflictRecord(**c) for c in self.verifier.detect_conflicts(ev)]
@@ -355,7 +394,7 @@ class TravelAgentStateMachine:
         ranked = sorted(ranked_data, key=lambda x: x[1].overall_score, reverse=True)
         rows = ComposerAgent.build_comparison_rows(ranked)
         state.evidence = all_evidence
-        state.tool_traces = list(self.tools.traces)
+        self._sync_tool_traces(state)
         state.conflicts = [ConflictRecord(**c) for c in self.verifier.detect_conflicts(all_evidence)]
         fact_sheets = [fs for _, _, _, fs in ranked]
         self._collect_field_summary(state, fact_sheets)
@@ -383,7 +422,7 @@ class TravelAgentStateMachine:
             place_ctx = self._place_context_for(state, place, idx)
             all_evidence.extend(
                 await self.place_research.retrieve_for_place(
-                    canonical, goal, itinerary_tools, place_ctx, state.tool_execution_plan
+                    canonical, goal, itinerary_tools, place_ctx, state.tool_execution_plan, state.limitations
                 )
             )
             TraceRecorder.add(state, f"✓ 检索 {canonical} 交通/开放信息")
@@ -400,7 +439,7 @@ class TravelAgentStateMachine:
             TraceRecorder.add(state, "✓ 检查天气风险")
 
         state.evidence = all_evidence
-        state.tool_traces = list(self.tools.traces)
+        self._sync_tool_traces(state)
         state.structured_result = StructuredResult(
             itinerary=plan.model_dump(),
             places=[{"name": p} for p in places],
