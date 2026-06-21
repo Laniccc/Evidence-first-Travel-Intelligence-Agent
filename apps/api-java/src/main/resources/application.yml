@@ -1,0 +1,20 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: api-java
+
+agent:
+  base-url: ${AGENT_BASE_URL:http://localhost:8001}
+  connect-timeout: 5s
+  read-timeout: 120s
+
+tool-gateway:
+  enabled: ${TOOL_GATEWAY_ENABLED:true}
+  mcp-enabled: ${MCP_ENABLED:false}
+  mcp-timeout-seconds: ${MCP_TIMEOUT_SECONDS:30}
+  search:
+    enabled: ${MCP_SEARCH_ENABLED:false}
+    server-url: ${MCP_SEARCH_SERVER_URL:}
+    tool-name: ${MCP_SEARCH_TOOL_NAME:public_web_search}

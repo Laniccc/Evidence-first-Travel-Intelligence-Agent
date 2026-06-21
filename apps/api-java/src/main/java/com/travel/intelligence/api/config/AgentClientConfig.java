@@ -1,5 +1,6 @@
 package com.travel.intelligence.api.config;
 
+import com.travel.intelligence.api.tool.ToolGatewayProperties;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -7,7 +8,7 @@ import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.web.client.RestClient;
 
 @Configuration
-@EnableConfigurationProperties(AgentProperties.class)
+@EnableConfigurationProperties({AgentProperties.class, ToolGatewayProperties.class})
 public class AgentClientConfig {
 
     @Bean

@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Travel Intelligence Agent</title>
+  </head>
+  <body>
+    <header class="app-header">
+      <div>
+        <h1>Evidence-first Travel Agent</h1>
+        <p>日本 · 中国 · 韩国 · 证据驱动旅行问答（经 Java API Gateway）</p>
+      </div>
+      <div class="header-links">
+        <a id="link-health" href="/health" target="_blank" rel="noopener">API 健康检查</a>
+      </div>
+    </header>
+
+    <main class="container">
+      <section class="card">
+        <div class="card-body">
+          <label for="query">你的旅行问题</label>
+          <textarea
+            id="query"
+            placeholder="例如：京都清水寺适合带父母去吗？&#10;或：故宫今天人多吗？"
+          ></textarea>
+          <p class="hint">Ctrl + Enter 发送。请求经 api-java → agent-python，不直连 /agent/query。</p>
+          <div class="actions">
+            <button id="submit" class="primary" type="button">发送提问</button>
+            <button id="clear" class="ghost" type="button">清空</button>
+          </div>
+        </div>
+
+        <details class="panel">
+          <summary>选项配置（用户画像 / 会话上下文）</summary>
+          <div class="panel-content">
+            <div class="grid-2">
+              <div>
+                <label for="travel-date">出行日期</label>
+                <input id="travel-date" type="text" placeholder="如 2026-06-21 或 tomorrow" />
+              </div>
+              <div>
+                <label for="start-location">出发地</label>
+                <input id="start-location" type="text" placeholder="如 京都站 / 明洞" />
+              </div>
+            </div>
+
+            <div>
+              <label>同行人类型</label>
+              <div class="checkbox-group">
+                <label><input type="checkbox" name="party" value="elderly" /> 长辈</label>
+                <label><input type="checkbox" name="party" value="children" /> 儿童</label>
+                <label><input type="checkbox" name="party" value="family" /> 家庭</label>
+                <label><input type="checkbox" name="party" value="couple" /> 情侣</label>
+                <label><input type="checkbox" name="party" value="solo" /> 独自</label>
+              </div>
+            </div>
+
+            <div class="grid-2">
+              <div>
+                <label for="pace">节奏</label>
+                <select id="pace">
+                  <option value="unknown">未指定</option>
+                  <option value="relaxed">轻松</option>
+                  <option value="normal">正常</option>
+                  <option value="intense">紧凑</option>
+                </select>
+              </div>
+              <div>
+                <label for="budget">预算</label>
+                <select id="budget">
+                  <option value="unknown">未指定</option>
+                  <option value="low">经济</option>
+                  <option value="medium">中等</option>
+                  <option value="high">较高</option>
+                </select>
+              </div>
+            </div>
+
+            <div>
+              <label for="transport">交通偏好</label>
+              <select id="transport">
+                <option value="unknown">未指定</option>
+                <option value="public_transport">公共交通</option>
+                <option value="walking">步行</option>
+                <option value="taxi">出租车</option>
+                <option value="driving">自驾</option>
+              </select>
+            </div>
+
+            <details class="panel" style="border-top: none; border: 1px solid var(--border); border-radius: 8px">
+              <summary>会话上下文（追问「这里人多吗」时使用）</summary>
+              <div class="panel-content">
+                <div>
+                  <label for="last-places">上一轮景点（逗号分隔）</label>
+                  <input id="last-places" type="text" placeholder="Kiyomizu-dera" />
+                </div>
+                <div class="grid-2">
+                  <div>
+                    <label for="last-city">城市</label>
+                    <input id="last-city" type="text" placeholder="Kyoto" />
+                  </div>
+                  <div>
+                    <label for="last-country">国家</label>
+                    <input id="last-country" type="text" placeholder="Japan" />
+                  </div>
+                </div>
+              </div>
+            </details>
+          </div>
+        </details>
+      </section>
+
+      <section id="status-card" class="card status-card hidden">
+        <div class="card-title"><span class="spinner" id="status-spinner"></span> 思考过程</div>
+        <ul id="status-list" class="status-list"></ul>
+      </section>
+
+      <section id="output-card" class="card output-card hidden">
+        <div class="card-title">回答</div>
+        <div id="error-box" class="error-box hidden"></div>
+        <div id="answer" class="answer-box"></div>
+        <div id="meta" class="meta-row"></div>
+        <div id="limitations" class="limitations hidden">
+          <strong>限制与说明</strong>
+          <ul id="limitations-list"></ul>
+        </div>
+
+        <details class="panel">
+          <summary>可见 Trace（调试）</summary>
+          <div class="panel-content">
+            <pre id="trace-detail" class="mono-block"></pre>
+          </div>
+        </details>
+        <details class="panel">
+          <summary>证据摘要（调试）</summary>
+          <div class="panel-content">
+            <pre id="evidence-detail" class="mono-block"></pre>
+          </div>
+        </details>
+        <details class="panel">
+          <summary>工具 Trace（调试）</summary>
+          <div class="panel-content">
+            <pre id="tools-detail" class="mono-block"></pre>
+          </div>
+        </details>
+      </section>
+    </main>
+
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>

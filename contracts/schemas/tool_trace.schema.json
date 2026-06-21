@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://travel.intelligence/contracts/schemas/tool_trace.schema.json",
+  "title": "ToolTrace",
+  "description": "Record of a single tool invocation during evidence planning.",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["tool_name", "status", "evidence_ids"],
+  "properties": {
+    "tool_name": { "type": "string" },
+    "status": {
+      "type": "string",
+      "description": "e.g. ok, error, timeout"
+    },
+    "latency_ms": {
+      "type": "number",
+      "minimum": 0
+    },
+    "evidence_ids": {
+      "type": "array",
+      "items": { "type": "string" },
+      "default": []
+    },
+    "error": { "type": ["string", "null"] },
+    "input": {
+      "type": "object",
+      "additionalProperties": true,
+      "default": {}
+    },
+    "fallback_used": { "type": "boolean", "default": false },
+    "cache_hit": { "type": "boolean", "default": false }
+  }
+}

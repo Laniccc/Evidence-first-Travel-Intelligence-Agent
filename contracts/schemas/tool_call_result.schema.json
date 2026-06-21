@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://travel.intelligence/contracts/schemas/tool_call_result.schema.json",
+  "title": "ToolCallResult",
+  "description": "Java Tool Gateway → caller result.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["ok", "evidence", "tool_trace"],
+  "properties": {
+    "ok": { "type": "boolean" },
+    "evidence": {
+      "type": "array",
+      "items": { "$ref": "evidence.schema.json" },
+      "default": []
+    },
+    "tool_trace": { "$ref": "tool_trace.schema.json" },
+    "error": { "type": ["string", "null"] },
+    "tool_name": { "type": "string" },
+    "call_id": { "type": ["string", "null"] }
+  }
+}

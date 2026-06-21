@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://travel.intelligence/contracts/json-schema/travel-query.request.schema.json",
+  "$id": "https://travel.intelligence/contracts/schemas/travel_query_request.schema.json",
   "title": "TravelQueryRequest",
-  "description": "POST /api/travel/query request body. Source: backend/app/schemas/response.py",
+  "description": "POST /api/travel/query request body.",
   "type": "object",
   "additionalProperties": false,
   "required": ["query"],
@@ -12,9 +12,13 @@
       "minLength": 1,
       "description": "Natural-language travel question."
     },
+    "session_id": {
+      "type": "string",
+      "description": "Optional client session identifier."
+    },
     "user_context": {
       "type": "object",
-      "description": "Optional session / user profile context (opaque key-value map).",
+      "description": "Optional session / user profile context.",
       "additionalProperties": true,
       "default": {}
     },

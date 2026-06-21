@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://travel.intelligence/contracts/schemas/tool_call_request.schema.json",
+  "title": "ToolCallRequest",
+  "description": "Agent → Java Tool Gateway invocation request.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["tool_name", "arguments"],
+  "properties": {
+    "call_id": { "type": "string" },
+    "tool_name": { "type": "string" },
+    "arguments": {
+      "type": "object",
+      "additionalProperties": true,
+      "default": {}
+    },
+    "session_id": { "type": ["string", "null"] },
+    "query_id": { "type": ["string", "null"] },
+    "trace_id": { "type": ["string", "null"] },
+    "requested_by_state": { "type": ["string", "null"] }
+  }
+}

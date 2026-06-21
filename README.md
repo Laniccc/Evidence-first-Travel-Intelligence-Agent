@@ -9,10 +9,14 @@
 
 **运维手册**：[RUNBOOK.md](RUNBOOK.md)（安装、API 示例、故障排查）
 
+> **Monorepo 与 Legacy**：新功能写入 `apps/agent-python`、`apps/api-java`、`apps/web`、`contracts/`。  
+> `backend/` 为 **LEGACY** 单体（回退与对照 only），详见 [backend/LEGACY.md](backend/LEGACY.md)。
+
 ---
 
 ## 快速开始
 
+> **Legacy 入口**：以下命令使用 `backend/`（旧单体）。新开发请以 `apps/agent-python` 为准；`backend` 仅用于回退与对照，见 [backend/LEGACY.md](backend/LEGACY.md)。  
 > **重要**：`app` 包位于 `backend/` 下。请在 `backend` 目录内运行 uvicorn、pytest 及所有 Python 命令。  
 > 若在项目根目录运行会出现 `ModuleNotFoundError: No module named 'app'`。
 
@@ -199,43 +203,71 @@ MCP_ENABLED=true
 
 ```text
 Evidence-first Travel Intelligence Agent/
+├── apps/
+│   ├── agent-python/       # Python Agent 核心（目标主路径）
+│   ├── api-java/             # Java API Gateway / session / 周边服务
+│   └── web/                  # 前端（dist/）
+├── contracts/                # 跨语言协议（JSON Schema）
+├── packages/                 # 可复用 Python 包（tools 等，迁移中）
+├── backend/                  # LEGACY — 旧 FastAPI 单体（回退与对照 only）
+│   ├── LEGACY.md
+│   └── app/                  # 原 orchestrator / agents / tools / evals
 ├── README.md
 ├── RUNBOOK.md
-├── image.png
-└── backend/
-    ├── .env.example
-    ├── pytest.ini
-    ├── requirements.txt
-    └── app/
-        ├── main.py                 # FastAPI + 静态 UI
-        ├── config.py               # TOOL_MODE、API keys、官方白名单
-        ├── static/                 # Web UI（index.html / app.js）
-        ├── catalog/
-        ├── policies/
-        │   └── evidence_policy.py
-        ├── orchestrator/
-        │   ├── answer_mode_router.py
-        │   ├── state_machine.py
-        │   ├── evidence_aggregator.py
-        │   └── citation_check.py
-        ├── agents/
-        ├── storage/
-        │   └── tool_cache.py
-        ├── tools/
-        │   ├── real/               # RealWeatherTool, RealPlacesTool, RealOfficialPageTool
-        │   ├── adapters/           # MCPToolAdapter
-        │   ├── hybrid_tool.py
-        │   ├── knowledge_prior_tool.py
-        │   ├── capability_registry.py
-        │   ├── tool_router.py
-        │   └── registry.py
-        ├── schemas/
-        └── evals/
-            ├── golden_queries.json
-            ├── semantic_routing_tests.py
-            ├── real_data_pilot_queries.json
-            └── integration/        # @pytest.mark.real_api
+└── REPO_MAP.md / MIGRATION_PLAN.md
 ```
+
+**Legacy `backend/app/` 明细（对照用，勿新增功能）**：
+
+```text
+backend/app/
+├── main.py                 # FastAPI（legacy）
+├── config.py
+├── orchestrator/           # → apps/agent-python
+├── agents/
+├── tools/                  # → packages/tools
+├── schemas/                # → packages/shared + contracts/
+└── evals/                  # → tests/evals
+```
+
+原单体目录说明（只读对照）：
+
+```text
+backend/
+├── .env.example
+├── pytest.ini
+├── requirements.txt
+└── app/
+    ├── main.py                 # FastAPI（legacy）
+    ├── config.py               # TOOL_MODE、API keys、官方白名单
+    ├── catalog/
+    ├── policies/
+    │   └── evidence_policy.py
+    ├── orchestrator/
+    │   ├── answer_mode_router.py
+    │   ├── state_machine.py
+    │   ├── evidence_aggregator.py
+    │   └── citation_check.py
+    ├── agents/
+    ├── storage/
+    │   └── tool_cache.py
+    ├── tools/
+    │   ├── real/
+    │   ├── adapters/
+    │   ├── hybrid_tool.py
+    │   ├── knowledge_prior_tool.py
+    │   ├── capability_registry.py
+    │   ├── tool_router.py
+    │   └── registry.py
+    ├── schemas/
+    └── evals/
+        ├── golden_queries.json
+        ├── semantic_routing_tests.py
+        ├── real_data_pilot_queries.json
+        └── integration/
+```
+
+前端已迁至 `apps/web/dist/`；legacy `main.py` 可在 `dist` 存在时挂载 `/static`。
 
 ## 如何新增景点 mock data
 

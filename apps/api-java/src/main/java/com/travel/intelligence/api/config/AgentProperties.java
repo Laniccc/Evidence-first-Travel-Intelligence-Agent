@@ -4,10 +4,10 @@ import java.time.Duration;
 
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
-@ConfigurationProperties(prefix = "travel.agent")
+@ConfigurationProperties(prefix = "agent")
 public class AgentProperties {
 
-    private String baseUrl = "http://127.0.0.1:8000";
+    private String baseUrl = "http://localhost:8001";
     private Duration connectTimeout = Duration.ofSeconds(5);
     private Duration readTimeout = Duration.ofMinutes(2);
 

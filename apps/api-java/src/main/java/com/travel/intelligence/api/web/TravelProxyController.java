@@ -2,48 +2,52 @@ package com.travel.intelligence.api.web;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
-import com.travel.intelligence.api.client.PythonAgentClient;
+import com.travel.intelligence.api.session.TravelQueryService;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestClientException;
+import org.springframework.web.client.RestClientResponseException;
 
 @RestController
 @RequestMapping("/api/travel")
 public class TravelProxyController {
 
-    private final PythonAgentClient pythonAgentClient;
+    private final TravelQueryService travelQueryService;
 
-    public TravelProxyController(PythonAgentClient pythonAgentClient) {
-        this.pythonAgentClient = pythonAgentClient;
+    public TravelProxyController(TravelQueryService travelQueryService) {
+        this.travelQueryService = travelQueryService;
     }
 
     @PostMapping("/query")
     public ResponseEntity<JsonNode> travelQuery(@RequestBody JsonNode requestBody) {
         try {
-            return ResponseEntity.ok(pythonAgentClient.travelQuery(requestBody));
+            return ResponseEntity.ok(travelQueryService.travelQuery(requestBody));
+        } catch (ResourceAccessException ex) {
+            if (isTimeout(ex)) {
+                return gatewayError(HttpStatus.GATEWAY_TIMEOUT, "agent_timeout", ex);
+            }
+            return gatewayError(HttpStatus.BAD_GATEWAY, "agent_unavailable", ex);
+        } catch (RestClientResponseException ex) {
+            return ResponseEntity.status(ex.getStatusCode()).body(ex.getResponseBodyAs(JsonNode.class));
         } catch (RestClientException ex) {
-            return agentUnavailable(ex);
+            return gatewayError(HttpStatus.BAD_GATEWAY, "agent_unavailable", ex);
         }
     }
 
-    @GetMapping("/supported-regions")
-    public ResponseEntity<JsonNode> supportedRegions() {
-        try {
-            return ResponseEntity.ok(pythonAgentClient.supportedRegions());
-        } catch (RestClientException ex) {
-            return agentUnavailable(ex);
-        }
+    private static boolean isTimeout(ResourceAccessException ex) {
+        String message = ex.getMessage() != null ? ex.getMessage().toLowerCase() : "";
+        return message.contains("timed out") || message.contains("timeout");
     }
 
-    private ResponseEntity<JsonNode> agentUnavailable(Exception ex) {
+    private static ResponseEntity<JsonNode> gatewayError(HttpStatus status, String code, Exception ex) {
         JsonNode body = JsonNodeFactory.instance.objectNode()
-                .put("error", "python_agent_unavailable")
-                .put("message", ex.getMessage());
-        return ResponseEntity.status(HttpStatus.BAD_GATEWAY).body(body);
+                .put("error", code)
+                .put("message", ex.getMessage() != null ? ex.getMessage() : status.getReasonPhrase());
+        return ResponseEntity.status(status).body(body);
     }
 }

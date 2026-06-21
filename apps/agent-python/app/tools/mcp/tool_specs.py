@@ -1,0 +1,216 @@
+"""Policy-level MCP tool names, server bindings, and capabilities."""
+
+from __future__ import annotations
+
+# policy_tool_name -> (server_key, default_mcp_tool_name, capabilities)
+MCP_POLICY_SPECS: dict[str, tuple[str, str, list[str]]] = {
+    "search_mcp": (
+        "search",
+        "public_web_search",
+        [
+            "public_web_search",
+            "official_page_discovery",
+            "tourism_board_search",
+            "seasonality_search",
+            "event_search",
+            "temporary_notice_search",
+        ],
+    ),
+    "browser_mcp": (
+        "browser",
+        "dynamic_page_read",
+        [
+            "official_page_read",
+            "tourism_board_page_read",
+            "dynamic_page_read",
+            "html_extract",
+            "notice_page_read",
+        ],
+    ),
+    "official_page_reader_mcp": (
+        "browser",
+        "official_page_read",
+        [
+            "official_page_read",
+            "tourism_board_page_read",
+            "html_extract",
+            "notice_page_read",
+        ],
+    ),
+    "osm_mcp": (
+        "osm",
+        "place_lookup",
+        ["geocode", "place_lookup", "coordinates", "country_region_lookup", "nearby_poi", "route_proxy"],
+    ),
+    "places_mcp": (
+        "osm",
+        "place_lookup",
+        ["geocode", "place_lookup", "coordinates", "nearby_poi", "route_proxy"],
+    ),
+    "geocode_mcp": (
+        "osm",
+        "geocode",
+        ["geocode", "coordinates", "country_region_lookup"],
+    ),
+    "openmeteo_mcp": (
+        "openmeteo",
+        "forecast",
+        [
+            "current_weather",
+            "forecast",
+            "historical_weather",
+            "monthly_climate",
+            "precipitation_probability",
+            "temperature_range",
+            "weather_risk",
+        ],
+    ),
+    "weather_mcp": (
+        "openmeteo",
+        "current_weather",
+        ["current_weather", "forecast", "weather_risk"],
+    ),
+    "climate_mcp": (
+        "openmeteo",
+        "monthly_climate",
+        ["monthly_climate", "historical_weather", "temperature_range", "precipitation_probability"],
+    ),
+    "wikipedia_mcp": (
+        "wikipedia",
+        "destination_overview",
+        ["destination_overview", "attraction_background", "entity_description", "multilingual_alias"],
+    ),
+    "wikidata_mcp": (
+        "wikidata",
+        "entity_resolution",
+        [
+            "entity_resolution",
+            "alias_lookup",
+            "coordinates",
+            "country_region_lookup",
+            "instance_of",
+            "administrative_area",
+        ],
+    ),
+    "sqlite_mcp": (
+        "sqlite",
+        "read_evidence_cache",
+        ["read_evidence_cache", "read_place_cache", "query_tool_trace"],
+    ),
+    "evidence_store_mcp": (
+        "sqlite",
+        "read_evidence_cache",
+        ["read_evidence_cache", "read_place_cache", "query_tool_trace"],
+    ),
+}
+
+MCP_POLICY_TOOL_NAMES = frozenset(MCP_POLICY_SPECS.keys())
+
+# Legacy registry attribute aliases (policy name may differ from registry attr)
+POLICY_TO_REGISTRY_ATTR: dict[str, str] = {
+    "search_mcp": "search_mcp",
+    "browser_mcp": "browser_mcp",
+    "official_page_reader_mcp": "official_page_reader_mcp",
+    "official_mcp": "official_page_reader_mcp",
+    "osm_mcp": "osm_mcp",
+    "places_mcp": "places_mcp",
+    "geocode_mcp": "geocode_mcp",
+    "openmeteo_mcp": "openmeteo_mcp",
+    "weather_mcp": "weather_mcp",
+    "climate_mcp": "climate_mcp",
+    "wikipedia_mcp": "wikipedia_mcp",
+    "wikidata_mcp": "wikidata_mcp",
+    "sqlite_mcp": "sqlite_mcp",
+    "evidence_store_mcp": "evidence_store_mcp",
+    # backward compat
+    "mcp_weather": "weather_mcp",
+    "mcp_places": "places_mcp",
+    "mcp_official": "official_page_reader_mcp",
+}
+
+NEED_TOOL_PROFILES: dict[str, list[str]] = {
+    "best_time_to_visit": [
+        "search_mcp",
+        "browser_mcp",
+        "openmeteo_mcp",
+        "climate_mcp",
+        "wikipedia_mcp",
+        "wikidata_mcp",
+        "osm_mcp",
+        "seasonality",
+        "knowledge_prior",
+        "fallback",
+        "weather",
+    ],
+    "seasonality": [
+        "search_mcp",
+        "browser_mcp",
+        "openmeteo_mcp",
+        "climate_mcp",
+        "wikipedia_mcp",
+        "wikidata_mcp",
+        "osm_mcp",
+        "seasonality",
+        "knowledge_prior",
+        "fallback",
+    ],
+    "climate_monthly": ["openmeteo_mcp", "climate_mcp", "weather", "weather_mcp"],
+    "monthly_weather": ["openmeteo_mcp", "climate_mcp", "weather_mcp", "weather"],
+    "opening_hours": [
+        "browser_mcp",
+        "official_page_reader_mcp",
+        "search_mcp",
+        "osm_mcp",
+        "places_mcp",
+        "official",
+        "places",
+        "fallback",
+    ],
+    "temporary_closure": [
+        "browser_mcp",
+        "official_page_reader_mcp",
+        "search_mcp",
+        "official",
+        "places",
+        "fallback",
+    ],
+    "reservation_policy": [
+        "browser_mcp",
+        "official_page_reader_mcp",
+        "search_mcp",
+        "official",
+        "fallback",
+    ],
+    "ticket_price": [
+        "official_page_reader_mcp",
+        "browser_mcp",
+        "search_mcp",
+        "official",
+        "fallback",
+    ],
+    "weather_today": ["openmeteo_mcp", "weather_mcp", "weather"],
+    "today_weather": ["openmeteo_mcp", "weather_mcp", "weather"],
+    "weather": ["openmeteo_mcp", "weather_mcp", "weather"],
+    "forecast": ["openmeteo_mcp", "weather_mcp", "weather"],
+    "current_crowd": ["search_mcp", "browser_mcp", "osm_mcp", "places_mcp", "reviews", "fallback"],
+    "queue_time": ["search_mcp", "browser_mcp", "osm_mcp", "places_mcp", "reviews", "fallback"],
+    "crowd_level": ["search_mcp", "browser_mcp", "osm_mcp", "places_mcp", "reviews", "fallback"],
+    "nearby_food": ["osm_mcp", "places_mcp", "search_mcp", "restaurant", "fallback"],
+    "nearby_rest_area": ["osm_mcp", "places_mcp", "search_mcp", "restaurant", "fallback"],
+    "entity_resolution": ["wikidata_mcp", "wikipedia_mcp", "osm_mcp", "places_mcp", "search_mcp"],
+    "public_web_search": ["search_mcp", "browser_mcp", "fallback"],
+    "official_page_read": ["official_page_reader_mcp", "browser_mcp", "official", "fallback"],
+    "general_travel_advice": [
+        "search_mcp",
+        "wikipedia_mcp",
+        "wikidata_mcp",
+        "osm_mcp",
+        "places_mcp",
+        "places",
+        "reviews",
+        "transit",
+        "knowledge_prior",
+        "fallback",
+    ],
+    "fallback_web_lookup": ["search_mcp", "browser_mcp", "wikipedia_mcp", "fallback", "knowledge_prior"],
+}
