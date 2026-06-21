@@ -1,24 +1,24 @@
 {
-  "喀纳斯湖|阿勒泰|中国": {
-    "mention": "喀纳斯湖",
-    "canonical_name": "喀纳斯湖",
-    "country": "中国",
-    "city": "阿勒泰",
+  "札幌|sapporo|japan": {
+    "mention": "札幌",
+    "canonical_name": "Sapporo",
+    "country": "Japan",
+    "city": "Sapporo",
     "region": null,
-    "place_type": "poi",
-    "confidence": 1.0,
+    "place_type": "city",
+    "confidence": 0.88,
     "resolution_source": "llm_geocode",
     "coordinates": null,
     "metadata": {}
   },
-  "喀纳斯湖|布尔津|中国": {
-    "mention": "喀纳斯湖",
-    "canonical_name": "喀纳斯湖",
-    "country": "中国",
-    "city": "布尔津",
+  "札幌|札幌|日本": {
+    "mention": "札幌",
+    "canonical_name": "札幌",
+    "country": "日本",
+    "city": "札幌",
     "region": null,
-    "place_type": "poi",
-    "confidence": 0.95,
+    "place_type": "city",
+    "confidence": 1.0,
     "resolution_source": "llm_geocode",
     "coordinates": null,
     "metadata": {}

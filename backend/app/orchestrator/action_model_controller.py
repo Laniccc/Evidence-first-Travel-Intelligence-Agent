@@ -19,6 +19,10 @@ class ActionModelController:
         prompt_context: dict,
         step: int,
     ) -> AgentAction:
+        # Answer composition has a fixed two-step plan; LLM routing here can skip
+        # composer_agent and FINISH with an empty result (→ blank API answer).
+        if policy.state_name == "answer_composition":
+            return self._deterministic_action(state, policy, prompt_context, step)
         if self.llm and self.llm._should_use_anthropic():
             try:
                 return await self._llm_action(state, policy, prompt_context, step)

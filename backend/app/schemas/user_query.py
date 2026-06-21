@@ -6,6 +6,7 @@ from app.schemas.citation import CitationCheckResult
 from app.schemas.conversation_context import ConversationContext
 from app.schemas.conversation_memory import ConversationMemory
 from app.schemas.information_need import InformationNeed
+from app.schemas.normalized_user_request import NormalizedUserRequest
 from app.schemas.query_understanding import QueryUnderstandingResult
 from app.schemas.place_context import PlaceContext
 from app.schemas.rewritten_query import RewrittenQueryResult
@@ -123,6 +124,7 @@ class TravelAgentState(BaseModel):
     region_gate: RegionGateResult | None = None
     conversation_memory: ConversationMemory | None = None
     conversation_context: ConversationContext | None = None
+    normalized_request: NormalizedUserRequest | None = None
     query_understanding: QueryUnderstandingResult | None = None
     rewritten_query_result: RewrittenQueryResult | None = None
     travel_task: TravelTask | None = None

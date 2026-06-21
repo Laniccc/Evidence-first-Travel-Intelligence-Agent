@@ -120,21 +120,35 @@ class StateReducer:
             )
         elif policy.state_name == "answer_composition" and result is not None:
             draft = result if isinstance(result, FinalAnswerDraft) else FinalAnswerDraft.model_validate(result)
-            state = self._apply_composition_draft(state, draft)
+            rendered = draft.render_text().strip()
+            if rendered:
+                state = self._apply_composition_draft(state, draft)
+            elif (state.final_response or "").strip():
+                TraceRecorder.add(state, "✓ [loop] AnswerComposition 完成（保留已有草稿）")
+            else:
+                state.limitations.append("Answer composition FINISH 未产生有效正文")
             TraceRecorder.add(
                 state,
                 f"✓ [{policy.state_name}] FINISH_STATE → FinalAnswerDraft",
             )
+        elif policy.state_name == "answer_composition" and result is None and not (state.final_response or "").strip():
+            state.limitations.append("Answer composition FINISH 缺少 result 且无 final_response")
         elif action.arguments.get("final_response"):
             state.final_response = action.arguments["final_response"]
         return state
 
     def _apply_composition_draft(self, state: TravelAgentState, draft: FinalAnswerDraft) -> TravelAgentState:
-        state.final_response = draft.render_text()
-        structured = dict(state.structured_result or {})
-        structured["final_answer_draft"] = draft.model_dump()
-        state.structured_result = structured
-        TraceRecorder.add(state, "✓ [loop] AnswerComposition 完成")
+        rendered = draft.render_text().strip()
+        if rendered:
+            state.final_response = rendered
+            structured = dict(state.structured_result or {})
+            structured["final_answer_draft"] = draft.model_dump()
+            state.structured_result = structured
+            TraceRecorder.add(state, "✓ [loop] AnswerComposition 完成")
+        elif (state.final_response or "").strip():
+            TraceRecorder.add(state, "✓ [loop] AnswerComposition 完成（忽略空草稿）")
+        else:
+            state.limitations.append("Answer composition 草稿无有效正文")
         return state
 
     def _apply_qu_result(self, state: TravelAgentState, result: QueryUnderstandingResult) -> TravelAgentState:

@@ -48,17 +48,23 @@ class AnswerModeRouter:
           )
 
       if frame.decision_type == DecisionType.BEST_TIME_TO_VISIT or "best_time_to_visit" in frame.information_needs:
-          if frame.query_scope in {QueryScope.CITY, QueryScope.COUNTRY, QueryScope.REGION}:
-              return AnswerModeDecision(
-                  answer_mode=AnswerMode.MODEL_PRIOR_ALLOWED,
-                  optional_tools=self._tools_for_needs(["seasonality", "weather"], caps, required=False),
-                  allow_knowledge_prior=True,
-                  allow_partial_answer=True,
-                  reason="目的地季节建议允许低置信度 model prior",
-                  limitations_to_add=[
-                      "这是基于一般季节规律的建议；具体年份天气、节庆日期、住宿价格需进一步查询。"
-                  ],
-              )
+          if frame.query_scope in {
+              QueryScope.CITY,
+              QueryScope.COUNTRY,
+              QueryScope.REGION,
+              QueryScope.PLACE,
+          }:
+              if frame.can_answer_with_model_prior:
+                  return AnswerModeDecision(
+                      answer_mode=AnswerMode.MODEL_PRIOR_ALLOWED,
+                      optional_tools=self._tools_for_needs(["seasonality", "weather"], caps, required=False),
+                      allow_knowledge_prior=True,
+                      allow_partial_answer=True,
+                      reason="季节/最佳时间建议允许低置信度 model prior",
+                      limitations_to_add=[
+                          "这是基于一般季节规律的建议；具体年份天气、节庆日期、住宿价格需进一步查询。"
+                      ],
+                  )
 
       if frame.can_answer_with_model_prior and frame.decision_type in {
           DecisionType.GENERAL_ADVICE,
@@ -156,6 +162,8 @@ class AnswerModeRouter:
   def _needs_clarification(self, frame: SemanticFrame) -> bool:
       if "place_reference" in frame.missing_slots:
           return True
+      if frame.decision_type == DecisionType.BEST_TIME_TO_VISIT and frame.can_answer_with_model_prior:
+          return False
       if frame.query_scope == QueryScope.PLACE and not frame.entities.places:
           if frame.decision_type in {DecisionType.FACT_LOOKUP, DecisionType.RISK_CHECK}:
               return True

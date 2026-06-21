@@ -29,8 +29,8 @@ class AnswerComposerAgent:
         if self.llm._should_use_anthropic():
             try:
                 draft = await self._llm_compose(bundle)
-                if self._validate_draft(draft, bundle):
-                    draft.answer_text = draft.render_text()
+                if self._validate_draft(draft, bundle) and self._has_substantive_content(draft):
+                    draft.answer_text = draft.render_text().strip()
                     return draft
             except Exception as exc:
                 logger.warning("AnswerComposer LLM failed, using static fallback: %s", exc)
@@ -104,6 +104,15 @@ class AnswerComposerAgent:
                 return False
         return bool(draft.conclusion or draft.answer_text or draft.sections)
 
+    @staticmethod
+    def _has_substantive_content(draft: FinalAnswerDraft) -> bool:
+        if (draft.answer_text or draft.conclusion or draft.headline or "").strip():
+            return True
+        for section in draft.sections:
+            if section.title.strip() or any(b.strip() for b in section.bullets):
+                return True
+        return False
+
     def _static_compose(self, state: TravelAgentState, arguments: dict, bundle: dict) -> FinalAnswerDraft:
         mode = arguments.get("compose_mode", "advisory")
         evidence = [ev for ev in state.evidence if isinstance(ev, Evidence)]
@@ -141,6 +150,9 @@ class AnswerComposerAgent:
         else:
             text = arguments.get("fallback_text", "")
             conclusion = text[:200]
+
+        if not (text or "").strip():
+            text = conclusion or "暂无足够建议。"
 
         return FinalAnswerDraft(
             headline=f"关于 {bundle['target_label']}",

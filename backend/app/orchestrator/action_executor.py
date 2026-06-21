@@ -1,6 +1,4 @@
 from app.agents.query_understanding_agent import QueryUnderstandingAgent
-from app.agents.semantic_frame_builder import SemanticFrameBuilder
-from app.catalog.place_resolver import resolve_places_for_query
 from app.llm_client import LLMClient
 from app.orchestrator.actions import ActionResult, AgentAction, AgentActionType
 from app.schemas.user_query import TravelAgentState
@@ -50,19 +48,13 @@ class ActionExecutor:
             ctx = state.conversation_context
             if ctx is None:
                 return ActionResult(ok=False, error="conversation_context required")
-            place_candidates = await resolve_places_for_query(
-                state.raw_user_query, ctx, self.llm
-            )
             result = await self._qu_agent.run(
                 raw_query=state.raw_user_query,
                 conversation_context=ctx,
                 supported_regions=prompt_context.get("supported_regions"),
                 user_ctx=prompt_context.get("user_ctx"),
             )
-            result = SemanticFrameBuilder.ensure_result(
-                state.raw_user_query, result, place_candidates
-            )
-            return ActionResult(output={"query_understanding": result, "place_candidates": place_candidates})
+            return ActionResult(output={"query_understanding": result})
 
         if name == "semantic_frame_builder":
             qu = state.query_understanding

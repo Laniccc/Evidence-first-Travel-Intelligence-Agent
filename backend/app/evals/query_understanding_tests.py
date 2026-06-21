@@ -153,7 +153,7 @@ async def test_visible_trace_contains_query_understanding():
     resp = await sm.run("京都清水寺适合带父母去吗？", {"party": ["elderly"]})
     trace = " ".join(resp.visible_trace)
     assert "会话上下文" in trace or "构建" in trace
-    assert "转写" in trace
+    assert "LLM 用户理解" in trace or "NormalizedUserRequest" in trace
     assert "TravelTask" in trace
 
 
@@ -193,7 +193,7 @@ def test_query_understanding_agent_uses_entity_hints_not_registry():
     assert "list_known_places" not in source
     assert "mock_data" not in source
     assert "PLACE_REGISTRY" not in source
-    assert "resolve_places_for_query" in source
+    assert "LLMUnderstandingSubAgent" in source
     agent = QueryUnderstandingAgent(LLMClient())
     assert not hasattr(agent, "catalog")
 

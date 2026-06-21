@@ -76,7 +76,7 @@ async def test_query_understanding_state_uses_controlled_loop():
     qu_state = QueryUnderstandingPromptState(llm_client=None)
     out = await qu_state.run(sm_state, UserContext())
     assert out.semantic_frame is not None
-    assert any("受控状态循环" in t for t in out.visible_trace)
+    assert any("LLM 用户理解" in t or "NormalizedUserRequest" in t for t in out.visible_trace)
 
 
 @pytest.mark.asyncio
@@ -149,3 +149,101 @@ def test_deterministic_planner_finishes_after_qu():
     a0 = ctrl._deterministic_action(state, QUERY_UNDERSTANDING_POLICY, {}, 0)
     assert a0.action_type == AgentActionType.CALL_SUBAGENT
     assert a0.target == "query_understanding"
+
+
+@pytest.mark.asyncio
+async def test_answer_composition_uses_deterministic_planner_even_with_llm():
+    """LLM state-loop must not skip composer_agent for answer_composition."""
+    from app.orchestrator.actions import AgentAction, AgentActionType
+    from app.tools.knowledge_prior_tool import KnowledgePriorTool
+    from app.schemas.semantic_frame import (
+        DecisionType,
+        QueryScope,
+        SemanticEntities,
+        SemanticFrame,
+        TaskFamily,
+        TimeScope,
+    )
+
+    class PrematureFinishController(ActionModelController):
+        async def _llm_action(self, state, policy, prompt_context, step):
+            return AgentAction(
+                action_type=AgentActionType.FINISH_STATE,
+                arguments={"result": None},
+                reason_summary="LLM tried to finish without composing",
+            )
+
+    raw = "可可托海适合几月份去"
+    frame = SemanticFrame(
+        raw_query=raw,
+        normalized_request=raw,
+        query_scope=QueryScope.PLACE,
+        task_family=TaskFamily.ADVISORY,
+        decision_type=DecisionType.BEST_TIME_TO_VISIT,
+        entities=SemanticEntities(country="China", places=["可可托海"]),
+        time_scope=TimeScope.SEASONAL,
+        information_needs=["best_time_to_visit", "seasonality"],
+        confidence=0.9,
+        requires_live_data=False,
+        requires_exact_fact=False,
+        can_answer_with_model_prior=True,
+    )
+    evidence = await KnowledgePriorTool().run(raw_query=raw, semantic_frame=frame)
+    state = TravelAgentState(session_id="s", query_id="q", raw_user_query=raw)
+    state.evidence = evidence
+    state.semantic_frame = frame
+
+    runner = ClaudeStateRunner(model_controller=PrematureFinishController())
+    state = await runner.run(
+        state,
+        ANSWER_COMPOSITION_POLICY,
+        {"compose_mode": "advisory", "target_label": "可可托海"},
+    )
+    assert (state.final_response or "").strip()
+    assert any("composer_agent" in t for t in state.visible_trace)
+
+
+@pytest.mark.asyncio
+async def test_answer_composition_state_fallback_when_loop_empty():
+    from app.orchestrator.states.answer_composition_state import AnswerCompositionState
+    from app.tools.knowledge_prior_tool import KnowledgePriorTool
+    from app.schemas.semantic_frame import (
+        DecisionType,
+        QueryScope,
+        SemanticEntities,
+        SemanticFrame,
+        TaskFamily,
+        TimeScope,
+    )
+    from app.orchestrator.claude_state_runner import ClaudeStateRunner
+
+    class EmptyFinishRunner(ClaudeStateRunner):
+        async def run(self, state, policy, prompt_context):
+            state.limitations.append("simulated empty loop")
+            return state
+
+    raw = "可可托海适合几月份去"
+    frame = SemanticFrame(
+        raw_query=raw,
+        normalized_request=raw,
+        query_scope=QueryScope.PLACE,
+        task_family=TaskFamily.ADVISORY,
+        decision_type=DecisionType.BEST_TIME_TO_VISIT,
+        entities=SemanticEntities(country="China", places=["可可托海"]),
+        time_scope=TimeScope.SEASONAL,
+        information_needs=["best_time_to_visit", "seasonality"],
+        confidence=0.9,
+        requires_live_data=False,
+        requires_exact_fact=False,
+        can_answer_with_model_prior=True,
+    )
+    evidence = await KnowledgePriorTool().run(raw_query=raw, semantic_frame=frame)
+    state = TravelAgentState(session_id="s", query_id="q", raw_user_query=raw)
+    state.evidence = evidence
+    state.semantic_frame = frame
+
+    comp = AnswerCompositionState()
+    comp.runner = EmptyFinishRunner()
+    out = await comp.run(state, compose_mode="advisory", target_label="可可托海")
+    assert (out.final_response or "").strip()
+    assert any("兜底合成" in t for t in out.visible_trace)

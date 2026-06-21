@@ -10,7 +10,7 @@ from app.tools.base import BaseTravelTool
 logger = logging.getLogger(__name__)
 
 MODEL_PRIOR_LIMITATION = (
-    "该建议基于一般旅行常识，不代表具体年份天气、活动日期、价格或实时情况。"
+    "该建议基于一般旅行常识，不代表具体年份天气、交通、景区开放、活动日期或价格情况。"
 )
 
 _CITY_SEASON_PRIORS: dict[str, str] = {
@@ -104,6 +104,7 @@ class KnowledgePriorTool(BaseTravelTool):
 
     async def _generate_content(self, query: str, frame: SemanticFrame) -> str:
         city = frame.entities.city
+        place = frame.entities.places[0] if frame.entities.places else None
         if frame.decision_type == DecisionType.BEST_TIME_TO_VISIT and city and city in _CITY_SEASON_PRIORS:
             return _CITY_SEASON_PRIORS[city]
 
@@ -114,11 +115,13 @@ class KnowledgePriorTool(BaseTravelTool):
                     '{"advice": "..."}. Do NOT invent opening hours, ticket prices, '
                     "today's weather, or current crowd levels."
                 )
+                place = frame.entities.places[0] if frame.entities.places else None
                 user = json.dumps(
                     {
                         "query": query,
                         "city": frame.entities.city,
                         "country": frame.entities.country,
+                        "place": place,
                         "decision_type": frame.decision_type.value,
                     },
                     ensure_ascii=False,
@@ -129,7 +132,7 @@ class KnowledgePriorTool(BaseTravelTool):
             except Exception as exc:
                 logger.warning("KnowledgePrior LLM failed: %s", exc)
 
-        target = city or frame.entities.country or "该目的地"
+        target = place or city or frame.entities.country or "该目的地"
         return (
             f"关于「{query}」：{target} 的旅行建议需结合季节与个人偏好。"
             "一般而言，旺季与淡季在天气、人流与价格上差异明显；"

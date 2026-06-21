@@ -62,7 +62,7 @@ async def test_query_understanding_state_writes_semantic_frame_to_state():
     assert out.semantic_frame.query_scope.value == "city"
     assert out.semantic_frame.decision_type.value == "best_time_to_visit"
     assert out.query_understanding is not None
-    assert any("受控状态循环" in t for t in out.visible_trace)
+    assert any("LLM 用户理解" in t or "NormalizedUserRequest" in t for t in out.visible_trace)
 
 
 # --- AnswerMode in state machine ---
@@ -131,10 +131,10 @@ def test_registry_hybrid_mode_registers_real_and_mock_fallback():
 
 
 def test_llm_client_is_not_used_as_tool_loop_yet_or_state_runner_exists():
-    from app.orchestrator.states import query_understanding_state as qu_mod
+    from app.orchestrator.states import llm_understanding_state as qu_mod
 
     assert ClaudeStateRunner is not None
-    assert "ClaudeStateRunner" in inspect.getsource(qu_mod)
+    assert "LLMUnderstandingState" in inspect.getsource(qu_mod)
     registry_source = inspect.getsource(ToolRegistry)
     assert "ClaudeStateRunner" not in registry_source
 

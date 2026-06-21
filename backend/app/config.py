@@ -14,9 +14,9 @@ class Settings(BaseSettings):
 
     anthropic_api_key: str | None = None
     anthropic_base_url: str = "https://api.deepseek.com/anthropic"
-    anthropic_model: str = "deepseek-v4-pro"
+    anthropic_model: str = "deepseek-v4-flash"
     deepseek_api_key: str | None = None
-    deepseek_model: str = "deepseek-v4-pro"
+    deepseek_model: str = "deepseek-v4-flash"
     llm_mode: Literal["auto", "mock", "anthropic"] = "auto"
 
     tool_mode: Literal["mock", "real", "hybrid"] = "hybrid"

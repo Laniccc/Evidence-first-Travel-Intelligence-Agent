@@ -1,4 +1,5 @@
 import pytest
+from unittest.mock import AsyncMock, patch
 
 from app.agents.place_entity_extractor import GEO_CITY_ALIASES, LLMPlaceEntityExtractor
 from app.agents.semantic_frame_builder import SemanticFrameBuilder
@@ -115,9 +116,45 @@ def test_poi_identification_does_not_imply_opening_hours_fact():
 @pytest.mark.asyncio
 async def test_sapporo_best_month_end_to_end():
     from app.orchestrator.state_machine import TravelAgentStateMachine
+    from app.schemas.normalized_user_request import (
+        AnswerPolicyDraft,
+        InformationNeedDraft,
+        NormalizedEntity,
+        NormalizedTimeScope,
+        NormalizedUserRequest,
+    )
+
+    sapporo = NormalizedUserRequest(
+        raw_query="札幌适合几月份去？",
+        rewritten_query="札幌适合几月份去？（最佳季节建议）",
+        intent_summary="札幌最佳出行月份",
+        query_scope="city",
+        task_family="advisory",
+        decision_type="best_time_to_visit",
+        entities=[
+            NormalizedEntity(
+                text="札幌",
+                normalized_name="Sapporo",
+                entity_type="city",
+                country="Japan",
+                city="Sapporo",
+                confidence=0.9,
+            )
+        ],
+        time_scope=NormalizedTimeScope(scope="seasonal"),
+        information_needs=[InformationNeedDraft(need_type="best_time_to_visit")],
+        answer_policy=AnswerPolicyDraft(can_answer_with_model_prior=True),
+        confidence=0.9,
+    )
 
     sm = TravelAgentStateMachine()
-    resp = await sm.run("札幌适合几月份去？")
+    with patch.object(
+        sm.llm_understanding_state.agent,
+        "run",
+        new_callable=AsyncMock,
+        return_value=sapporo,
+    ):
+        resp = await sm.run("札幌适合几月份去？")
     assert resp.semantic_frame_summary["query_scope"] == "city"
     assert resp.semantic_frame_summary["entities"]["city"] == "Sapporo"
     assert resp.answer_mode == "model_prior_allowed"

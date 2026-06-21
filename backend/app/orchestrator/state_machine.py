@@ -32,7 +32,7 @@ from app.orchestrator.answer_mode_router import AnswerModeRouter
 from app.orchestrator.citation_check import CitationChecker
 from app.orchestrator.evidence_aggregator import EvidenceAggregator
 from app.orchestrator.states.answer_composition_state import AnswerCompositionState
-from app.orchestrator.states.query_understanding_state import QueryUnderstandingPromptState
+from app.orchestrator.states.llm_understanding_state import LLMUnderstandingState
 from app.tools.capability_registry import CapabilityRegistry
 from app.orchestrator.trace import TraceRecorder
 from app.schemas.conversation_memory import ConversationMemory
@@ -61,8 +61,13 @@ class TravelAgentStateMachine:
         self.capability_registry = CapabilityRegistry()
         self.tool_router = ToolRouter(self.capability_registry)
         self.answer_mode_router = AnswerModeRouter()
-        self.query_understanding_state = QueryUnderstandingPromptState(self.llm)
+        self.llm_understanding_state = LLMUnderstandingState(self.llm)
         self.answer_composition_state = AnswerCompositionState(self.llm)
+
+    @property
+    def query_understanding_state(self):
+        """Backward-compatible alias."""
+        return self.llm_understanding_state
 
     async def _run_answer_composition(self, state: TravelAgentState, **compose_kwargs) -> TravelAgentState:
         return await self.answer_composition_state.run(state, **compose_kwargs)
@@ -181,9 +186,10 @@ class TravelAgentStateMachine:
         self._sync_tool_traces(state)
 
         target = (
-            (frame.entities.city if frame else None)
-            or (frame.entities.country if frame else None)
+            (frame.entities.places[0] if frame and frame.entities.places else None)
+            or (frame.entities.city if frame else None)
             or (goal.destination_city if goal else None)
+            or (frame.entities.country if frame else None)
             or "目的地"
         )
         state.field_evidence_summary = []
@@ -303,7 +309,7 @@ class TravelAgentStateMachine:
         ctx: UserContext,
         user_context: dict | None,
     ) -> TravelAgentState:
-        return await self.query_understanding_state.run(state, ctx, user_context)
+        return await self.llm_understanding_state.run(state, ctx, user_context)
 
     async def _resolve_user_goal(self, state: TravelAgentState, ctx: UserContext, gate_query: str) -> UserGoal:
         qu_confidence = state.query_understanding.confidence if state.query_understanding else 0.0
@@ -358,6 +364,16 @@ class TravelAgentStateMachine:
 
         if not region.supported:
             frame = None
+            if state.normalized_request:
+                country = next((e.country for e in state.normalized_request.entities if e.country), None)
+                city = next((e.city for e in state.normalized_request.entities if e.city), None)
+                if country in SUPPORTED_REGIONS:
+                    return RegionGateResult(
+                        supported=True,
+                        country=country,
+                        city=city,
+                        reason="Resolved from NormalizedUserRequest",
+                    )
             if state.query_understanding and state.query_understanding.semantic_frame:
                 frame = state.query_understanding.semantic_frame
             elif state.semantic_frame:

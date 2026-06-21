@@ -46,7 +46,7 @@ uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 ```env
 LLM_MODE=anthropic
 DEEPSEEK_API_KEY=sk-...
-DEEPSEEK_MODEL=deepseek-v4-pro
+DEEPSEEK_MODEL=deepseek-v4-flash
 ANTHROPIC_BASE_URL=https://api.deepseek.com/anthropic
 ```
 
@@ -84,27 +84,18 @@ User Query
 
 **精确实时事实**（开放时间、票价、今日天气、实时人流）必须 `evidence_required`，禁止 model prior。
 
-### 用户需求理解层
+### 用户需求理解层（LLM-first）
 
-| 组件 | 职责 |
+主路径：**LLMUnderstandingState → LLMUnderstandingSubAgent → NormalizedUserRequest JSON → S3 AnswerModeRouter**。
+
+S2 子代理提示词（`app/prompts/llm_understanding.*.md`）按 **S3 路由契约** 设计：子代理必须一次输出 `query_scope`、`country`、`answer_policy` 等字段，**下游 adapter 仅做 1:1 映射**，不再推断 scope/country。
+
+| 文件 | 职责 |
 |------|------|
-| `ConversationContext` | 会话级上下文（`last_places`、`last_travel_date`、画像） |
-| `QueryUnderstandingAgent` | 改写 + 指代 + TravelTask + **SemanticFrame** |
-| `SemanticFrame` | 通用语义：`query_scope` / `decision_type` / `information_needs` 等 |
-| `AnswerModeRouter` | 决定 evidence_required / model_prior_allowed / clarification |
-| `EvidencePolicy` | 各 claim 是否允许 model prior、所需 source_type |
-| `KnowledgePriorTool` | 低置信度 advisory Evidence（≤0.6），非官方事实 |
-| `TravelTaskToUserGoalAdapter` | TravelTask → UserGoal（景点级路径兼容） |
-| `ClarificationGate` | `needs_clarification=true` 时暂停工具调用 |
-| `TravelToolRegistry` | 统一 `run_tool`；含 `knowledge_prior`；每请求 `clear_traces` |
-
-**城市级季节建议示例**（如「札幌适合几月份去？」）：
-- `QueryUnderstandingResult.semantic_frame` 在 QU 阶段直接产出（非事后推导）
-- `query_scope=city`，`decision_type=best_time_to_visit`
-- `state_machine` 内 `AnswerModeRouter` → `MODEL_PRIOR_ALLOWED` → `KnowledgePriorTool`
-- **不要求**用户提供具体景点；回答含季节规律说明与 limitations
-
-地点解析下一步路线图见 [docs/PLACE_RESOLUTION.md](docs/PLACE_RESOLUTION.md)（`LLMPlaceEntityExtractor` → `PlaceResolver` → Real/MCP → Mock fallback）。
+| `llm_understanding.routing_contract.md` | S3 决策表：问题类型 → 字段组合 |
+| `llm_understanding.system.md` | Schema + 标定示例（喀纳斯湖/清水寺/指代澄清） |
+| `llm_understanding.user.md` | 输入 + 输出前自检清单 |
+| `llm_understanding.repair.md` | JSON 校验失败时的一次性修复提示 |
 
 ### Capability-based Tool Router
 
