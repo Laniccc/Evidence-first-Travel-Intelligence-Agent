@@ -1,0 +1,26 @@
+{
+  "京都|kyoto|japan": {
+    "mention": "京都",
+    "canonical_name": "Kyoto",
+    "country": "Japan",
+    "city": "Kyoto",
+    "region": null,
+    "place_type": "city",
+    "confidence": 0.88,
+    "resolution_source": "llm_geocode",
+    "coordinates": null,
+    "metadata": {}
+  },
+  "京都清水寺适合带父母去吗|kyoto|japan": {
+    "mention": "京都清水寺适合带父母去吗",
+    "canonical_name": "京都清水寺",
+    "country": "Japan",
+    "city": "Kyoto",
+    "region": null,
+    "place_type": "poi",
+    "confidence": 0.78,
+    "resolution_source": "llm_geocode",
+    "coordinates": null,
+    "metadata": {}
+  }
+}

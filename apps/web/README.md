@@ -32,6 +32,64 @@ npm run dev
 
 不会出现 `/agent/query` 或 `:8001`。
 
+## 临时绕过 api-java（无 Maven）
+
+本地未安装 Maven、无法启动 `api-java` 时，可 **临时** 让 Vite 把前端请求直接转到 `agent-python`，用于验证页面与 Agent 问答。
+
+**限制**：无 Java 会话记忆、无 Java Tool Gateway；测完请改回默认配置。
+
+### 1. 启动 agent-python（终端 1）
+
+```powershell
+conda activate ClaudeAgent
+cd apps/agent-python
+$env:PYTHONPATH = (Get-Location).Path
+python -m uvicorn app.main:app --host 127.0.0.1 --port 8001
+```
+
+确认：`http://127.0.0.1:8001/agent/health` 返回正常。
+
+### 2. 修改 Vite 代理（一次性，测完还原）
+
+编辑 `apps/web/vite.config.js`，将 `server.proxy` 中的 `/api` 块 **整段替换** 为：
+
+```javascript
+proxy: {
+  "/api": {
+    target: "http://localhost:8001",
+    changeOrigin: true,
+    rewrite: (path) => path.replace(/^\/api\/travel\/query/, "/agent/query"),
+  },
+},
+```
+
+默认（走 Java）为：
+
+```javascript
+proxy: {
+  "/api": {
+    target: apiBase,
+    changeOrigin: true,
+  },
+},
+```
+
+### 3. 启动前端（终端 2）
+
+```powershell
+cd apps/web
+npm install
+npm run dev
+```
+
+打开 http://127.0.0.1:5173 ，在页面输入旅行问题即可。
+
+浏览器仍请求 `POST /api/travel/query`，由 Vite 改写为 `POST http://localhost:8001/agent/query`。
+
+### 4. 恢复正式链路
+
+把 `vite.config.js` 改回 `target: apiBase`（删除 `rewrite`），并启动 `api-java`（:8080）后再 `npm run dev`。
+
 ## 生产构建
 
 ```powershell

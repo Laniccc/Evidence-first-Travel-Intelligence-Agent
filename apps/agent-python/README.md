@@ -36,15 +36,51 @@ python -m uvicorn app.main:app --host 127.0.0.1 --port 8001
 | GET | `/agent/health` | 健康检查 |
 | POST | `/agent/query` | 旅行问答 |
 
-### 示例（PowerShell）
+### 示例（PowerShell，中文需 UTF-8）
+
+Windows PowerShell 5.x 默认不是 UTF-8，直接 `-Body '...中文...'` 可能**发错编码**，终端也会把中文显示成乱码。先执行：
+
+```powershell
+chcp 65001
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+$OutputEncoding = [System.Text.Encoding]::UTF8
+```
+
+**推荐**用 UTF-8 字节发请求（请求与显示都正确）：
 
 ```powershell
 Invoke-RestMethod http://127.0.0.1:8001/agent/health
 
+$json = '{"query":"京都清水寺适合带父母去吗？","session_id":"demo-session"}'
+$bytes = [System.Text.Encoding]::UTF8.GetBytes($json)
 Invoke-RestMethod -Method Post -Uri http://127.0.0.1:8001/agent/query `
-  -ContentType "application/json" `
-  -Body '{"query":"京都清水寺适合带父母去吗？","session_id":"demo-session"}'
+  -ContentType "application/json; charset=utf-8" `
+  -Body $bytes
 ```
+
+或用 `curl.exe`（**`-d` 必须用单引号**，PowerShell 会改写双引号里的 `\"`）：
+
+```powershell
+curl.exe -s -X POST http://127.0.0.1:8001/agent/query `
+  -H "Content-Type: application/json; charset=utf-8" `
+  -d '{"query":"京都清水寺适合带父母去吗？","session_id":"demo-session"}'
+```
+
+若仍报 `JSON decode error`，把 JSON 写入文件再发（最稳）：
+
+```powershell
+$path = Join-Path $env:TEMP "agent-query.json"
+[System.IO.File]::WriteAllText(
+  $path,
+  '{"query":"京都清水寺适合带父母去吗？","session_id":"demo-session"}',
+  [System.Text.UTF8Encoding]::new($false)
+)
+curl.exe -s -X POST http://127.0.0.1:8001/agent/query `
+  -H "Content-Type: application/json; charset=utf-8" `
+  --data-binary "@$path"
+```
+
+若已安装 PowerShell 7（`pwsh`），可直接用其 `Invoke-RestMethod`，UTF-8 支持更好。
 
 ## 无 Maven 时的临时测试
 
@@ -52,21 +88,9 @@ Invoke-RestMethod -Method Post -Uri http://127.0.0.1:8001/agent/query `
 
 1. 按上文启动 agent-python（8001）
 2. 浏览器打开 `http://127.0.0.1:8001/agent/health`
-3. 用上面 `Invoke-RestMethod` 调 `/agent/query`
+3. 用上面 `Invoke-RestMethod` 或 `curl` 调 `/agent/query`
 
-若还要 **网页界面** 且暂时没有 api-java，可在 `apps/web/vite.config.js` 里临时把代理指到 Agent（测完改回）：
-
-```javascript
-proxy: {
-  "/api": {
-    target: "http://localhost:8001",
-    changeOrigin: true,
-    rewrite: (path) => path.replace(/^\/api\/travel\/query/, "/agent/query"),
-  },
-},
-```
-
-然后 `cd apps/web && npm run dev`，打开 http://127.0.0.1:5173 。此时跳过 Java 层，无 session 记忆。
+若要 **网页界面** 且暂时没有 api-java，见 [`apps/web/README.md` — 临时绕过 api-java](../web/README.md#临时绕过-api-java无-maven)（改 Vite 代理后 `npm run dev`）。
 
 完整三件套（含 Java Gateway）需安装 Maven 后在 `apps/api-java` 执行 `mvn spring-boot:run`。
 
