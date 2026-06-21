@@ -20,6 +20,7 @@ class Settings(BaseSettings):
     llm_mode: Literal["auto", "mock", "anthropic"] = "auto"
 
     tool_mode: Literal["mock", "real", "hybrid"] = "hybrid"
+    place_resolution_use_mock: bool = False
     enable_real_weather: bool = False
     enable_real_places: bool = False
     enable_real_official_page: bool = False

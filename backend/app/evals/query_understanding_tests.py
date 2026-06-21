@@ -39,7 +39,7 @@ def test_query_understanding_single_place_elderly():
     assert result.travel_task.task_type == TravelTaskType.SINGLE_PLACE_SUITABILITY
     assert result.travel_task.country == "Japan"
     assert result.travel_task.city == "Kyoto"
-    assert any(p.canonical_name == "Kiyomizu-dera" for p in result.travel_task.places)
+    assert any("清水寺" in (p.canonical_name or "") for p in result.travel_task.places)
     assert "elderly" in (result.travel_task.user_profile.party if result.travel_task.user_profile else [])
     assert "walking_intensity" in result.travel_task.key_concerns
     _assert_no_facts(result)

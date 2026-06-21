@@ -56,8 +56,8 @@ class AnswerComposerAgent:
                     }
                 )
 
-        fs_dump = fact_sheet.model_dump() if fact_sheet else None
-        review_dump = review.model_dump() if review else None
+        fs_dump = fact_sheet.model_dump() if isinstance(fact_sheet, PlaceFactSheet) else None
+        review_dump = review.model_dump() if isinstance(review, ReviewAspectResult) else None
 
         return {
             "raw_query": state.raw_user_query,

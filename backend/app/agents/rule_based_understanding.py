@@ -2,8 +2,8 @@ from datetime import date
 
 from app.agents.semantic_frame_builder import SemanticFrameBuilder
 from app.catalog.place_resolver import PlaceResolver
-from app.catalog.place_catalog import get_place_catalog
 from app.schemas.conversation_context import ConversationContext
+from app.schemas.place_candidate import PlaceCandidate
 from app.schemas.place_context import PlaceContext
 from app.schemas.query_understanding import QueryUnderstandingResult
 from app.schemas.travel_task import TravelTask, TravelTaskType
@@ -41,7 +41,6 @@ class RuleBasedUnderstanding:
         context: ConversationContext,
         user_ctx: UserContext | None = None,
     ) -> QueryUnderstandingResult:
-        catalog = get_place_catalog()
         text = raw_query.strip()
         resolved: dict[str, str] = {}
         assumptions: list[str] = []
@@ -105,23 +104,13 @@ class RuleBasedUnderstanding:
             places = []
             for c in candidates:
                 if c.is_poi:
-                    places.append(
-                        PlaceContext(
-                            original_name=c.mention,
-                            canonical_name=c.canonical_name or c.mention,
-                            country=c.country,
-                            city=c.city,
-                            source="query_understanding",
-                        )
-                    )
-            if not places:
-                places = [cls._place_context_from_name(p, catalog) for p in place_from_query]
+                    places.append(c.to_place_context())
             resolved_place = places[0].canonical_name
             resolved["place"] = resolved_place
 
         if is_compare and place_from_query:
             rewritten = f"比较以下景点：{', '.join(place_from_query)}"
-            places = [cls._place_context_from_name(p, catalog) for p in place_from_query]
+            places = [c.to_place_context() for c in candidates if c.is_poi]
 
         if "适合" in text and any(x in text for x in ["爸妈", "父母", "老人", "长辈", "elderly"]) and not is_compare:
             target = resolved_place or (place_from_query[0] if place_from_query else None)
@@ -247,11 +236,6 @@ class RuleBasedUnderstanding:
         if qu.semantic_frame is not None:
             return qu
         return SemanticFrameBuilder.ensure_result(text, qu, candidates)
-
-    @staticmethod
-    def _place_context_from_name(name: str, catalog) -> PlaceContext:
-        ctx = catalog.resolve_place_context(name)
-        return ctx.model_copy(update={"source": "query_understanding"})
 
     @staticmethod
     def _build_profile(text: str, user_ctx: UserContext | None, context: ConversationContext) -> UserProfile:

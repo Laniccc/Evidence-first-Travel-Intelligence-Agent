@@ -2,7 +2,8 @@ import pytest
 
 from app.agents.place_entity_extractor import GEO_CITY_ALIASES, LLMPlaceEntityExtractor
 from app.agents.semantic_frame_builder import SemanticFrameBuilder
-from app.catalog.place_resolver import MockCatalogResolver, PlaceResolver
+from app.catalog.place_resolver import MockCatalogResolver, PlaceResolver, build_place_resolvers
+from app.config import get_settings
 from app.schemas.conversation_context import ConversationContext
 from app.schemas.place_candidate import PlaceResolutionSource
 from app.schemas.query_understanding import QueryUnderstandingResult
@@ -23,10 +24,30 @@ def _clear_place_cache():
         path.unlink()
 
 
+@pytest.fixture(autouse=True)
+def _disable_mock_place_resolution(monkeypatch):
+    monkeypatch.setenv("PLACE_RESOLUTION_USE_MOCK", "false")
+    get_settings.cache_clear()
+
+
 def test_place_entity_extractor_sapporo_without_mock_registry(monkeypatch):
     monkeypatch.setitem(GEO_CITY_ALIASES, "札幌", ("Japan", "Sapporo"))
     mentions = LLMPlaceEntityExtractor.extract_sync("札幌适合几月份去？", ConversationContext())
     assert any(m.entity_type == "city" and m.city == "Sapporo" for m in mentions)
+
+
+def test_default_resolver_chain_excludes_mock_catalog(monkeypatch):
+    monkeypatch.setenv("PLACE_RESOLUTION_USE_MOCK", "false")
+    get_settings.cache_clear()
+    names = [r.name for r in build_place_resolvers()]
+    assert "mock_catalog" not in names
+
+
+def test_mock_catalog_only_when_explicitly_enabled(monkeypatch):
+    monkeypatch.setenv("PLACE_RESOLUTION_USE_MOCK", "true")
+    get_settings.cache_clear()
+    names = [r.name for r in build_place_resolvers()]
+    assert names[-1] == "mock_catalog"
 
 
 def test_place_resolver_prefers_geocode_over_mock_catalog(monkeypatch):
@@ -42,6 +63,16 @@ def test_place_resolver_prefers_geocode_over_mock_catalog(monkeypatch):
         PlaceResolutionSource.LLM_GEocode,
         PlaceResolutionSource.LOCAL_CACHE,
     }
+
+
+def test_poi_geocode_without_mock_catalog(monkeypatch):
+    candidates = PlaceResolver.resolve_sync("札幌电视塔今天几点关门？", ConversationContext())
+    poi = next((c for c in candidates if c.is_poi), None)
+    assert poi is not None
+    assert poi.country == "Japan"
+    assert poi.city == "Sapporo"
+    assert poi.resolution_source == PlaceResolutionSource.LLM_GEocode
+    assert "塔" in poi.canonical_name
 
 
 def test_semantic_frame_city_scope_without_place_registry_poi():

@@ -1,4 +1,5 @@
 import logging
+import re
 from abc import ABC, abstractmethod
 
 from app.agents.place_entity_extractor import GEO_CITY_ALIASES, LLMPlaceEntityExtractor, PlaceMention
@@ -9,6 +10,80 @@ from app.schemas.place_candidate import PlaceCandidate, PlaceResolutionSource
 from app.storage.place_cache import PlaceCache
 
 logger = logging.getLogger(__name__)
+
+_POI_TRAILING_NOISE = re.compile(r"(值得|适合|怎么|如何|几点|关门|人多|拥挤|今天|明天|去吗|吗).*$")
+
+
+def _infer_geo_from_text(text: str) -> tuple[str | None, str | None]:
+    for alias, (country, city) in sorted(GEO_CITY_ALIASES.items(), key=lambda x: -len(x[0])):
+        if alias in text or alias.lower() in text.lower():
+            return country, city
+    return None, None
+
+
+def _canonical_poi_name(mention_text: str, raw_query: str) -> str:
+    text = mention_text.strip()
+    if text and text != raw_query.strip():
+        return _POI_TRAILING_NOISE.sub("", text).strip() or text
+    for alias in sorted(GEO_CITY_ALIASES.keys(), key=len, reverse=True):
+        if alias in raw_query:
+            idx = raw_query.find(alias)
+            fragment = raw_query[idx:].split("？")[0].split("?")[0].strip()
+            cleaned = _POI_TRAILING_NOISE.sub("", fragment).strip()
+            if len(cleaned) > len(alias):
+                return cleaned
+    cleaned = _POI_TRAILING_NOISE.sub("", raw_query).strip()
+    return cleaned or text
+
+
+def _geocode_candidate(
+    mention: PlaceMention,
+    raw_query: str,
+    *,
+    country: str | None = None,
+    city: str | None = None,
+) -> PlaceCandidate | None:
+    country = country or mention.country
+    city = city or mention.city
+    if not country and not city:
+        country, city = _infer_geo_from_text(raw_query)
+        if not country and not city:
+            country, city = _infer_geo_from_text(mention.text)
+
+    if mention.entity_type in {"poi", "place"}:
+        if not country:
+            return None
+        return PlaceCandidate(
+            mention=mention.text,
+            canonical_name=_canonical_poi_name(mention.text, raw_query),
+            country=country,
+            city=city,
+            place_type="poi",
+            confidence=max(mention.confidence, 0.78),
+            resolution_source=PlaceResolutionSource.LLM_GEocode,
+        )
+
+    if mention.entity_type == "city" and city and country:
+        return PlaceCandidate(
+            mention=mention.text,
+            canonical_name=city,
+            country=country,
+            city=city,
+            place_type="city",
+            confidence=max(mention.confidence, 0.82),
+            resolution_source=PlaceResolutionSource.LLM_GEocode,
+        )
+
+    if country and not city and mention.entity_type == "country":
+        return PlaceCandidate(
+            mention=mention.text,
+            canonical_name=country,
+            country=country,
+            place_type="country",
+            confidence=mention.confidence,
+            resolution_source=PlaceResolutionSource.LLM_GEocode,
+        )
+    return None
 
 
 class BasePlaceResolver(ABC):
@@ -93,8 +168,6 @@ class RealPlacesResolver(BasePlaceResolver):
         mention: PlaceMention,
         context: ConversationContext | None,
     ) -> PlaceCandidate | None:
-        if mention.entity_type not in {"poi", "place"}:
-            return None
         settings = get_settings()
         if not settings.enable_real_places:
             return None
@@ -104,19 +177,34 @@ class RealPlacesResolver(BasePlaceResolver):
             tool = RealPlacesTool()
             if not tool.is_available():
                 return None
-            await tool.run(
-                place_name=mention.text,
-                country=mention.country,
-                city=mention.city,
+            country = mention.country
+            city = mention.city
+            if not country or not city:
+                country, city = _infer_geo_from_text(raw_query)
+            place_name = _canonical_poi_name(mention.text, raw_query)
+            evidence = await tool.run(
+                place_name=place_name,
+                country=country,
+                city=city,
             )
+            coords = None
+            resolved_country = country
+            resolved_city = city
+            if evidence:
+                claim = evidence[0].claims[0].normalized_value if evidence[0].claims else {}
+                if isinstance(claim, dict):
+                    coords = claim.get("coordinates")
+                resolved_country = evidence[0].country or country
+                resolved_city = evidence[0].city or city
             return PlaceCandidate(
                 mention=mention.text,
-                canonical_name=mention.text,
-                country=mention.country,
-                city=mention.city,
-                place_type="poi",
-                confidence=0.78,
+                canonical_name=place_name,
+                country=resolved_country,
+                city=resolved_city,
+                place_type=mention.entity_type if mention.entity_type in {"poi", "place", "city"} else "poi",
+                confidence=0.82,
                 resolution_source=PlaceResolutionSource.REAL_PLACES,
+                coordinates=coords,
             )
         except Exception as exc:
             logger.debug("RealPlacesResolver skip: %s", exc)
@@ -133,15 +221,21 @@ class MCPPlacesResolver(BasePlaceResolver):
         context: ConversationContext | None,
     ) -> PlaceCandidate | None:
         settings = get_settings()
-        if not settings.mcp_enabled or mention.entity_type not in {"poi", "place"}:
+        if not settings.mcp_enabled:
+            return None
+        country = mention.country
+        city = mention.city
+        if not country:
+            country, city = _infer_geo_from_text(raw_query)
+        if not country:
             return None
         return PlaceCandidate(
             mention=mention.text,
-            canonical_name=mention.text,
-            country=mention.country,
-            city=mention.city,
-            place_type="poi",
-            confidence=0.7,
+            canonical_name=_canonical_poi_name(mention.text, raw_query),
+            country=country,
+            city=city,
+            place_type=mention.entity_type if mention.entity_type in {"poi", "place", "city"} else "poi",
+            confidence=0.72,
             resolution_source=PlaceResolutionSource.MCP_PLACES,
             metadata={"stub": True},
         )
@@ -159,39 +253,11 @@ class LLMGeocodeResolver(BasePlaceResolver):
         mention: PlaceMention,
         context: ConversationContext | None,
     ) -> PlaceCandidate | None:
-        if mention.entity_type in {"poi", "place"}:
-            return None
-        country = mention.country
-        city = mention.city
-        if not country or not city:
-            for alias, (c_country, c_city) in GEO_CITY_ALIASES.items():
-                if alias in mention.text or alias.lower() in mention.text.lower():
-                    country, city = c_country, c_city
-                    break
-        if mention.entity_type == "city" and city and country:
-            return PlaceCandidate(
-                mention=mention.text,
-                canonical_name=city,
-                country=country,
-                city=city,
-                place_type="city",
-                confidence=max(mention.confidence, 0.82),
-                resolution_source=PlaceResolutionSource.LLM_GEocode,
-            )
-        if country and not city:
-            return PlaceCandidate(
-                mention=mention.text,
-                canonical_name=country,
-                country=country,
-                place_type="country",
-                confidence=mention.confidence,
-                resolution_source=PlaceResolutionSource.LLM_GEocode,
-            )
-        return None
+        return _geocode_candidate(mention, raw_query)
 
 
 class MockCatalogResolver(BasePlaceResolver):
-    """Fallback only — mock POI registry, not primary geocoding."""
+    """Optional fallback — mock POI registry only when place_resolution_use_mock=true."""
 
     name = "mock_catalog"
 
@@ -201,6 +267,8 @@ class MockCatalogResolver(BasePlaceResolver):
         mention: PlaceMention,
         context: ConversationContext | None,
     ) -> PlaceCandidate | None:
+        if not get_settings().place_resolution_use_mock:
+            return None
         if mention.entity_type not in {"poi", "place"}:
             return None
         catalog = get_place_catalog()
@@ -221,8 +289,26 @@ class MockCatalogResolver(BasePlaceResolver):
         )
 
 
+def build_place_resolvers(
+    llm_client=None,
+    conversation_context: ConversationContext | None = None,
+    cache: PlaceCache | None = None,
+) -> list[BasePlaceResolver]:
+    """memory → cache → real_places → mcp → llm_geocode → [mock_catalog]."""
+    resolvers: list[BasePlaceResolver] = [
+        SessionMemoryResolver(conversation_context),
+        LocalPlaceCacheResolver(cache or PlaceCache()),
+        RealPlacesResolver(),
+        MCPPlacesResolver(),
+        LLMGeocodeResolver(llm_client),
+    ]
+    if get_settings().place_resolution_use_mock:
+        resolvers.append(MockCatalogResolver())
+    return resolvers
+
+
 class PlaceResolver:
-    """Chain resolver: memory → cache → real → mcp → geocode → mock catalog."""
+    """Chain resolver: memory → cache → real → mcp → llm geocode → [mock catalog]."""
 
     def __init__(
         self,
@@ -232,14 +318,7 @@ class PlaceResolver:
     ) -> None:
         self.cache = cache or PlaceCache()
         self.extractor = LLMPlaceEntityExtractor(llm_client)
-        self.resolvers: list[BasePlaceResolver] = [
-            SessionMemoryResolver(conversation_context),
-            LocalPlaceCacheResolver(self.cache),
-            RealPlacesResolver(),
-            MCPPlacesResolver(),
-            LLMGeocodeResolver(llm_client),
-            MockCatalogResolver(),
-        ]
+        self.resolvers = build_place_resolvers(llm_client, conversation_context, self.cache)
 
     async def resolve(
         self,
@@ -247,8 +326,9 @@ class PlaceResolver:
         mentions: list[PlaceMention] | None = None,
         context: ConversationContext | None = None,
     ) -> list[PlaceCandidate]:
+        settings = get_settings()
         extracted = mentions if mentions is not None else await self.extractor.extract(raw_query, context)
-        if not extracted:
+        if not extracted and (settings.place_resolution_use_mock or not self.extractor.llm._should_use_anthropic()):
             extracted = LLMPlaceEntityExtractor.extract_sync(raw_query, context)
 
         results: list[PlaceCandidate] = []
@@ -266,7 +346,12 @@ class PlaceResolver:
         if candidate.resolution_source == PlaceResolutionSource.EXTRACTOR:
             return False
         if candidate.is_poi and candidate.canonical_name == candidate.mention:
-            return candidate.resolution_source == PlaceResolutionSource.MOCK_CATALOG
+            return candidate.resolution_source in {
+                PlaceResolutionSource.MOCK_CATALOG,
+                PlaceResolutionSource.LLM_GEocode,
+                PlaceResolutionSource.REAL_PLACES,
+                PlaceResolutionSource.MCP_PLACES,
+            }
         return True
 
     async def _resolve_one(
@@ -285,7 +370,7 @@ class PlaceResolver:
                 return hit
         return PlaceCandidate(
             mention=mention.text,
-            canonical_name=mention.city if mention.entity_type == "city" else mention.text,
+            canonical_name=mention.city if mention.entity_type == "city" else _canonical_poi_name(mention.text, raw_query),
             country=mention.country,
             city=mention.city,
             place_type=mention.entity_type,
@@ -303,12 +388,7 @@ class PlaceResolver:
     ) -> list[PlaceCandidate]:
         mentions = LLMPlaceEntityExtractor.extract_sync(raw_query, context)
         cache = PlaceCache()
-        sync_resolvers: list[BasePlaceResolver] = [
-            SessionMemoryResolver(context),
-            LocalPlaceCacheResolver(cache),
-            LLMGeocodeResolver(llm_client),
-            MockCatalogResolver(),
-        ]
+        sync_resolvers = build_place_resolvers(llm_client, context, cache)
         results: list[PlaceCandidate] = []
         for mention in mentions:
             hit = None
@@ -319,7 +399,7 @@ class PlaceResolver:
             if not hit:
                 hit = PlaceCandidate(
                     mention=mention.text,
-                    canonical_name=mention.city if mention.entity_type == "city" else mention.text,
+                    canonical_name=mention.city if mention.entity_type == "city" else _canonical_poi_name(mention.text, raw_query),
                     country=mention.country,
                     city=mention.city,
                     place_type=mention.entity_type,
@@ -351,6 +431,18 @@ class PlaceResolver:
                     confidence=0.8,
                     resolution_source=PlaceResolutionSource.SESSION_MEMORY,
                 )
+            if ctx and mention.entity_type == "poi" and ctx.last_places:
+                for pc in reversed(ctx.last_places):
+                    if mention.text in pc.canonical_name or pc.canonical_name in mention.text:
+                        return PlaceCandidate(
+                            mention=mention.text,
+                            canonical_name=pc.canonical_name,
+                            country=pc.country,
+                            city=pc.city,
+                            place_type="poi",
+                            confidence=0.85,
+                            resolution_source=PlaceResolutionSource.SESSION_MEMORY,
+                        )
         if isinstance(resolver, LocalPlaceCacheResolver):
             key = PlaceCache.cache_key(mention.text, mention.country, mention.city)
             hit = cache.get(key)
@@ -358,25 +450,10 @@ class PlaceResolver:
                 return hit.model_copy(update={"resolution_source": PlaceResolutionSource.LOCAL_CACHE})
             return None
         if isinstance(resolver, LLMGeocodeResolver):
-            if mention.entity_type in {"poi", "place"}:
-                return None
-            country, city = mention.country, mention.city
-            if not country or not city:
-                for alias, (c_country, c_city) in GEO_CITY_ALIASES.items():
-                    if alias in mention.text or alias.lower() in mention.text.lower():
-                        country, city = c_country, c_city
-                        break
-            if mention.entity_type == "city" and city and country:
-                return PlaceCandidate(
-                    mention=mention.text,
-                    canonical_name=city,
-                    country=country,
-                    city=city,
-                    place_type="city",
-                    confidence=max(mention.confidence, 0.82),
-                    resolution_source=PlaceResolutionSource.LLM_GEocode,
-                )
+            return _geocode_candidate(mention, raw_query)
         if isinstance(resolver, MockCatalogResolver):
+            if not get_settings().place_resolution_use_mock:
+                return None
             catalog = get_place_catalog()
             hits = catalog.find_places_in_text(mention.text)
             if hits:

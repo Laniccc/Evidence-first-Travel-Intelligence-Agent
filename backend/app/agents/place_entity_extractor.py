@@ -6,6 +6,7 @@ from pathlib import Path
 from pydantic import BaseModel, Field
 
 from app.schemas.conversation_context import ConversationContext
+from app.utils.llm_json import parse_llm_json
 
 logger = logging.getLogger(__name__)
 PROMPTS_DIR = Path(__file__).resolve().parents[1] / "prompts"
@@ -54,11 +55,17 @@ class LLMPlaceEntityExtractor:
         self.llm = llm_client or LLMClient()
 
     async def extract(self, raw_query: str, context: ConversationContext | None = None) -> list[PlaceMention]:
+        from app.config import get_settings
+
         if self.llm._should_use_anthropic():
             try:
-                return await self._llm_extract(raw_query, context)
+                mentions = await self._llm_extract(raw_query, context)
+                if mentions:
+                    return mentions
             except Exception as exc:
                 logger.warning("LLM place extraction failed: %s", exc)
+            if not get_settings().place_resolution_use_mock:
+                return []
         return self.extract_sync(raw_query, context)
 
     @classmethod
@@ -142,5 +149,5 @@ class LLMPlaceEntityExtractor:
             ensure_ascii=False,
         )
         raw = await self.llm.complete(system=system, user=user, max_tokens=600)
-        data = json.loads(raw)
+        data = parse_llm_json(raw)
         return [PlaceMention.model_validate(m) for m in data.get("mentions", [])]

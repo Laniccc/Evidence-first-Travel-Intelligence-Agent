@@ -1,203 +1,25 @@
 {
-  "京都|kyoto|japan": {
-    "mention": "京都",
-    "canonical_name": "Kyoto",
-    "country": "Japan",
-    "city": "Kyoto",
-    "region": null,
-    "place_type": "city",
-    "confidence": 0.88,
-    "resolution_source": "local_cache",
-    "coordinates": null,
-    "metadata": {}
-  },
-  "京都清水寺适合带父母去吗|kyoto|japan": {
-    "mention": "京都清水寺适合带父母去吗",
-    "canonical_name": "Kiyomizu-dera",
-    "country": "Japan",
-    "city": "Kyoto",
+  "喀纳斯湖|阿勒泰|中国": {
+    "mention": "喀纳斯湖",
+    "canonical_name": "喀纳斯湖",
+    "country": "中国",
+    "city": "阿勒泰",
     "region": null,
     "place_type": "poi",
-    "confidence": 0.55,
-    "resolution_source": "local_cache",
-    "coordinates": null,
-    "metadata": {}
-  },
-  "kyoto|kyoto|japan": {
-    "mention": "Kyoto",
-    "canonical_name": "Kyoto",
-    "country": "Japan",
-    "city": "Kyoto",
-    "region": null,
-    "place_type": "city",
-    "confidence": 0.8,
-    "resolution_source": "session_memory",
-    "coordinates": null,
-    "metadata": {}
-  },
-  "beijing|beijing|china": {
-    "mention": "Beijing",
-    "canonical_name": "Beijing",
-    "country": "China",
-    "city": "Beijing",
-    "region": null,
-    "place_type": "city",
-    "confidence": 0.8,
-    "resolution_source": "session_memory",
-    "coordinates": null,
-    "metadata": {}
-  },
-  "故宫今天人多吗？": {
-    "mention": "故宫今天人多吗？",
-    "canonical_name": "Forbidden City",
-    "country": "China",
-    "city": "Beijing",
-    "region": null,
-    "place_type": "poi",
-    "confidence": 0.55,
-    "resolution_source": "local_cache",
-    "coordinates": null,
-    "metadata": {}
-  },
-  "札幌|sapporo|japan": {
-    "mention": "札幌",
-    "canonical_name": "Sapporo",
-    "country": "Japan",
-    "city": "Sapporo",
-    "region": null,
-    "place_type": "city",
-    "confidence": 0.88,
-    "resolution_source": "local_cache",
-    "coordinates": null,
-    "metadata": {}
-  },
-  "清水寺今天几点关门？": {
-    "mention": "清水寺今天几点关门？",
-    "canonical_name": "Kiyomizu-dera",
-    "country": "Japan",
-    "city": "Kyoto",
-    "region": null,
-    "place_type": "poi",
-    "confidence": 0.55,
-    "resolution_source": "local_cache",
-    "coordinates": null,
-    "metadata": {}
-  },
-  "清水寺今天人多吗？": {
-    "mention": "清水寺今天人多吗？",
-    "canonical_name": "Kiyomizu-dera",
-    "country": "Japan",
-    "city": "Kyoto",
-    "region": null,
-    "place_type": "poi",
-    "confidence": 0.55,
-    "resolution_source": "mock_catalog",
-    "coordinates": null,
-    "metadata": {}
-  },
-  "北京|beijing|china": {
-    "mention": "北京",
-    "canonical_name": "Beijing",
-    "country": "China",
-    "city": "Beijing",
-    "region": null,
-    "place_type": "city",
-    "confidence": 0.88,
-    "resolution_source": "local_cache",
-    "coordinates": null,
-    "metadata": {}
-  },
-  "北京故宫明天值得去吗|beijing|china": {
-    "mention": "北京故宫明天值得去吗",
-    "canonical_name": "Forbidden City",
-    "country": "China",
-    "city": "Beijing",
-    "region": null,
-    "place_type": "poi",
-    "confidence": 0.55,
-    "resolution_source": "local_cache",
-    "coordinates": null,
-    "metadata": {
-      "fallback": true
-    }
-  },
-  "京都清水寺明天适合带父母去吗|kyoto|japan": {
-    "mention": "京都清水寺明天适合带父母去吗",
-    "canonical_name": "Kiyomizu-dera",
-    "country": "Japan",
-    "city": "Kyoto",
-    "region": null,
-    "place_type": "poi",
-    "confidence": 0.55,
-    "resolution_source": "local_cache",
-    "coordinates": null,
-    "metadata": {
-      "fallback": true
-    }
-  },
-  "清水寺和伏见稻荷哪个更适合老人？": {
-    "mention": "清水寺和伏见稻荷哪个更适合老人？",
-    "canonical_name": "Kiyomizu-dera",
-    "country": "Japan",
-    "city": "Kyoto",
-    "region": null,
-    "place_type": "poi",
-    "confidence": 0.55,
-    "resolution_source": "local_cache",
-    "coordinates": null,
-    "metadata": {
-      "fallback": true
-    }
-  },
-  "京都下雨的话，清水寺还值得去吗|kyoto|japan": {
-    "mention": "京都下雨的话，清水寺还值得去吗",
-    "canonical_name": "Kiyomizu-dera",
-    "country": "Japan",
-    "city": "Kyoto",
-    "region": null,
-    "place_type": "poi",
-    "confidence": 0.55,
-    "resolution_source": "local_cache",
-    "coordinates": null,
-    "metadata": {
-      "fallback": true
-    }
-  },
-  "东京|tokyo|japan": {
-    "mention": "东京",
-    "canonical_name": "Tokyo",
-    "country": "Japan",
-    "city": "Tokyo",
-    "region": null,
-    "place_type": "city",
-    "confidence": 0.88,
-    "resolution_source": "local_cache",
-    "coordinates": null,
-    "metadata": {}
-  },
-  "故宫明天天气怎么样，值得去吗？": {
-    "mention": "故宫明天天气怎么样，值得去吗？",
-    "canonical_name": "Forbidden City",
-    "country": "China",
-    "city": "Beijing",
-    "region": null,
-    "place_type": "poi",
-    "confidence": 0.55,
-    "resolution_source": "local_cache",
-    "coordinates": null,
-    "metadata": {
-      "fallback": true
-    }
-  },
-  "东京|东京|日本": {
-    "mention": "东京",
-    "canonical_name": "东京",
-    "country": "日本",
-    "city": "东京",
-    "region": null,
-    "place_type": "city",
     "confidence": 1.0,
-    "resolution_source": "local_cache",
+    "resolution_source": "llm_geocode",
+    "coordinates": null,
+    "metadata": {}
+  },
+  "喀纳斯湖|布尔津|中国": {
+    "mention": "喀纳斯湖",
+    "canonical_name": "喀纳斯湖",
+    "country": "中国",
+    "city": "布尔津",
+    "region": null,
+    "place_type": "poi",
+    "confidence": 0.95,
+    "resolution_source": "llm_geocode",
     "coordinates": null,
     "metadata": {}
   }

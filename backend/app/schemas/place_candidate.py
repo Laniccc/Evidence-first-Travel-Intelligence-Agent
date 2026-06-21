@@ -2,6 +2,8 @@ from enum import Enum
 
 from pydantic import BaseModel, Field
 
+from app.schemas.place_context import PlaceContext
+
 
 class PlaceResolutionSource(str, Enum):
     SESSION_MEMORY = "session_memory"
@@ -34,3 +36,13 @@ class PlaceCandidate(BaseModel):
     @property
     def is_city(self) -> bool:
         return self.place_type == "city"
+
+    def to_place_context(self) -> PlaceContext:
+        return PlaceContext(
+            original_name=self.mention,
+            canonical_name=self.canonical_name or self.mention,
+            country=self.country,
+            city=self.city,
+            confidence=self.confidence,
+            source=self.resolution_source.value,
+        )

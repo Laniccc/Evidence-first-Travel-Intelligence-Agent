@@ -26,6 +26,7 @@ from app.agents.review_mining_agent import ReviewAspectMiningAgent, VerifierAgen
 from app.agents.suitability_scorer import TravelSuitabilityScorer
 from app.agents.travel_task_to_user_goal_adapter import SUPPORTED_REGIONS, TravelTaskToUserGoalAdapter
 from app.catalog.place_catalog import get_place_catalog
+from app.config import get_settings
 from app.llm_client import LLMClient
 from app.orchestrator.answer_mode_router import AnswerModeRouter
 from app.orchestrator.citation_check import CitationChecker
@@ -355,7 +356,22 @@ class TravelAgentStateMachine:
         if not region.supported:
             region = RegionGateAgent.run(gate_query)
 
-        if not region.supported and state.rewritten_query_result:
+        if not region.supported:
+            frame = None
+            if state.query_understanding and state.query_understanding.semantic_frame:
+                frame = state.query_understanding.semantic_frame
+            elif state.semantic_frame:
+                frame = state.semantic_frame
+            if frame and frame.entities.country in SUPPORTED_REGIONS:
+                return RegionGateResult(
+                    supported=True,
+                    country=frame.entities.country,
+                    city=frame.entities.city,
+                    reason="Resolved from semantic frame",
+                )
+
+        settings = get_settings()
+        if not region.supported and state.rewritten_query_result and settings.place_resolution_use_mock:
             for key in ("here", "这里", "place", "这个地方"):
                 pname = state.rewritten_query_result.resolved_references.get(key)
                 if pname:
@@ -368,7 +384,7 @@ class TravelAgentStateMachine:
                             reason=f"Resolved from place catalog: {pname}",
                         )
 
-        if not region.supported:
+        if not region.supported and settings.place_resolution_use_mock:
             for place in self.catalog.find_places_in_text(gate_query) or self.catalog.find_places_in_text(raw_query):
                 loc = self.catalog.get_place_location(place)
                 if loc:
