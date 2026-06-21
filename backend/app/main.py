@@ -2,7 +2,7 @@ from pathlib import Path
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, RedirectResponse
+from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.config import get_settings
@@ -14,7 +14,8 @@ settings = get_settings()
 setup_logging(settings.log_level)
 logger = get_logger("travel_agent")
 
-STATIC_DIR = Path(__file__).resolve().parent / "static"
+REPO_ROOT = Path(__file__).resolve().parent.parent.parent
+WEB_DIST_DIR = REPO_ROOT / "apps" / "web" / "dist"
 
 app = FastAPI(title=settings.app_name, version=settings.app_version)
 app.add_middleware(
@@ -25,8 +26,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-if STATIC_DIR.is_dir():
-    app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+if WEB_DIST_DIR.is_dir():
+    app.mount("/static", StaticFiles(directory=WEB_DIST_DIR), name="static")
 
 state_machine = TravelAgentStateMachine()
 
@@ -42,9 +43,6 @@ async def add_request_context(request: Request, call_next):
 
 @app.get("/")
 async def root():
-    index = STATIC_DIR / "index.html"
-    if index.is_file():
-        return FileResponse(index)
     return RedirectResponse(url="/docs")
 
 

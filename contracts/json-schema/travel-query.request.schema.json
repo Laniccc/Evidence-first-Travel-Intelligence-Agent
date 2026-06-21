@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://travel.intelligence/contracts/json-schema/travel-query.request.schema.json",
+  "title": "TravelQueryRequest",
+  "description": "POST /api/travel/query request body. Source: backend/app/schemas/response.py",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["query"],
+  "properties": {
+    "query": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Natural-language travel question."
+    },
+    "user_context": {
+      "type": "object",
+      "description": "Optional session / user profile context (opaque key-value map).",
+      "additionalProperties": true,
+      "default": {}
+    },
+    "debug": {
+      "type": "boolean",
+      "description": "When true, response may include extended trace fields.",
+      "default": false
+    }
+  }
+}

@@ -1,0 +1,87 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://travel.intelligence/contracts/json-schema/travel-query.response.schema.json",
+  "title": "TravelQueryResponse",
+  "description": "POST /api/travel/query response body. Source: backend/app/schemas/response.py",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["answer", "structured_result"],
+  "properties": {
+    "answer": {
+      "type": "string",
+      "description": "Natural-language answer composed from evidence."
+    },
+    "structured_result": {
+      "$ref": "components/structured-result.schema.json"
+    },
+    "visible_trace": {
+      "type": "array",
+      "items": { "type": "string" },
+      "default": []
+    },
+    "evidence_summary": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "default": []
+    },
+    "field_evidence_summary": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "default": []
+    },
+    "conflicts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "default": []
+    },
+    "limitations": {
+      "type": "array",
+      "items": { "type": "string" },
+      "default": []
+    },
+    "confidence": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1,
+      "default": 0
+    },
+    "citation_check_result": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": true
+        },
+        { "type": "null" }
+      ]
+    },
+    "tool_traces": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "default": []
+    },
+    "session_id": { "type": ["string", "null"] },
+    "query_id": { "type": ["string", "null"] },
+    "semantic_frame_summary": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": true
+        },
+        { "type": "null" }
+      ]
+    },
+    "answer_mode": { "type": ["string", "null"] }
+  }
+}

@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://travel.intelligence/contracts/json-schema/components/recommendation-result.schema.json",
+  "title": "RecommendationResult",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["overall_recommendation"],
+  "properties": {
+    "overall_recommendation": { "type": "string" },
+    "overall_score": { "type": "number", "default": 0 },
+    "confidence": { "type": "number", "default": 0 },
+    "best_for": {
+      "type": "array",
+      "items": { "type": "string" },
+      "default": []
+    },
+    "not_ideal_for": {
+      "type": "array",
+      "items": { "type": "string" },
+      "default": []
+    },
+    "recommended_time": { "type": ["string", "null"] },
+    "main_reasons": {
+      "type": "array",
+      "items": { "type": "string" },
+      "default": []
+    },
+    "risks": {
+      "type": "array",
+      "items": { "type": "string" },
+      "default": []
+    },
+    "alternatives": {
+      "type": "array",
+      "items": { "type": "string" },
+      "default": []
+    }
+  }
+}

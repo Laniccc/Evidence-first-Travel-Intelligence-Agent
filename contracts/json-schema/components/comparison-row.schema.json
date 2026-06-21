@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://travel.intelligence/contracts/json-schema/components/comparison-row.schema.json",
+  "title": "ComparisonRow",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "place_name",
+    "suitability",
+    "transport",
+    "walking_intensity",
+    "crowd_risk",
+    "highlights",
+    "risks",
+    "recommended_for"
+  ],
+  "properties": {
+    "place_name": { "type": "string" },
+    "suitability": { "type": "string" },
+    "transport": { "type": "string" },
+    "walking_intensity": { "type": "string" },
+    "crowd_risk": { "type": "string" },
+    "highlights": { "type": "string" },
+    "risks": { "type": "string" },
+    "recommended_for": { "type": "string" }
+  }
+}
