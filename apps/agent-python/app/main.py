@@ -3,9 +3,10 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app._legacy import get_settings, get_state_machine
+from app.config import get_settings
 from app.contract import AgentQueryRequest, AgentQueryResponse
-from app.orchestrator.model_prior_routing import apply_model_prior_s5_routing
+from app.logging_config import setup_logging
+from app.orchestrator.state_machine import TravelAgentStateMachine
 from app.tool_gateway.integration import install_java_tool_gateway
 
 _settings = None
@@ -16,9 +17,9 @@ _state_machine = None
 async def lifespan(fastapi_app: FastAPI):
     global _settings, _state_machine
     _settings = get_settings()
+    setup_logging(_settings.log_level)
     install_java_tool_gateway()
-    _state_machine = get_state_machine()
-    apply_model_prior_s5_routing()
+    _state_machine = TravelAgentStateMachine()
     fastapi_app.version = _settings.app_version
     fastapi_app.title = _settings.app_name
     yield

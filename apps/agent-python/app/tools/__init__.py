@@ -1,1 +1,2 @@
-"""agent-python tools overlay — registry remains on legacy backend path."""
+﻿"""Shim: canonical implementation in packages/tools."""
+from tools.__init__ import *  # noqa: F403

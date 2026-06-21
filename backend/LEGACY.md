@@ -16,7 +16,7 @@
 - `app/schemas/`、`app/config.py` 等 — 配置与领域模型
 - `app/evals/` — 评测（尚未迁出）
 
-当前仍可通过以下命令启动（**仅用于回退与对照**）：
+当前仍可通过以下命令启动（**仅用于回退与对照**；**生产运行时请使用 `apps/agent-python`**）：
 
 ```bash
 cd backend
@@ -58,8 +58,8 @@ uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 
 ## 与 monorepo 的关系
 
-- `apps/agent-python/`、`packages/tools/` 等可能含有自 `backend/app` **复制**的副本；**以目标目录为将来唯一真相源**。
-- `apps/api-java` 可通过 HTTP 代理至本目录启动的 `:8000` 服务（过渡期）。
+- `apps/agent-python/`、`packages/tools/` 等可能含有自 `backend/app` **复制**的副本；**以 `apps/agent-python` + `packages/tools` 为运行时真相源**。
+- `apps/api-java` 通过 HTTP 代理至 `apps/agent-python` 的 `:8001` `/agent/query`。
 - 迁移完成后，`backend/` 将仅保留薄 shim 或删除；详见 `MIGRATION_PLAN.md`。
 
 ---

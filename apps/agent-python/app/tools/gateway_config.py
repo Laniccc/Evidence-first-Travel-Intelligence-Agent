@@ -1,5 +1,2 @@
-import os
-
-
-def use_java_tool_gateway() -> bool:
-    return os.getenv("USE_JAVA_TOOL_GATEWAY", "false").lower() in {"1", "true", "yes"}
+﻿"""Shim: canonical implementation in packages/tools."""
+from tools.gateway_config import *  # noqa: F403
