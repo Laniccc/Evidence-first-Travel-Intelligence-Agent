@@ -144,6 +144,8 @@ class TravelAgentState(BaseModel):
     field_evidence_summary: list[dict] = Field(default_factory=list)
     citation_check_result: CitationCheckResult | None = None
     tool_traces: list[ToolTrace] = Field(default_factory=list)
+    evidence_planning_completed: bool = False
+    planning_notes: list[str] = Field(default_factory=list)
     final_response: str | None = None
     structured_result: dict | None = None
     recommendations: list[dict] = Field(default_factory=list)

@@ -1,7 +1,14 @@
+import logging
+
 from app.agents.query_understanding_agent import QueryUnderstandingAgent
+from app.config import get_settings
 from app.llm_client import LLMClient
 from app.orchestrator.actions import ActionResult, AgentAction, AgentActionType
+from app.schemas.tool_trace import ToolTrace
 from app.schemas.user_query import TravelAgentState
+from app.tools.tool_name_resolver import is_mcp_policy_tool, resolve_tool_name
+
+logger = logging.getLogger(__name__)
 
 
 class ActionExecutor:
@@ -21,7 +28,7 @@ class ActionExecutor:
         if action.action_type == AgentActionType.CALL_SUBAGENT:
             return await self._call_subagent(action.target or "", state, action.arguments, prompt_context)
         if action.action_type == AgentActionType.CALL_TOOL:
-            return await self._call_tool(action.target or "", action.arguments)
+            return await self._call_tool(action.target or "", action.arguments, state, prompt_context)
         if action.action_type == AgentActionType.ASK_CLARIFICATION:
             return ActionResult(
                 output={
@@ -90,8 +97,141 @@ class ActionExecutor:
 
         return ActionResult(ok=False, error=f"Unknown subagent: {name}")
 
-    async def _call_tool(self, tool_name: str, arguments: dict) -> ActionResult:
+    async def _call_tool(
+        self,
+        tool_name: str,
+        arguments: dict,
+        state: TravelAgentState,
+        prompt_context: dict,
+    ) -> ActionResult:
         if not self.tools:
             return ActionResult(ok=False, error="Tool registry unavailable")
-        evidence = await self.tools.run_tool(tool_name, **arguments)
-        return ActionResult(output={"evidence": evidence, "tool_name": tool_name})
+
+        resolved = resolve_tool_name(tool_name)
+        payload = self._build_tool_arguments(resolved, arguments, state, prompt_context)
+        trace_before = len(self.tools.traces)
+
+        try:
+            evidence = await self.tools.run_tool(resolved, **payload)
+            self._annotate_traces(trace_before, tool_name, prompt_context)
+            new_traces = self.tools.traces[trace_before:]
+            return ActionResult(
+                output={
+                    "evidence": evidence,
+                    "tool_name": resolved,
+                    "policy_tool_name": tool_name,
+                    "tool_traces": [t.model_dump() for t in new_traces],
+                }
+            )
+        except Exception as exc:
+            logger.warning("CALL_TOOL %s failed: %s", resolved, exc)
+            self.tools.record_error(resolved, input=payload, error=str(exc))
+            self._annotate_traces(trace_before, tool_name, prompt_context)
+            new_traces = self.tools.traces[trace_before:]
+            return ActionResult(
+                ok=False,
+                error=str(exc),
+                output={
+                    "evidence": [],
+                    "tool_name": resolved,
+                    "policy_tool_name": tool_name,
+                    "tool_traces": [t.model_dump() for t in new_traces],
+                },
+            )
+
+    def _build_tool_arguments(
+        self,
+        tool_name: str,
+        arguments: dict,
+        state: TravelAgentState,
+        prompt_context: dict,
+    ) -> dict:
+        args = dict(arguments)
+        goal = state.user_goal
+        frame = state.semantic_frame
+        place_name = (
+            args.get("place_name")
+            or prompt_context.get("place_name")
+            or (frame.entities.places[0] if frame and frame.entities.places else None)
+        )
+        city = (
+            args.get("city")
+            or prompt_context.get("city")
+            or (goal.destination_city if goal else None)
+            or (frame.entities.city if frame else None)
+        )
+        country = (
+            args.get("country")
+            or prompt_context.get("country")
+            or (goal.destination_country if goal else None)
+            or (frame.entities.country if frame else None)
+        )
+
+        if tool_name in {"official", "places", "reviews", "transit", "restaurant"} or tool_name.endswith("_mcp"):
+            effective_place = place_name or city
+            if effective_place and "place_name" not in args:
+                args["place_name"] = effective_place
+            if country and "country" not in args:
+                args["country"] = country
+            if city and "city" not in args:
+                args["city"] = city
+            if goal and goal.start_location and "start_location" not in args:
+                args["start_location"] = goal.start_location
+
+        if tool_name in {"weather", "seasonality", "lodging"} or tool_name in {
+            "openmeteo_mcp",
+            "weather_mcp",
+            "climate_mcp",
+        }:
+            if city and "city" not in args:
+                args["city"] = city
+            if country and "country" not in args:
+                args["country"] = country
+            if goal and goal.travel_date and "travel_date" not in args:
+                args["travel_date"] = goal.travel_date
+
+        if tool_name == "knowledge_prior":
+            args.setdefault("raw_query", state.raw_user_query)
+            if frame is not None:
+                args.setdefault("semantic_frame", frame)
+            args.setdefault("limitations", list(state.limitations))
+
+        if tool_name == "fallback":
+            args.setdefault("place_name", place_name or city or "unknown")
+            args.setdefault("city", city)
+            args.setdefault("country", country)
+            args.setdefault("need_types", ["crowd_level"])
+
+        if is_mcp_policy_tool(tool_name):
+            args.setdefault("query", state.raw_user_query)
+            if frame and frame.information_needs:
+                args.setdefault("information_need", frame.information_needs[0])
+            settings = get_settings()
+            if tool_name in {"browser_mcp", "official_page_reader_mcp"}:
+                domains = settings.official_page_domain_allowlist() or settings.browser_domain_allowlist()
+                if domains:
+                    args.setdefault("allowed_domains", domains)
+
+        return args
+
+    def _annotate_traces(self, trace_before: int, policy_tool_name: str, prompt_context: dict) -> None:
+        if not self.tools or len(self.tools.traces) <= trace_before:
+            return
+
+        loop_state = prompt_context.get("loop_state_name", "evidence_planning_and_tool_use")
+        selected_by_llm = bool(prompt_context.get("selected_by_llm", True))
+        whitelist_checked = prompt_context.get("tool_whitelist") is not None
+
+        annotated: list[ToolTrace] = []
+        for trace in self.tools.traces[trace_before:]:
+            annotated.append(
+                trace.model_copy(
+                    update={
+                        "requested_by_state": loop_state,
+                        "selected_by_llm": selected_by_llm,
+                        "whitelist_checked": whitelist_checked,
+                        "tool_name": policy_tool_name if trace.tool_name != policy_tool_name else trace.tool_name,
+                    }
+                )
+            )
+        self.tools.traces[trace_before:] = annotated

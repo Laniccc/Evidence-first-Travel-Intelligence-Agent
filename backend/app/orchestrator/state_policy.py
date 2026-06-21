@@ -41,3 +41,45 @@ ANSWER_COMPOSITION_POLICY = StateNodePolicy(
     required_output_schema="FinalAnswerDraft",
     allow_final_answer=True,
 )
+
+EVIDENCE_PLANNING_TOOL_NAMES = [
+    "official",
+    "places",
+    "weather",
+    "reviews",
+    "transit",
+    "restaurant",
+    "lodging",
+    "search_mcp",
+    "browser_mcp",
+    "official_page_reader_mcp",
+    "osm_mcp",
+    "places_mcp",
+    "geocode_mcp",
+    "openmeteo_mcp",
+    "weather_mcp",
+    "climate_mcp",
+    "wikipedia_mcp",
+    "wikidata_mcp",
+    "sqlite_mcp",
+    "evidence_store_mcp",
+    "seasonality",
+    "knowledge_prior",
+    "fallback",
+    # legacy aliases accepted at policy guard via resolver
+    "official_mcp",
+]
+
+EVIDENCE_PLANNING_AND_TOOL_USE_POLICY = StateNodePolicy(
+    state_name="evidence_planning_and_tool_use",
+    allowed_actions=[
+        AgentActionType.UPDATE_STATE,
+        AgentActionType.CALL_TOOL,
+        AgentActionType.FINISH_STATE,
+        AgentActionType.FAIL_STATE,
+    ],
+    allowed_tools=EVIDENCE_PLANNING_TOOL_NAMES,
+    max_steps=5,
+    required_output_schema="EvidencePlanningResult",
+    allow_final_answer=False,
+)

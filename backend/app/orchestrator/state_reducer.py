@@ -6,7 +6,10 @@ from app.schemas.query_understanding import QueryUnderstandingResult
 from app.schemas.rewritten_query import RewrittenQueryResult
 from app.schemas.place_candidate import PlaceCandidate
 from app.schemas.semantic_frame import SemanticFrame
+from app.schemas.information_need import InformationNeed
+from app.schemas.tool_trace import ToolTrace
 from app.schemas.user_query import TravelAgentState
+from app.tools.tool_router import ToolExecutionPlan
 
 
 _QUERY_UNDERSTANDING_FIELDS = frozenset(
@@ -14,6 +17,10 @@ _QUERY_UNDERSTANDING_FIELDS = frozenset(
 )
 
 _ANSWER_COMPOSITION_FIELDS = frozenset({"final_response", "structured_result"})
+
+_EVIDENCE_PLANNING_FIELDS = frozenset(
+    {"information_needs", "tool_execution_plan", "limitations", "planning_notes"}
+)
 
 
 class StateReducer:
@@ -37,9 +44,7 @@ class StateReducer:
         elif action.action_type == AgentActionType.ASK_CLARIFICATION:
             state = self._apply_clarification(state, result.output)
         elif action.action_type == AgentActionType.CALL_TOOL:
-            evidence = result.output.get("evidence", [])
-            if evidence:
-                state.evidence = list(state.evidence) + list(evidence)
+            state = self._apply_tool_result(state, action, result, policy)
         elif action.action_type == AgentActionType.FAIL_STATE:
             state.limitations.append(action.reason_summary or "state failed")
             state.next_state = "failed"
@@ -133,8 +138,39 @@ class StateReducer:
             )
         elif policy.state_name == "answer_composition" and result is None and not (state.final_response or "").strip():
             state.limitations.append("Answer composition FINISH 缺少 result 且无 final_response")
+        elif policy.state_name == "evidence_planning_and_tool_use":
+            state.evidence_planning_completed = True
+            if action.arguments.get("limitations"):
+                state.limitations.extend(action.arguments["limitations"])
+            TraceRecorder.add(state, f"✓ [{policy.state_name}] FINISH_STATE → evidence planning complete")
         elif action.arguments.get("final_response"):
             state.final_response = action.arguments["final_response"]
+        return state
+
+    def _apply_tool_result(
+        self,
+        state: TravelAgentState,
+        action: AgentAction,
+        result: ActionResult,
+        policy: StateNodePolicy,
+    ) -> TravelAgentState:
+        evidence = result.output.get("evidence", [])
+        if evidence:
+            state.evidence = list(state.evidence) + list(evidence)
+
+        trace_payload = result.output.get("tool_traces", [])
+        for item in trace_payload:
+            if isinstance(item, ToolTrace):
+                state.tool_traces.append(item)
+            elif isinstance(item, dict):
+                state.tool_traces.append(ToolTrace.model_validate(item))
+
+        tool_name = result.output.get("policy_tool_name") or action.target or "tool"
+        status = "ok" if result.ok else "error"
+        TraceRecorder.add(
+            state,
+            f"✓ [loop] CALL_TOOL {tool_name} → {len(evidence)} evidence ({status})",
+        )
         return state
 
     def _apply_composition_draft(self, state: TravelAgentState, draft: FinalAnswerDraft) -> TravelAgentState:
@@ -188,7 +224,13 @@ class StateReducer:
             if key not in allowed:
                 state.limitations.append(f"Rejected unauthorized state update: {key}")
                 continue
+            if key == "information_needs" and value and isinstance(value[0], dict):
+                value = [InformationNeed.model_validate(v) for v in value]
+            if key == "tool_execution_plan" and isinstance(value, dict):
+                value = ToolExecutionPlan.model_validate(value)
             setattr(state, key, value)
+        if policy.state_name == "evidence_planning_and_tool_use":
+            TraceRecorder.add(state, "✓ [loop] UPDATE_STATE information_needs/planning_notes")
         return state
 
     @staticmethod
@@ -197,4 +239,6 @@ class StateReducer:
             return _QUERY_UNDERSTANDING_FIELDS
         if policy.state_name == "answer_composition":
             return _ANSWER_COMPOSITION_FIELDS
+        if policy.state_name == "evidence_planning_and_tool_use":
+            return _EVIDENCE_PLANNING_FIELDS
         return frozenset()

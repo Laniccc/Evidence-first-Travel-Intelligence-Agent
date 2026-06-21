@@ -169,23 +169,70 @@ def build_default_capabilities(tool_mode: str | None = None) -> dict[str, ToolCa
             requires_api_key=False,
         )
         if get_settings().mcp_enabled:
-            caps["weather_mcp"] = ToolCapability(
-                tool_name="weather_mcp",
-                capabilities=["weather", "weather_risk"],
-                freshness=FreshnessLevel.LIVE,
-                requires_api_key=True,
+            caps["search_mcp"] = ToolCapability(
+                tool_name="search_mcp",
+                capabilities=["public_web_search", "seasonality", "best_time_to_visit", "seasonal_events"],
+                freshness=FreshnessLevel.RECENT,
+            )
+            caps["browser_mcp"] = ToolCapability(
+                tool_name="browser_mcp",
+                capabilities=["official_page_read", "opening_hours", "temporary_closure"],
+                freshness=FreshnessLevel.STATIC,
+            )
+            caps["official_page_reader_mcp"] = ToolCapability(
+                tool_name="official_page_reader_mcp",
+                capabilities=["official_page_read", "opening_hours", "ticket_price", "reservation_policy"],
+                freshness=FreshnessLevel.STATIC,
+            )
+            caps["osm_mcp"] = ToolCapability(
+                tool_name="osm_mcp",
+                capabilities=["geocode", "place_lookup", "nearby_poi", "entity_resolution"],
+                freshness=FreshnessLevel.RECENT,
             )
             caps["places_mcp"] = ToolCapability(
                 tool_name="places_mcp",
-                capabilities=["address", "nearby_poi", "opening_status"],
+                capabilities=["place_lookup", "nearby_poi", "address"],
                 freshness=FreshnessLevel.RECENT,
-                requires_api_key=True,
             )
-            caps["official_reader_mcp"] = ToolCapability(
-                tool_name="official_reader_mcp",
-                capabilities=["opening_hours", "ticket_price", "reservation_policy", "temporary_closure"],
+            caps["geocode_mcp"] = ToolCapability(
+                tool_name="geocode_mcp",
+                capabilities=["geocode", "country_region_lookup", "entity_resolution"],
                 freshness=FreshnessLevel.STATIC,
-                requires_api_key=False,
+            )
+            caps["openmeteo_mcp"] = ToolCapability(
+                tool_name="openmeteo_mcp",
+                capabilities=["weather", "forecast", "climate_monthly", "monthly_weather", "seasonality"],
+                freshness=FreshnessLevel.LIVE,
+            )
+            caps["weather_mcp"] = ToolCapability(
+                tool_name="weather_mcp",
+                capabilities=["weather", "weather_today", "today_weather", "forecast"],
+                freshness=FreshnessLevel.LIVE,
+            )
+            caps["climate_mcp"] = ToolCapability(
+                tool_name="climate_mcp",
+                capabilities=["climate_monthly", "monthly_weather", "seasonality"],
+                freshness=FreshnessLevel.DAILY,
+            )
+            caps["wikipedia_mcp"] = ToolCapability(
+                tool_name="wikipedia_mcp",
+                capabilities=["destination_overview", "entity_description", "best_time_to_visit"],
+                freshness=FreshnessLevel.STATIC,
+            )
+            caps["wikidata_mcp"] = ToolCapability(
+                tool_name="wikidata_mcp",
+                capabilities=["entity_resolution", "alias_lookup"],
+                freshness=FreshnessLevel.STATIC,
+            )
+            caps["sqlite_mcp"] = ToolCapability(
+                tool_name="sqlite_mcp",
+                capabilities=["read_evidence_cache", "read_place_cache"],
+                freshness=FreshnessLevel.RECENT,
+            )
+            caps["evidence_store_mcp"] = ToolCapability(
+                tool_name="evidence_store_mcp",
+                capabilities=["read_evidence_cache", "query_tool_trace"],
+                freshness=FreshnessLevel.RECENT,
             )
 
     return caps
@@ -198,9 +245,7 @@ _EXECUTION_ALIASES = {
     "mock_places_tool": "places",
     "real_official_page_tool": "official",
     "mock_official_tool": "official",
-    "weather_mcp": "mcp_weather",
-    "places_mcp": "mcp_places",
-    "official_reader_mcp": "mcp_official",
+    "official_reader_mcp": "official_page_reader_mcp",
 }
 
 _PILOT_REAL_MOCK = {

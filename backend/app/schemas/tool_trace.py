@@ -10,3 +10,6 @@ class ToolTrace(BaseModel):
     error: str | None = None
     fallback_used: bool = False
     cache_hit: bool = False
+    requested_by_state: str | None = None
+    selected_by_llm: bool = False
+    whitelist_checked: bool = False

@@ -49,9 +49,40 @@ CLAIM_POLICIES: dict[str, ClaimPolicy] = {
         model_prior_allowed=True,
         preferred_source_types=["climate_api", "tourism_board", "model_prior"],
     ),
+    "climate_monthly": ClaimPolicy(
+        model_prior_allowed=False,
+        preferred_source_types=["climate_api", "weather_api"],
+    ),
+    "monthly_weather": ClaimPolicy(
+        model_prior_allowed=False,
+        preferred_source_types=["climate_api", "weather_api"],
+    ),
+    "public_web_search": ClaimPolicy(
+        model_prior_allowed=False,
+        preferred_source_types=["web", "tourism_board"],
+    ),
+    "entity_resolution": ClaimPolicy(
+        model_prior_allowed=False,
+        preferred_source_types=["wikidata", "map"],
+    ),
+    "official_page_read": ClaimPolicy(
+        model_prior_allowed=False,
+        required_source_types=["official"],
+        requires_exact_fact=True,
+    ),
+    "seasonal_events": ClaimPolicy(model_prior_allowed=True, preferred_source_types=["web", "tourism_board"]),
+    "snow_season": ClaimPolicy(model_prior_allowed=True, preferred_source_types=["climate_api", "web"]),
+    "autumn_foliage": ClaimPolicy(model_prior_allowed=True, preferred_source_types=["climate_api", "web"]),
+    "flower_season": ClaimPolicy(model_prior_allowed=True, preferred_source_types=["climate_api", "web"]),
+    "crowd_by_season": ClaimPolicy(model_prior_allowed=True, preferred_source_types=["review", "web"]),
+    "nearby_poi": ClaimPolicy(model_prior_allowed=False, preferred_source_types=["map"]),
     "general_travel_advice": ClaimPolicy(
         model_prior_allowed=True,
-        preferred_source_types=["model_prior", "tourism_board"],
+        preferred_source_types=["web", "tourism_board", "wikidata", "model_prior"],
+    ),
+    "fallback_web_lookup": ClaimPolicy(
+        model_prior_allowed=True,
+        preferred_source_types=["web", "model_prior"],
     ),
     "reservation_policy": ClaimPolicy(
         model_prior_allowed=False,

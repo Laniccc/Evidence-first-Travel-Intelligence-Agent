@@ -77,7 +77,11 @@ class InformationNeedPlanner:
             return needs
 
         # place_fact_lookup / open_ended
-        add(InformationNeedType.OPENING_HOURS, NeedPriority.HIGH, "基础景点信息")
-        add(InformationNeedType.TICKET_PRICE, NeedPriority.MEDIUM, "票价信息")
+        if place:
+            add(InformationNeedType.OPENING_HOURS, NeedPriority.HIGH, "基础景点信息")
+            add(InformationNeedType.TICKET_PRICE, NeedPriority.MEDIUM, "票价信息")
+        else:
+            add(InformationNeedType.FALLBACK_WEB_LOOKUP, NeedPriority.HIGH, "城市/区域游览与景点建议")
+            add(InformationNeedType.EVENT, NeedPriority.MEDIUM, "当地活动与季节亮点", fallback=True)
         add(InformationNeedType.TRANSIT, NeedPriority.MEDIUM, "交通信息")
         return needs

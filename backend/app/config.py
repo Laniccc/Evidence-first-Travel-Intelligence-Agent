@@ -24,9 +24,30 @@ class Settings(BaseSettings):
     enable_real_weather: bool = False
     enable_real_places: bool = False
     enable_real_official_page: bool = False
-    mcp_enabled: bool = False
+    mcp_enabled: bool = True
     real_tool_timeout_seconds: float = 8.0
     real_tool_cache_ttl_seconds: int = 3600
+
+    mcp_search_enabled: bool = False
+    mcp_search_server_url: str = ""
+    mcp_browser_enabled: bool = False
+    mcp_browser_server_url: str = ""
+    mcp_osm_enabled: bool = False
+    mcp_osm_server_url: str = ""
+    mcp_openmeteo_enabled: bool = False
+    mcp_openmeteo_server_url: str = ""
+    mcp_wikipedia_enabled: bool = False
+    mcp_wikipedia_server_url: str = ""
+    mcp_wikidata_enabled: bool = False
+    mcp_wikidata_server_url: str = ""
+    mcp_sqlite_enabled: bool = False
+    mcp_sqlite_server_url: str = ""
+    mcp_sqlite_readonly: bool = True
+    mcp_timeout_seconds: float = 10.0
+    mcp_max_result_chars: int = 6000
+    mcp_max_tool_calls_per_state: int = 5
+    official_page_allowed_domains: str = ""
+    browser_allowed_domains: str = ""
 
     weather_api_key: str | None = None
     places_api_key: str | None = None
@@ -54,6 +75,12 @@ class Settings(BaseSettings):
 
     def llm_model(self) -> str:
         return self.deepseek_model or self.anthropic_model
+
+    def official_page_domain_allowlist(self) -> list[str]:
+        return [d.strip() for d in self.official_page_allowed_domains.split(",") if d.strip()]
+
+    def browser_domain_allowlist(self) -> list[str]:
+        return [d.strip() for d in self.browser_allowed_domains.split(",") if d.strip()]
 
 
 @lru_cache

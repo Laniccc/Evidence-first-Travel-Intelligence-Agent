@@ -1,6 +1,7 @@
 from app.orchestrator.action_executor import ActionExecutor
 from app.orchestrator.action_model_controller import ActionModelController
 from app.orchestrator.actions import AgentActionType
+from app.orchestrator.evidence_policy_guard import EvidencePolicyGuard
 from app.orchestrator.policy_guard import PolicyGuard
 from app.orchestrator.state_policy import StateNodePolicy
 from app.orchestrator.state_reducer import StateReducer
@@ -34,11 +35,21 @@ class ClaudeStateRunner:
     ) -> TravelAgentState:
         ctx = prompt_context or {}
         TraceRecorder.add(state, f"✓ 进入受控状态循环：{policy.state_name}")
+        tool_call_count = int(ctx.get("tool_call_count", 0))
 
         for step in range(policy.max_steps):
             action = await self.model_controller.next_action(state, policy, ctx, step)
+            ctx["selected_by_llm"] = ctx.get("_last_action_source") == "llm"
+            ctx.setdefault("loop_state_name", policy.state_name)
             try:
-                self.policy_guard.validate(action, policy)
+                tool_whitelist = ctx.get("tool_whitelist")
+                guard_kwargs = {"tool_call_count": tool_call_count}
+                if isinstance(self.policy_guard, EvidencePolicyGuard):
+                    self.policy_guard.validate(
+                        action, policy, state, tool_whitelist=tool_whitelist, **guard_kwargs
+                    )
+                else:
+                    self.policy_guard.validate(action, policy, state, tool_whitelist=tool_whitelist)
             except ValueError as exc:
                 state.limitations.append(str(exc))
                 TraceRecorder.add(state, f"✗ [{policy.state_name}] policy 拒绝：{exc}")
@@ -60,6 +71,9 @@ class ClaudeStateRunner:
 
             result = await self.action_executor.execute(action, state, ctx)
             state = self.state_reducer.apply(state, action, result, policy)
+            if action.action_type == AgentActionType.CALL_TOOL:
+                tool_call_count += 1
+                ctx["tool_call_count"] = tool_call_count
 
         state.limitations.append(f"{policy.state_name} reached max_steps")
         TraceRecorder.add(state, f"✓ [{policy.state_name}] 达到 max_steps={policy.max_steps}")

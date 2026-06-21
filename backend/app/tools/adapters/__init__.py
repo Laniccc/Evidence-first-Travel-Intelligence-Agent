@@ -1,13 +1,3 @@
-from app.tools.adapters.mcp_tool_adapter import (
-    MCPToolAdapter,
-    OfficialReaderMCPAdapter,
-    PlacesMCPAdapter,
-    WeatherMCPAdapter,
-)
+from app.tools.adapters.mcp_tool_adapter import ConfiguredMCPTool, MCPToolAdapter
 
-__all__ = [
-    "MCPToolAdapter",
-    "WeatherMCPAdapter",
-    "PlacesMCPAdapter",
-    "OfficialReaderMCPAdapter",
-]
+__all__ = ["MCPToolAdapter", "ConfiguredMCPTool"]

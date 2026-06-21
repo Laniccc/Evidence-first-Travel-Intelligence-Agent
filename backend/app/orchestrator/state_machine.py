@@ -8,8 +8,8 @@ Main pipeline::
       → S3 AnswerModeRouting → AnswerModeDecision
       → (early: clarification | model prior | evidence-preferred+prior)
       → S4 Region/Policy Check
-      → S5 Planning (UserGoal + InformationNeed + ToolRouter)
-      → S6 Tool/Knowledge Execution
+    → S5 EvidencePlanningAndToolUseState (controlled tool/MCP loop)
+    → S6 Evidence accumulation (within S5 loop)
       → S7 Evidence Aggregation
       → S8 Compose
       → S9 Citation/Limitations
@@ -18,8 +18,8 @@ Main pipeline::
 
 from uuid import uuid4
 
-from app.agents.composer_agent import ComposerAgent, ItineraryAgent
 from app.agents.information_need_planner import InformationNeedPlanner
+from app.agents.composer_agent import ComposerAgent, ItineraryAgent
 from app.agents.intent_agent import IntentAgent, RegionGateAgent
 from app.agents.place_research_agent import PlaceResearchAgent
 from app.agents.review_mining_agent import ReviewAspectMiningAgent, VerifierAgent
@@ -32,6 +32,7 @@ from app.orchestrator.answer_mode_router import AnswerModeRouter
 from app.orchestrator.citation_check import CitationChecker
 from app.orchestrator.evidence_aggregator import EvidenceAggregator
 from app.orchestrator.states.answer_composition_state import AnswerCompositionState
+from app.orchestrator.states.evidence_planning_and_tool_use_state import EvidencePlanningAndToolUseState
 from app.orchestrator.states.llm_understanding_state import LLMUnderstandingState
 from app.tools.capability_registry import CapabilityRegistry
 from app.orchestrator.trace import TraceRecorder
@@ -63,6 +64,14 @@ class TravelAgentStateMachine:
         self.answer_mode_router = AnswerModeRouter()
         self.llm_understanding_state = LLMUnderstandingState(self.llm)
         self.answer_composition_state = AnswerCompositionState(self.llm)
+        self.evidence_planning_state = EvidencePlanningAndToolUseState(
+            self.llm,
+            self.tools,
+            self.tool_router,
+        )
+
+    async def _run_evidence_planning(self, state: TravelAgentState, **kwargs) -> TravelAgentState:
+        return await self.evidence_planning_state.run(state, **kwargs)
 
     @property
     def query_understanding_state(self):
@@ -97,7 +106,7 @@ class TravelAgentStateMachine:
             blocked = self._apply_region_gate(state, query, gate_query, memory)
             if blocked:
                 return blocked
-            return await self._run_advisory(state, try_tools_first=False)
+            return await self._run_advisory(state)
         if mode == AnswerMode.EVIDENCE_PREFERRED and decision and decision.allow_knowledge_prior:
             gate_query = state.rewritten_query_result.rewritten_query if state.rewritten_query_result else query
             return await self._run_evidence_preferred_or_prior(state, ctx, query, gate_query, memory)
@@ -122,10 +131,9 @@ class TravelAgentStateMachine:
         mode = decision.answer_mode if decision else AnswerMode.EVIDENCE_REQUIRED
 
         if mode == AnswerMode.ESTIMATION_ALLOWED:
-            tool_names = self._plan_tool_execution(state)
             if state.travel_task and state.travel_task.task_type == TravelTaskType.CROWD_INQUIRY:
-                return await self._run_crowd_inquiry(state, tool_names)
-            return await self._run_evidence_pipeline(state, tool_names=tool_names)
+                return await self._run_crowd_inquiry(state)
+            return await self._run_evidence_pipeline(state)
 
         if not state.travel_task:
             state.limitations.append("TravelTask 缺失，后续路由可能受限。")
@@ -136,9 +144,7 @@ class TravelAgentStateMachine:
     async def _run_evidence_pipeline(
         self,
         state: TravelAgentState,
-        tool_names: list[str] | None = None,
     ) -> TravelQueryResponse:
-        tool_names = tool_names or self._plan_tool_execution(state)
         state.query_plan = PlaceResearchAgent.build_query_plan(state.user_goal)
         if state.tool_execution_plan and state.tool_execution_plan.unsupported_needs:
             state.limitations.append(
@@ -147,42 +153,19 @@ class TravelAgentStateMachine:
 
         task_type = state.travel_task.task_type if state.travel_task else TravelTaskType.OPEN_ENDED_ADVICE
         if task_type == TravelTaskType.COMPARE_PLACES:
-            return await self._run_compare(state, tool_names)
+            return await self._run_compare(state)
         if task_type == TravelTaskType.ITINERARY_PLANNING:
-            return await self._run_itinerary(state, tool_names)
+            return await self._run_itinerary(state)
         if task_type == TravelTaskType.CROWD_INQUIRY:
-            return await self._run_crowd_inquiry(state, tool_names)
-        return await self._run_single(state, tool_names)
+            return await self._run_crowd_inquiry(state)
+        return await self._run_single(state)
 
-    async def _run_advisory(self, state: TravelAgentState, try_tools_first: bool = False) -> TravelQueryResponse:
+    async def _run_advisory(self, state: TravelAgentState) -> TravelQueryResponse:
         frame = state.semantic_frame
-        decision = state.answer_mode_decision
         goal = state.user_goal
-        evidence: list[Evidence] = []
 
-        if try_tools_first and goal and goal.destination_city and goal.destination_country:
-            if decision and "weather" in (decision.optional_tools or decision.required_tools):
-                evidence.extend(
-                    await self.tools.run_tool(
-                        "weather",
-                        city=goal.destination_city,
-                        country=goal.destination_country,
-                        travel_date=goal.travel_date,
-                    )
-                )
-                TraceRecorder.add(state, "✓ 已尝试补充天气证据（可选）")
-
-        if decision and decision.allow_knowledge_prior and frame:
-            prior = await self.tools.run_tool(
-                "knowledge_prior",
-                raw_query=state.raw_user_query,
-                semantic_frame=frame,
-                limitations=list(decision.limitations_to_add),
-            )
-            evidence.extend(prior)
-            TraceRecorder.add(state, "✓ 已生成 model prior advisory Evidence")
-
-        state.evidence = evidence
+        state = await self._run_evidence_planning(state, reset_evidence=True, advisory_mode=True)
+        evidence = [ev for ev in state.evidence if isinstance(ev, Evidence)]
         self._sync_tool_traces(state)
 
         target = (
@@ -281,7 +264,7 @@ class TravelAgentStateMachine:
             blocked = self._apply_region_gate(state, raw_query, gate_query, memory)
             if blocked:
                 return blocked
-            return await self._run_advisory(state, try_tools_first=True)
+            return await self._run_advisory(state)
 
         blocked = self._apply_region_gate(state, raw_query, gate_query, memory)
         if blocked:
@@ -327,6 +310,7 @@ class TravelAgentStateMachine:
         return goal
 
     def _plan_tool_execution(self, state: TravelAgentState) -> list[str]:
+        """Fallback candidate provider — main path uses EvidencePlanningAndToolUseState."""
         state.information_needs = InformationNeedPlanner.plan(state.travel_task)
         need_summary = ", ".join(f"{n.need_type.value}({n.priority.value})" for n in state.information_needs[:6])
         TraceRecorder.add(state, f"✓ 已生成信息需求：{need_summary}")
@@ -504,7 +488,7 @@ class TravelAgentStateMachine:
         if state.tool_execution_plan and state.tool_execution_plan.fallback_used:
             state.limitations.append("部分信息通过 fallback 工具补充，置信度受限。")
 
-    async def _run_crowd_inquiry(self, state: TravelAgentState, tool_names: list[str]) -> TravelQueryResponse:
+    async def _run_crowd_inquiry(self, state: TravelAgentState) -> TravelQueryResponse:
         goal = state.user_goal
         place = goal.place_candidates[0] if goal and goal.place_candidates else None
         if not place and state.travel_task and state.travel_task.places:
@@ -519,10 +503,13 @@ class TravelAgentStateMachine:
         self._apply_crowd_limitations(state)
 
         place_ctx = self._place_context_for(state, place, 0)
-        evidence = await self.place_research.retrieve_for_place(
-            canonical, goal, tool_names, place_ctx, state.tool_execution_plan, state.limitations
+        state = await self._run_evidence_planning(
+            state,
+            place_name=canonical,
+            place_context=place_ctx,
+            reset_evidence=True,
         )
-        state.evidence = evidence
+        evidence = [ev for ev in state.evidence if isinstance(ev, Evidence)]
         self._sync_tool_traces(state)
 
         fact_sheet = self.aggregator.aggregate(canonical, evidence, [])
@@ -545,7 +532,7 @@ class TravelAgentStateMachine:
         confidence = self._citation_check(state, [fact_sheet], [review_result], min(recommendation.confidence, 0.75))
         return self._to_response(state, confidence)
 
-    async def _run_single(self, state: TravelAgentState, tool_names: list[str]) -> TravelQueryResponse:
+    async def _run_single(self, state: TravelAgentState) -> TravelQueryResponse:
         goal = state.user_goal
         place = goal.place_candidates[0] if goal and goal.place_candidates else None
         if not place:
@@ -559,10 +546,13 @@ class TravelAgentStateMachine:
             state.limitations.append(f"{place} 暂无结构化 mock 数据，部分结论可能不完整。")
 
         place_ctx = self._place_context_for(state, place, 0)
-        evidence = await self.place_research.retrieve_for_place(
-            canonical, goal, tool_names, place_ctx, state.tool_execution_plan, state.limitations
+        state = await self._run_evidence_planning(
+            state,
+            place_name=canonical,
+            place_context=place_ctx,
+            reset_evidence=True,
         )
-        state.evidence = evidence
+        evidence = [ev for ev in state.evidence if isinstance(ev, Evidence)]
         self._sync_tool_traces(state)
         TraceRecorder.add(state, "✓ 查询官方/地图/交通/评价/天气证据")
 
@@ -600,7 +590,7 @@ class TravelAgentStateMachine:
         confidence = self._citation_check(state, [fact_sheet], [review_result], recommendation.confidence)
         return self._to_response(state, confidence)
 
-    async def _run_compare(self, state: TravelAgentState, tool_names: list[str]) -> TravelQueryResponse:
+    async def _run_compare(self, state: TravelAgentState) -> TravelQueryResponse:
         goal = state.user_goal
         places = goal.place_candidates if goal else []
         if len(places) < 2:
@@ -609,17 +599,18 @@ class TravelAgentStateMachine:
         self._backfill_location_from_places(state)
         ranked_data: list[tuple[str, object, ReviewAspectResult, PlaceFactSheet]] = []
         all_evidence: list[Evidence] = []
-        base_tools = [t for t in tool_names if t not in {"weather", "lodging"}]
 
         for idx, place in enumerate(places[:4]):
             canonical = self.catalog.normalize_place_name(place) or place
             place_ctx = self._place_context_for(state, place, idx)
-            place_tools = list(base_tools)
-            if "weather" in tool_names and place_ctx.country and place_ctx.city:
-                place_tools.append("weather")
-            ev = await self.place_research.retrieve_for_place(
-                canonical, goal, place_tools, place_ctx, state.tool_execution_plan, state.limitations
+            before = len(state.evidence)
+            state = await self._run_evidence_planning(
+                state,
+                place_name=canonical,
+                place_context=place_ctx,
+                reset_evidence=(idx == 0),
             )
+            ev = [e for e in state.evidence[before:] if isinstance(e, Evidence)]
             all_evidence.extend(ev)
             conflicts = [ConflictRecord(**c) for c in self.verifier.detect_conflicts(ev)]
             fact_sheet = self.aggregator.aggregate(canonical, ev, conflicts)
@@ -646,34 +637,27 @@ class TravelAgentStateMachine:
         confidence = self._citation_check(state, fact_sheets, reviews, top_conf)
         return self._to_response(state, confidence)
 
-    async def _run_itinerary(self, state: TravelAgentState, tool_names: list[str]) -> TravelQueryResponse:
+    async def _run_itinerary(self, state: TravelAgentState) -> TravelQueryResponse:
         goal = state.user_goal
         self._backfill_location_from_places(state)
         plan = ItineraryAgent.build(goal)
         places = [i.place_name for i in plan.items if i.place_name]
         all_evidence: list[Evidence] = []
-        itinerary_tools = [t for t in tool_names if t not in {"lodging"}]
 
         for idx, place in enumerate(places):
             canonical = self.catalog.normalize_place_name(place) or place
             place_ctx = self._place_context_for(state, place, idx)
+            before = len(state.evidence)
+            state = await self._run_evidence_planning(
+                state,
+                place_name=canonical,
+                place_context=place_ctx,
+                reset_evidence=False if idx else True,
+            )
             all_evidence.extend(
-                await self.place_research.retrieve_for_place(
-                    canonical, goal, itinerary_tools, place_ctx, state.tool_execution_plan, state.limitations
-                )
+                [e for e in state.evidence[before:] if isinstance(e, Evidence)]
             )
             TraceRecorder.add(state, f"✓ 检索 {canonical} 交通/开放信息")
-
-        if goal and goal.destination_city and goal.destination_country and "weather" in tool_names:
-            all_evidence.extend(
-                await self.tools.run_tool(
-                    "weather",
-                    city=goal.destination_city,
-                    country=goal.destination_country,
-                    travel_date=goal.travel_date,
-                )
-            )
-            TraceRecorder.add(state, "✓ 检查天气风险")
 
         state.evidence = all_evidence
         self._sync_tool_traces(state)

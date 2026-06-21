@@ -4,11 +4,11 @@ from typing import Any
 
 from app.config import Settings, get_settings
 from app.schemas.tool_trace import ToolTrace
-from app.tools.adapters.mcp_tool_adapter import OfficialReaderMCPAdapter, PlacesMCPAdapter, WeatherMCPAdapter
 from app.tools.fallback_tool import MockFallbackTool
 from app.tools.hybrid_tool import HybridTravelTool
 from app.tools.knowledge_prior_tool import KnowledgePriorTool
 from app.tools.lodging_area_tool import MockLodgingAreaTool
+from app.tools.mcp.registry_setup import attach_mcp_tools
 from app.tools.official_site_tool import MockOfficialSiteTool
 from app.tools.places_tool import MockPlacesTool
 from app.tools.real.official_page_tool import RealOfficialPageTool
@@ -17,11 +17,12 @@ from app.tools.real.weather_tool import RealWeatherTool
 from app.tools.restaurant_tool import MockRestaurantTool
 from app.tools.review_tool import MockReviewTool
 from app.tools.transit_tool import MockTransitTool
+from app.tools.seasonality_tool import SeasonalityTool
 from app.tools.weather_tool import MockWeatherTool
 
 logger = logging.getLogger(__name__)
 
-_REGISTERED_TOOL_NAMES = (
+BASE_REGISTERED_TOOL_NAMES = (
     "knowledge_prior",
     "official",
     "places",
@@ -31,10 +32,10 @@ _REGISTERED_TOOL_NAMES = (
     "restaurant",
     "lodging",
     "fallback",
-    "mcp_weather",
-    "mcp_places",
-    "mcp_official",
+    "seasonality",
 )
+
+_REGISTERED_TOOL_NAMES = BASE_REGISTERED_TOOL_NAMES
 
 
 class TravelToolRegistry:
@@ -47,7 +48,9 @@ class TravelToolRegistry:
       use_mock: bool | None = None,
   ) -> None:
       self.llm = llm_client
-      self.settings = get_settings()
+      from app.config import get_settings as load_settings
+
+      self.settings = load_settings()
       if use_mock is True:
           self.tool_mode = "mock"
       else:
@@ -127,15 +130,17 @@ class TravelToolRegistry:
       self.restaurant = MockRestaurantTool()
       self.lodging = MockLodgingAreaTool()
       self.fallback = MockFallbackTool()
-      self.mcp_weather = WeatherMCPAdapter()
-      self.mcp_places = PlacesMCPAdapter()
-      self.mcp_official = OfficialReaderMCPAdapter()
+      self.seasonality = SeasonalityTool(
+          weather_tool=self.weather,
+          knowledge_prior_tool=self.knowledge_prior,
+      )
+      self._mcp_tool_names = attach_mcp_tools(self)
 
   def _settings_for_mode(self, mode: str) -> Settings:
       return self.settings.model_copy(update={"tool_mode": mode})
 
   def registered_tool_names(self) -> list[str]:
-      return list(_REGISTERED_TOOL_NAMES)
+      return list(BASE_REGISTERED_TOOL_NAMES) + list(getattr(self, "_mcp_tool_names", []))
 
   def clear_traces(self) -> None:
       self.traces.clear()
