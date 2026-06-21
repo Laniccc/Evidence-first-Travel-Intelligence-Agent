@@ -9,6 +9,7 @@ from app.schemas.final_answer_draft import FinalAnswerDraft, FinalAnswerSection
 from app.schemas.place_factsheet import PlaceFactSheet
 from app.schemas.review import ReviewAspectResult
 from app.schemas.user_query import TravelAgentState
+from app.utils.llm_json import normalize_llm_json_text, parse_llm_json
 
 logger = logging.getLogger(__name__)
 PROMPTS_DIR = Path(__file__).resolve().parents[1] / "prompts"
@@ -81,7 +82,16 @@ class AnswerComposerAgent:
         )
         user = json.dumps(bundle, ensure_ascii=False)
         raw = await self.llm.complete(system=system, user=user, max_tokens=1200)
-        data = json.loads(raw)
+        try:
+            data = parse_llm_json(raw)
+        except json.JSONDecodeError as exc:
+            normalized = normalize_llm_json_text(raw)
+            logger.warning(
+                "AnswerComposer JSON parse failed (%s); normalized preview: %.200s",
+                exc,
+                normalized,
+            )
+            raise
         return FinalAnswerDraft.model_validate(data)
 
     def _validate_draft(self, draft: FinalAnswerDraft, bundle: dict) -> bool:

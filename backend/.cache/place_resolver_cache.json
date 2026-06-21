@@ -188,5 +188,17 @@
     "metadata": {
       "fallback": true
     }
+  },
+  "东京|东京|日本": {
+    "mention": "东京",
+    "canonical_name": "东京",
+    "country": "日本",
+    "city": "东京",
+    "region": null,
+    "place_type": "city",
+    "confidence": 1.0,
+    "resolution_source": "local_cache",
+    "coordinates": null,
+    "metadata": {}
   }
 }
