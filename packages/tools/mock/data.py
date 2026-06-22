@@ -199,6 +199,8 @@ CITY_COUNTRY = {
     "busan": ("South Korea", "Busan"),
     "sapporo": ("Japan", "Sapporo"),
     "札幌": ("Japan", "Sapporo"),
+    "okayama": ("Japan", "Okayama"),
+    "冈山": ("Japan", "Okayama"),
     "chengdu": ("China", "Chengdu"),
     "成都": ("China", "Chengdu"),
 }

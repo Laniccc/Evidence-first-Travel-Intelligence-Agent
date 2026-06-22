@@ -15,7 +15,7 @@ DRY_RUN="${DRY_RUN:-0}"
 cd "$(dirname "$0")"
 echo "Project: $(pwd)"
 
-if [[ -f backend/.env ]] || [[ -f .env ]]; then
+if [[ -f apps/agent-python/.env ]] || [[ -f .env ]]; then
   echo "WARNING: .env exists locally and is ignored by git (will NOT be uploaded)."
 fi
 

@@ -13,33 +13,36 @@
 
 ## 快速开始
 
-> **重要**：`app` 包位于 `backend/` 下。请在 `backend` 目录内运行 uvicorn、pytest 及所有 Python 命令。  
-> 若在项目根目录运行会出现 `ModuleNotFoundError: No module named 'app'`。
+> **重要**：Python Agent 入口在 `apps/agent-python/`。请在该目录内运行 uvicorn、pytest。  
+> 完整链路：`apps/web` → `apps/api-java` (:8080) → `apps/agent-python` (:8001)。仅测 Agent 核心时只启动后者即可。
 
 ```powershell
-# 1. 进入 backend（必须）
-cd backend
+# 1. 进入 agent-python（必须）
+cd apps/agent-python
 
-# 2. 安装依赖（conda / venv 均可，激活环境后执行）
+# 2. 安装依赖
 pip install -r requirements.txt
 copy .env.example .env          # Windows
-# cp .env.example .env          # macOS / Linux
 
 # 3. 验收
+$env:PYTHONPATH = (Get-Location).Path
 python -m compileall app
 pytest app/evals -q
 
-# 4. 启动服务
-uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
+# 4. 启动 Agent 服务（默认 8001）
+python -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8001
 ```
 
 ### 访问地址
 
 | 地址 | 说明 |
 |------|------|
-| http://127.0.0.1:8000/ | 用户 Web UI（输入问题、查看 trace / 证据摘要） |
-| http://127.0.0.1:8000/admin | Swagger API 文档 |
-| http://127.0.0.1:8000/health | 健康检查 |
+| http://127.0.0.1:8001/agent/health | Agent 健康检查 |
+| POST http://127.0.0.1:8001/agent/query | 旅行问答 API |
+| http://127.0.0.1:5173/ | Web UI（需 `apps/web` + 可选 `api-java`） |
+| `apps/agent-python/debug_last_session.md` | 最近一次问答的调试日志（本地覆盖写入） |
+
+详见 [apps/agent-python/README.md](apps/agent-python/README.md) 与 [apps/web/README.md](apps/web/README.md)。
 
 ### LLM 配置（可选）
 
@@ -55,7 +58,7 @@ ANTHROPIC_BASE_URL=https://api.deepseek.com/anthropic
 ### API 示例
 
 ```bash
-curl -X POST http://127.0.0.1:8000/api/travel/query ^
+curl -X POST http://127.0.0.1:8001/agent/query ^
   -H "Content-Type: application/json" ^
   -d "{\"query\":\"京都清水寺适合带父母去吗？\",\"user_context\":{\"party\":[\"elderly\"]}}"
 ```
@@ -128,7 +131,7 @@ TOOL_MODE=hybrid
 ENABLE_REAL_WEATHER=false
 ENABLE_REAL_PLACES=false
 ENABLE_REAL_OFFICIAL_PAGE=false
-MCP_ENABLED=false
+MCP_ENABLED=true
 REAL_TOOL_TIMEOUT_SECONDS=8
 REAL_TOOL_CACHE_TTL_SECONDS=3600
 ```
@@ -136,7 +139,7 @@ REAL_TOOL_CACHE_TTL_SECONDS=3600
 ### 配置 Weather API
 
 1. 在 [OpenWeatherMap](https://openweathermap.org/api) 申请 API key  
-2. `backend/.env`：
+2. `apps/agent-python/.env`：
 
 ```env
 ENABLE_REAL_WEATHER=true
@@ -154,7 +157,7 @@ PLACES_API_KEY=pilot
 
 ### 配置官方页面白名单
 
-在 `backend/app/config.py` 的 `official_page_whitelist` 维护景点 → 官方 URL（仅政府 / 官方旅游站，不做全网爬虫）。内置示例：`Kiyomizu-dera`、`Fushimi Inari`、`Senso-ji`。
+在 `apps/agent-python/app/config.py` 的 `official_page_whitelist` 维护景点 → 官方 URL（仅政府 / 官方旅游站，不做全网爬虫）。内置示例：`Kiyomizu-dera`、`Fushimi Inari`、`Senso-ji`。
 
 ```env
 ENABLE_REAL_OFFICIAL_PAGE=true
@@ -170,7 +173,7 @@ MCP_ENABLED=true
 
 ### 试点 Golden Queries
 
-`backend/app/evals/real_data_pilot_queries.json` — 5 条京都 / 东京 query；mock 模式可跑；hybrid + API key 后 weather / places 可走真实数据。
+`apps/agent-python/app/evals/real_data_pilot_queries.json` — 5 条京都 / 东京 query；mock 模式可跑；hybrid + API key 后 weather / places 可走真实数据。
 
 ### 数据合规
 
@@ -201,65 +204,40 @@ MCP_ENABLED=true
 Evidence-first Travel Intelligence Agent/
 ├── README.md
 ├── RUNBOOK.md
-├── image.png
-└── backend/
-    ├── .env.example
-    ├── pytest.ini
-    ├── requirements.txt
-    └── app/
-        ├── main.py                 # FastAPI + 静态 UI
-        ├── config.py               # TOOL_MODE、API keys、官方白名单
-        ├── static/                 # Web UI（index.html / app.js）
-        ├── catalog/
-        ├── policies/
-        │   └── evidence_policy.py
-        ├── orchestrator/
-        │   ├── answer_mode_router.py
-        │   ├── state_machine.py
-        │   ├── evidence_aggregator.py
-        │   └── citation_check.py
-        ├── agents/
-        ├── storage/
-        │   └── tool_cache.py
-        ├── tools/
-        │   ├── real/               # RealWeatherTool, RealPlacesTool, RealOfficialPageTool
-        │   ├── adapters/           # MCPToolAdapter
-        │   ├── hybrid_tool.py
-        │   ├── knowledge_prior_tool.py
-        │   ├── capability_registry.py
-        │   ├── tool_router.py
-        │   └── registry.py
-        ├── schemas/
-        └── evals/
-            ├── golden_queries.json
-            ├── semantic_routing_tests.py
-            ├── real_data_pilot_queries.json
-            └── integration/        # @pytest.mark.real_api
+├── REPO_MAP.md
+├── apps/
+│   ├── agent-python/          # Python Agent 核心（FastAPI :8001）
+│   ├── api-java/              # API Gateway (:8080)
+│   └── web/                   # 前端 SPA
+├── packages/tools/            # 工具 / MCP / mock 数据真相源
+├── contracts/                 # 跨语言 JSON Schema
+└── image.png
 ```
 
 ## 如何新增景点 mock data
 
-1. `tools/mock/data.py` → `PLACE_REGISTRY` / `PLACE_ALIASES` / `MOCK_REVIEWS`
-2. `config.py` → `supported_cities`（如需要）
-3. `evals/golden_queries.json` + 评测用例
+1. `packages/tools/mock/data.py` → `PLACE_REGISTRY` / `PLACE_ALIASES` / `CITY_COUNTRY` / `MOCK_REVIEWS`
+2. `apps/agent-python/app/config.py` → `supported_cities`（如需要）
+3. `apps/agent-python/app/evals/golden_queries.json` + 评测用例
 
 Catalog 通过 `MockPlaceCatalogBackend` 自动读取，**无需**修改 Composer / Scorer。
 
 ## 运行评测
 
 ```bash
-cd backend
+cd apps/agent-python
+$env:PYTHONPATH = (Get-Location).Path   # PowerShell
 python -m compileall app
 pytest app/evals -q                              # mock 评测（须全部通过）
-pytest app/evals/integration -m real_api -q      # 真实 API（无 key 自动 skip）
+pytest app/evals -m real_api -q                  # 真实 API（无 key 自动 skip）
 ```
 
 ## 故障排查
 
 | 现象 | 处理 |
 |------|------|
-| `ModuleNotFoundError: No module named 'app'` | 先 `cd backend`，再运行 uvicorn / pytest |
-| 端口占用 | `uvicorn ... --port 8001` |
+| `ModuleNotFoundError: No module named 'app'` | 先 `cd apps/agent-python` 并设置 `PYTHONPATH=.` |
+| 端口占用 | 换端口 `--port 8002` |
 | 回答过于模板化 | 检查 `LLM_MODE=mock`；配置 `DEEPSEEK_API_KEY` 后设 `LLM_MODE=anthropic` |
 | 真实天气未生效 | 确认 `ENABLE_REAL_WEATHER=true` 且 `WEATHER_API_KEY` 已设置；查看 `tool_traces` 是否 `fallback_used` |
 

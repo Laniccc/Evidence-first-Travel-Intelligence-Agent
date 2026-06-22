@@ -1,6 +1,6 @@
 # Evidence-first Travel Intelligence Agent — Runbook
 
-本文档说明如何在本项目中安装、配置并运行 **东亚旅游景点情报 Agent**（FastAPI + Evidence-first 状态机），以及如何运行评测与上传 GitHub。
+本文档说明如何在本项目中安装、配置并运行 **东亚旅游景点情报 Agent**（Monorepo：agent-python + api-java + web），以及如何运行评测与上传 GitHub。
 
 ---
 
@@ -8,63 +8,61 @@
 
 | 项目 | 说明 |
 |------|------|
-| 服务入口 | `backend/app/main.py`（FastAPI） |
-| 状态机 | `backend/app/orchestrator/state_machine.py` |
+| Python Agent 入口 | `apps/agent-python/app/main.py`（FastAPI `:8001`） |
+| API Gateway | `apps/api-java`（`:8082`，代理到 agent-python） |
+| 前端 | `apps/web`（Vite dev `:5173`） |
+| 状态机 | `apps/agent-python/app/orchestrator/state_machine.py` |
+| 工具 / mock 数据 | `packages/tools/` |
 | 首期支持区域 | 日本、中国、韩国 |
-| 核心能力 | 单景点情报 / 多景点比较 / 轻量行程建议 |
-| 数据模式 | MVP 阶段以 mock tools 为主，接口按真实 API 设计 |
 
-设计原则：**工具返回 Evidence → Agent 基于 Evidence 总结 → Composer 生成回答**。禁止 LLM 直接编造开放时间、票价、路线。
+设计原则：**工具返回 Evidence → Agent 基于 Evidence 总结 → Composer 生成回答**。
 
 ---
 
 ## 2. 环境要求
 
-- **Python** 3.10+（已在 3.13 验证）
-- **操作系统**：Windows / macOS / Linux
+- **Python** 3.11+（agent-python）
+- **Java 17+ / Maven**（api-java，可选）
+- **Node.js 18+**（web，可选）
 - **Git**（上传 GitHub 时需要）
-- **可选**：`ANTHROPIC_API_KEY`（无 key 时 `LLM_MODE=mock` 可离线演示）
 
 ---
 
-## 3. 安装
+## 3. 安装（Agent 核心）
 
-在项目根目录执行：
-
-```bash
-cd "E:\学习文件\研究生\就业\Agent学习\Evidence-first Travel Intelligence Agent\backend"
-
+```powershell
+cd apps/agent-python
 pip install -r requirements.txt
-copy .env.example .env          # Windows
-# cp .env.example .env          # macOS / Linux
+copy .env.example .env
 ```
 
 ---
 
 ## 4. 配置
 
-编辑 `backend/.env`：
+编辑 `apps/agent-python/.env`：
 
 ```env
 LLM_MODE=mock
 LOG_LEVEL=INFO
-ANTHROPIC_API_KEY=
-ANTHROPIC_MODEL=claude-sonnet-4-20250514
+DEEPSEEK_API_KEY=
+MCP_ENABLED=true
 ```
 
-| 变量 | 必填 | 说明 |
-|------|------|------|
-| `LLM_MODE` | 否 | `mock`（默认离线）/ `auto` / `anthropic` |
-| `ANTHROPIC_API_KEY` | 使用真实 LLM 时 | Anthropic API 密钥 |
-| `ANTHROPIC_MODEL` | 否 | Claude 模型名 |
-| `LOG_LEVEL` | 否 | `INFO` / `DEBUG` |
+| 变量 | 说明 |
+|------|------|
+| `LLM_MODE` | `mock` / `auto` / `anthropic` |
+| `DEEPSEEK_API_KEY` | DeepSeek API 密钥（空字符串视为未配置） |
+| `MCP_ENABLED` | 默认 `true` |
+| `TOOL_MODE` | `mock` / `real` / `hybrid`（默认 hybrid） |
 
-**安全提示**：不要将 `backend/.env` 提交到 Git（已在 `.gitignore` 中忽略）。
+**安全提示**：不要将 `apps/agent-python/.env` 提交到 Git。
 
 ### 验证配置
 
-```bash
-cd backend
+```powershell
+cd apps/agent-python
+$env:PYTHONPATH = (Get-Location).Path
 python -c "from app.config import get_settings; s=get_settings(); print('llm_mode:', s.llm_mode)"
 ```
 
@@ -72,261 +70,145 @@ python -c "from app.config import get_settings; s=get_settings(); print('llm_mod
 
 ## 5. 启动服务
 
-```bash
-cd backend
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+### 5.1 仅 Agent（最快验证）
+
+```powershell
+cd apps/agent-python
+$env:PYTHONPATH = (Get-Location).Path
+python -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8001
 ```
 
-健康检查：
-
-```bash
-curl http://127.0.0.1:8000/health
-curl http://127.0.0.1:8000/api/travel/supported-regions
+```powershell
+curl http://127.0.0.1:8001/agent/health
 ```
 
-API 文档：浏览器打开 `http://127.0.0.1:8000/`（用户界面）或 `http://127.0.0.1:8000/admin`（Swagger API 后台）
+问答：
+
+```powershell
+curl.exe -s -X POST http://127.0.0.1:8001/agent/query `
+  -H "Content-Type: application/json; charset=utf-8" `
+  -d '{"query":"京都清水寺适合带父母去吗？","session_id":"demo"}'
+```
+
+调试日志（每次问答覆盖）：`apps/agent-python/debug_last_session.md`
+
+### 5.2 完整三件套
+
+需要 **3 个终端**，按顺序启动。默认端口：agent-python `:8001` → api-java `:8082` → web `:5173`。
+
+**终端 1 — agent-python**
+
+```powershell
+conda activate ClaudeAgent
+cd apps/agent-python
+pip install -r requirements.txt          # 首次
+copy .env.example .env                   # 首次
+$env:PYTHONPATH = (Get-Location).Path
+python -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8001
+```
+
+验证：`curl http://127.0.0.1:8001/agent/health`
+
+**终端 2 — api-java（需 Java 17+、Maven）**
+
+```powershell
+cd apps/api-java
+# 可选：copy .env.example .env 后按需设置 AGENT_BASE_URL=http://localhost:8001
+mvn spring-boot:run
+```
+
+验证：`curl http://127.0.0.1:8082/health`
+
+**终端 3 — web 前端**
+
+```powershell
+cd apps/web
+copy .env.example .env                   # 首次；VITE_API_BASE_URL 留空即可走 Vite 代理
+npm install                              # 首次
+npm run dev
+```
+
+浏览器打开 http://127.0.0.1:5173 ，在页面提问。开发模式下请求路径为 `POST /api/travel/query`（Vite 代理到 `http://localhost:8082`）。
+
+**链路确认**
+
+```text
+浏览器 :5173  →  Vite proxy  →  api-java :8082  →  agent-python :8001
+```
+
+无 Maven 时见 [apps/web/README.md](apps/web/README.md)「临时绕过 api-java」（Vite 直连 `:8001`，测完改回）。
 
 ---
 
-## 6. API 使用示例
-
-### 6.1 单景点情报
-
-```bash
-curl -X POST http://127.0.0.1:8000/api/travel/query ^
-  -H "Content-Type: application/json" ^
-  -d "{\"query\":\"京都清水寺适合带父母去吗？\",\"user_context\":{\"party\":[\"elderly\"],\"pace\":\"relaxed\"}}"
-```
-
-### 6.2 多景点比较
-
-```bash
-curl -X POST http://127.0.0.1:8000/api/travel/query ^
-  -H "Content-Type: application/json" ^
-  -d "{\"query\":\"清水寺、伏见稻荷、岚山竹林哪个更适合老人？\"}"
-```
-
-### 6.3 轻量行程
-
-```bash
-curl -X POST http://127.0.0.1:8000/api/travel/query ^
-  -H "Content-Type: application/json" ^
-  -d "{\"query\":\"我住在明洞，想安排一天首尔文化游。\"}"
-```
-
-### 6.4 响应字段
+## 6. API 字段
 
 | 字段 | 说明 |
 |------|------|
-| `answer` | 结构化自然语言回答 |
-| `structured_result` | 推荐 / 比较表 / 行程等结构化结果 |
-| `visible_trace` | 用户可理解的执行轨迹 |
-| `evidence_summary` | 证据来源摘要 |
-| `conflicts` | 来源冲突记录 |
-| `limitations` | 限制与假设说明 |
-| `field_evidence_summary` | 字段级证据摘要 |
-| `citation_check_result` | 引用校验结果 |
+| `answer` | 自然语言回答 |
+| `visible_trace` | 执行轨迹（思考日志） |
+| `evidence_summary` | 证据摘要 |
+| `limitations` | 限制说明 |
 | `tool_traces` | 工具调用轨迹 |
 
 ---
 
 ## 7. 运行评测
 
-```bash
-cd backend
-pytest -q
+```powershell
+cd apps/agent-python
+$env:PYTHONPATH = (Get-Location).Path
+pytest app/evals -q
 ```
 
-Golden queries 位于 `backend/app/evals/golden_queries.json`，覆盖：
-
-- 单景点（清水寺 / 故宫 / 景福宫）
-- 多景点比较（京都三景点）
-- 行程建议（明洞出发首尔文化游）
+Golden queries：`apps/agent-python/app/evals/golden_queries.json`
 
 ---
 
 ## 8. 目录结构
 
 ```text
-Evidence-first Travel Intelligence Agent/
-├── RUNBOOK.md                 # 本文档
-├── README.md                  # 项目简介
-├── upload_to_github.ps1       # Windows 一键上传
-├── upload_to_github.sh        # macOS/Linux 一键上传
-├── setup_project_credentials.ps1
-├── set_project_pat.ps1
-├── fix_github_auth.ps1
-└── backend/
-    ├── app/
-    │   ├── main.py
-    │   ├── orchestrator/state_machine.py
-    │   ├── agents/
-    │   ├── tools/mock_data.py
-    │   ├── schemas/
-    │   └── evals/
-    ├── requirements.txt
-    └── .env.example
+apps/agent-python/     # Python Agent（主开发目录）
+apps/api-java/         # Java Gateway
+apps/web/              # 前端
+packages/tools/        # 工具与 mock 数据
+contracts/             # JSON Schema
 ```
+
+详见 [REPO_MAP.md](REPO_MAP.md)。
 
 ---
 
-## 9. 状态链（QueryUnderstanding-first）
-
-`TravelAgentStateMachine` 主流程（`backend/app/orchestrator/state_machine.py`）：
-
-```text
-User Query
-  → QueryUnderstandingPromptState     # 会话上下文 + 转写 + TravelTask + ClarificationGate
-  → RegionGate                        # 优先 TravelTask.country/city
-  → TravelTaskToUserGoalAdapter       # 主路径 UserGoal（IntentAgent 仅 fallback）
-  → InformationNeedPlanner + ToolRouter
-  → Tools → Evidence
-  → EvidenceAggregator → ReviewMining → Scorer → Composer → CitationChecker
-```
-
-澄清路径（`needs_clarification=true`）在 QueryUnderstanding 后直接返回，不调用 RegionGate / IntentAgent / Tools。
-
-旧版入口 `Region Gate → Intent → ...` 已废弃；`IntentAgent` 仅在 TravelTask 不可用时作为 fallback。
-
----
-
-## 10. 扩展真实数据源
-
-1. 在 `backend/app/tools/` 新增 tool，实现 `BaseTool.run()` 并返回 `Evidence`
-2. 在 `backend/app/tools/__init__.py` 的 `ToolRegistry` 中替换 mock
-3. 在 `backend/app/config.py` 增加对应 API key 配置
-4. 在 `backend/app/evals/` 补充验收用例
-
-**原则**：开放时间 / 票价 / 预约政策优先 `official` 证据；天气用 `weather_api`；交通用 `transit_api` / `map`。
-
----
-
-## 11. 故障排查
-
-| 现象 | 可能原因 | 处理 |
-|------|----------|------|
-| `ModuleNotFoundError: app` | 未在 `backend/` 目录启动 | `cd backend` 后再运行 uvicorn / pytest |
-| 端口占用 | 8000 已被占用 | 换端口 `--port 8001` |
-| 回答过于模板化 | `LLM_MODE=mock` | 配置 `ANTHROPIC_API_KEY` 并设 `LLM_MODE=anthropic` |
-| 景点未识别 | mock 库无该景点 | 在 `mock_data.py` 的 `PLACE_REGISTRY` 添加 |
-| pytest 无测试 | 未配置 `pytest.ini` | 确认 `backend/pytest.ini` 存在，在 `backend/` 运行 |
-| 非日韩中查询被拒 | Region Gate 设计 | 预期行为；扩展国家需改 `config.py` 与 Region Gate |
-
----
-
-## 12. 上传项目到 GitHub
-
-默认远程仓库：
-
-**https://github.com/Laniccc/Evidence-first-Travel-Intelligence-Agent.git**
-
-分支：`main`。推送前请确认你有该仓库的 **write** 权限（或先用 `-RemoteUrl` 指向你自己的仓库）。
-
-> 若 GitHub 上尚未创建该仓库，请先在 GitHub 网页 **New repository** 创建同名空仓库，再执行上传脚本。
-
-### 12.1 不会上传的内容
-
-`.gitignore` 已排除：
-
-| 路径/模式 | 说明 |
-|-----------|------|
-| `backend/.env` / `.env` | API 密钥 |
-| `__pycache__/`、`.pytest_cache/` | 缓存 |
-| `*.pat`、`github-pat.txt`、`*.gitcredentials` | 令牌或凭据文件 |
-| `node_modules/`、`.next/` | 前端构建产物（预留） |
-
-### 12.2 一键上传（推荐）
-
-**Windows（PowerShell）**，在项目根目录：
-
-```powershell
-# 默认提交信息并 push
-.\upload_to_github.ps1
-
-# 自定义提交说明
-.\upload_to_github.ps1 -Message "feat: travel agent MVP with runbook"
-
-# 仅预览将执行的 git 命令
-.\upload_to_github.ps1 -DryRun
-```
-
-| 参数 | 默认值 | 说明 |
-|------|--------|------|
-| `-RemoteUrl` | `https://github.com/Laniccc/Evidence-first-Travel-Intelligence-Agent.git` | 远程地址 |
-| `-Branch` | `main` | 分支名 |
-| `-Message` | `init: Evidence-first Travel Intelligence Agent MVP` | 提交说明 |
-| `-DryRun` | — | 只打印命令，不执行 commit/push |
-
-**macOS / Linux**：
-
-```bash
-bash upload_to_github.sh
-bash upload_to_github.sh "feat: update runbook"
-DRY_RUN=1 bash upload_to_github.sh
-```
-
-### 12.3 首次配置 GitHub 凭据（HTTPS + PAT）
-
-1. 打开 [GitHub Tokens](https://github.com/settings/tokens)
-2. **Generate new token (classic)**，勾选 **`repo`**
-3. 复制 Token（`ghp_...` 或 `github_pat_...`）
-
-**方式 A：仅本仓库独立凭据（推荐）**
-
-```powershell
-.\setup_project_credentials.ps1
-git push -u origin main
-# 用户名: Laniccc | 密码: 粘贴 PAT
-```
-
-**方式 B：PAT 只保存在 `.git/credentials`**
-
-```powershell
-.\setup_project_credentials.ps1 -UseLocalFile
-# 或交互式：
-.\set_project_pat.ps1
-git push -u origin main
-```
-
-**清除本仓库错误凭据：**
-
-```powershell
-.\fix_github_auth.ps1
-```
-
-### 12.4 推送失败：403 / 认证错误
+## 9. 故障排查
 
 | 现象 | 处理 |
 |------|------|
-| `403` / `Permission denied` | 运行 `.\fix_github_auth.ps1`，用新 PAT 重试 |
-| 用了网站登录密码 | 必须使用 PAT |
-| 仓库不存在 | 先在 GitHub 创建空仓库 |
-| 更换远程 | `.\upload_to_github.ps1 -RemoteUrl "https://github.com/<user>/<repo>.git"` |
+| `ModuleNotFoundError: app` | `cd apps/agent-python`，设置 `PYTHONPATH=.` |
+| 区域显示「未知」 | 检查 `DEEPSEEK_API_KEY`；城市是否在 `packages/tools/mock/data.py` 的 `CITY_COUNTRY` |
+| 回答空 / 0 evidence | 查看 `debug_last_session.md` 的 trace |
+| 端口占用 | 换 `--port` |
+| `LLM_MODE=mock` 回答模板化 | 配置 API key 后设 `LLM_MODE=anthropic` |
 
 ---
 
-## 13. 运维与安全建议
+## 10. 上传 GitHub
 
-1. **密钥**：仅存放在 `backend/.env`，不要写入代码或提交 Git。
-2. **评论数据合规**：mock 阶段只存摘要；接真实 API 时遵守平台条款。
-3. **反爬**：不得绕过登录、验证码或批量抓取受保护内容。
-4. **证据优先**：缺少关键证据时必须标注不确定，不得给确定性结论。
+```powershell
+.\upload_to_github.ps1 -Message "your message"
+```
+
+`.gitignore` 已排除 `apps/agent-python/.env`、`.npm-cache/`、`node_modules/` 等。
 
 ---
 
-## 14. 快速检查清单
+## 11. 快速检查清单
 
-- [ ] Python 3.10+ 已安装
-- [ ] `cd backend && pip install -r requirements.txt` 成功
-- [ ] `backend/.env` 已创建（`LLM_MODE=mock` 即可本地演示）
-- [ ] `uvicorn app.main:app --reload` 可访问 `/health`
-- [ ] `POST /api/travel/query` 返回 `answer` + `visible_trace` + `evidence_summary`
-- [ ] `cd backend && pytest -q` 全部通过
+- [ ] `cd apps/agent-python && pip install -r requirements.txt`
+- [ ] `apps/agent-python/.env` 已创建
+- [ ] `http://127.0.0.1:8001/agent/health` 正常
+- [ ] `POST /agent/query` 返回 `answer` + `visible_trace`
+- [ ] `pytest app/evals -q` 通过
 - [ ] 上传前确认 `.env` 未被 `git add`
-- [ ] GitHub 空仓库已创建（若使用默认 RemoteUrl）
-- [ ] 已配置 PAT 或运行 `setup_project_credentials.ps1`
-- [ ] `.\upload_to_github.ps1` 推送成功
 
 ---
 
-*文档版本：与当前 `backend/app` MVP + GitHub 上传脚本实现一致。若 API 或环境变量有变更，以代码为准并同步更新本 Runbook。*
+*文档版本：Monorepo（`apps/agent-python` 为唯一 Python 运行时）。*

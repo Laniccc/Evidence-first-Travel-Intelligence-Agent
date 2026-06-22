@@ -1,8 +1,10 @@
+# --- Legacy (removed from repo; ignore local leftovers) ---
+backend/
+
 # --- Secrets & credentials (never commit) ---
 .env
 .env.*
 !.env.example
-backend/.env
 apps/agent-python/.env
 apps/web/.env
 github-pat.txt
@@ -11,13 +13,11 @@ github-pat.txt
 
 # --- Python ---
 .venv/
-backend/.venv/
 apps/agent-python/.venv/
 __pycache__/
 *.py[cod]
 *$py.class
 .pytest_cache/
-backend/.pytest_cache/
 .mypy_cache/
 .ruff_cache/
 *.egg-info/
@@ -40,8 +40,6 @@ yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 
-# package-lock.json SHOULD be committed for reproducible installs
-
 # --- Java ---
 target/
 apps/api-java/target/
@@ -60,8 +58,6 @@ Thumbs.db
 desktop.ini
 
 # --- Session debug logs (local only, overwritten each query) ---
-debug_last_session.md
-backend/debug_last_session.md
 apps/agent-python/debug_last_session.md
 
 # --- Misc logs & temp ---

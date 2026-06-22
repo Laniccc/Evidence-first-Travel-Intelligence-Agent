@@ -57,7 +57,7 @@ contracts/
 
 ## 参考实现（只读对照）
 
-Legacy Pydantic 定义见 `backend/app/schemas/`（**勿再修改**）。新实现以 `apps/agent-python` 为准，并遵守本 contracts。
+Pydantic 定义以 `apps/agent-python/app/schemas/` 为准，并遵守本 contracts。
 
 ## 校验（本地）
 

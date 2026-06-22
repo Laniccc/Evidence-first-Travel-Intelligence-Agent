@@ -18,6 +18,7 @@ Main pipeline::
 
 from uuid import uuid4
 
+from app.catalog.location_resolver import resolve_city_country_from_text
 from app.agents.information_need_planner import InformationNeedPlanner
 from app.agents.composer_agent import ComposerAgent, ItineraryAgent
 from app.agents.intent_agent import IntentAgent, RegionGateAgent
@@ -408,6 +409,18 @@ class TravelAgentStateMachine:
                         country=loc.country,
                         city=loc.city,
                         reason=f"Resolved from place catalog: {place}",
+                    )
+
+        if not region.supported:
+            for text in (raw_query, gate_query):
+                hit = resolve_city_country_from_text(text)
+                if hit:
+                    country, city = hit
+                    return RegionGateResult(
+                        supported=True,
+                        country=country,
+                        city=city,
+                        reason=f"Resolved from city catalog: {city}",
                     )
 
         if not region.supported and memory.last_country:

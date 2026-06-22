@@ -1,6 +1,6 @@
 # apps/agent-python — Travel Agent 独立入口
 
-Python Agent 核心服务的 **独立 FastAPI 进程**。运行时不再依赖 `backend/`；工具实现以 [`packages/tools`](../../packages/tools/) 为真相源，`app/tools/` 为薄 shim。
+Python Agent 核心服务的 **独立 FastAPI 进程**。工具实现以 [`packages/tools`](../../packages/tools/) 为真相源，`app/tools/` 为薄 shim。
 
 ## 前置条件
 
@@ -113,4 +113,4 @@ python -m pytest tests/test_s5_whitelist.py -v
 ## 说明
 
 - **无前端页面**；正常链路为 `web → api-java → agent-python`。
-- `backend/` 仅只读对照，见 [`backend/LEGACY.md`](../../backend/LEGACY.md)。
+- 调试日志：每次 `/agent/query` 后写入 `debug_last_session.md`（覆盖）。

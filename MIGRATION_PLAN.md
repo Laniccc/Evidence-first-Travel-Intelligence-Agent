@@ -1,7 +1,7 @@
 # MIGRATION_PLAN — Monorepo 分阶段迁移计划
 
-> **原则**：每轮只做一个阶段；机械迁移优先；**新功能禁止写入 `backend/`**（见 [backend/LEGACY.md](backend/LEGACY.md)）。  
-> **禁止**：全仓库扫描、同轮同时改 agent / api / web / tools / tests。
+> **状态（2026-06）**：`backend/` 已从仓库删除；**唯一 Python 运行时**为 `apps/agent-python/`。  
+> **原则**：新功能只写 `apps/*`、`packages/`、`contracts/`。
 
 ## 目标结构
 

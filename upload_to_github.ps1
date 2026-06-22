@@ -17,8 +17,8 @@ $ProjectRoot = $PSScriptRoot
 Set-Location $ProjectRoot
 Write-Host "Project: $ProjectRoot" -ForegroundColor Cyan
 
-if (Test-Path "backend\.env") {
-    Write-Warning "backend\.env exists locally and is ignored by git (will NOT be uploaded)."
+if (Test-Path "apps\agent-python\.env") {
+    Write-Warning "apps\agent-python\.env exists locally and is ignored by git (will NOT be uploaded)."
 }
 if (Test-Path ".env") {
     Write-Warning ".env exists locally and is ignored by git (will NOT be uploaded)."
@@ -94,7 +94,7 @@ function Test-ForbiddenStagedPaths {
     param([string[]]$Paths)
     $blocked = @(
         @{ Pattern = '(^|/|\\)\.env$'; Label = '.env (secrets)' }
-        @{ Pattern = '(^|/|\\)backend[/\\]\.env$'; Label = 'backend/.env (secrets)' }
+        @{ Pattern = '(^|/|\\)apps[/\\]agent-python[/\\]\.env$'; Label = 'apps/agent-python/.env (secrets)' }
         @{ Pattern = '(^|/|\\)\.npm-cache(/|\\|$)'; Label = '.npm-cache (npm download cache)' }
         @{ Pattern = '(^|/|\\)node_modules(/|\\|$)'; Label = 'node_modules' }
         @{ Pattern = '(^|/|\\)\.venv(/|\\|$)'; Label = '.venv (Python virtualenv)' }
@@ -183,6 +183,17 @@ if ($DryRun) {
     exit 0
 }
 
-Invoke-Git push -u origin $Branch
+try {
+    Invoke-Git push -u origin $Branch
+} catch {
+    Write-Host ""
+    Write-Host "=== Push failed (local commit may still be saved) ===" -ForegroundColor Red
+    if ($hasChanges) {
+        Write-Host "Commit completed locally. Retry when network is available:" -ForegroundColor Yellow
+        Write-Host ("  git push -u origin {0}" -f $Branch) -ForegroundColor Yellow
+    }
+    Write-Host "If GitHub is unreachable: check VPN/proxy, or run .\fix_github_auth.ps1 for credential issues." -ForegroundColor DarkYellow
+    throw
+}
 
 Write-Host "Done. Repository: $RemoteUrl" -ForegroundColor Green
