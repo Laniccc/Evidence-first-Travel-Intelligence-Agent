@@ -5,6 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import get_settings
 from app.contract import AgentQueryRequest, AgentQueryResponse
+from app.debug_session_log import write_debug_session_md
 from app.logging_config import setup_logging
 from app.orchestrator.state_machine import TravelAgentStateMachine
 from app.tool_gateway.integration import install_java_tool_gateway
@@ -48,4 +49,8 @@ async def agent_query(payload: AgentQueryRequest):
         user_context["session_id"] = payload.session_id
 
     result = await _state_machine.run(payload.query, user_context)
+    try:
+        write_debug_session_md(payload.query, result)
+    except Exception:
+        pass
     return AgentQueryResponse.from_legacy(result, session_id=payload.session_id)

@@ -1,0 +1,3 @@
+﻿# LEGACY — 运行时已迁至 apps/agent-python；勿索引/搜索本目录
+# 仅当用户明确要求 legacy / backend 对照时再读取指定文件
+backend/

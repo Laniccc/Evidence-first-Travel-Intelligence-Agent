@@ -2,10 +2,11 @@ from pathlib import Path
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import RedirectResponse
+from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.config import get_settings
+from app.debug_session_log import write_debug_session_md
 from app.logging_config import bind_request_context, get_logger, setup_logging
 from app.orchestrator.state_machine import TravelAgentStateMachine
 from app.schemas.response import TravelQueryRequest, TravelQueryResponse
@@ -14,8 +15,7 @@ settings = get_settings()
 setup_logging(settings.log_level)
 logger = get_logger("travel_agent")
 
-REPO_ROOT = Path(__file__).resolve().parent.parent.parent
-WEB_DIST_DIR = REPO_ROOT / "apps" / "web" / "dist"
+STATIC_DIR = Path(__file__).resolve().parent / "static"
 
 app = FastAPI(title=settings.app_name, version=settings.app_version)
 app.add_middleware(
@@ -26,8 +26,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-if WEB_DIST_DIR.is_dir():
-    app.mount("/static", StaticFiles(directory=WEB_DIST_DIR), name="static")
+if STATIC_DIR.is_dir():
+    app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 state_machine = TravelAgentStateMachine()
 
@@ -43,6 +43,9 @@ async def add_request_context(request: Request, call_next):
 
 @app.get("/")
 async def root():
+    index = STATIC_DIR / "index.html"
+    if index.is_file():
+        return FileResponse(index)
     return RedirectResponse(url="/docs")
 
 
@@ -72,4 +75,8 @@ async def travel_query(payload: TravelQueryRequest):
         trace_steps=len(result.visible_trace),
         evidence_count=len(result.evidence_summary),
     )
+    try:
+        write_debug_session_md(payload.query, result)
+    except Exception as exc:
+        logger.warning("debug_session_log_failed", error=str(exc))
     return result

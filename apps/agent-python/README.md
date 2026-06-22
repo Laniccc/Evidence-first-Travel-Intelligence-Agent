@@ -99,7 +99,7 @@ curl.exe -s -X POST http://127.0.0.1:8001/agent/query `
 | 变量 | 默认 | 说明 |
 |------|------|------|
 | `USE_JAVA_TOOL_GATEWAY` | `false` | 是否启用 Java 转发 |
-| `TOOL_GATEWAY_BASE_URL` | `http://localhost:8080` | 需 api-java 已启动 |
+| `TOOL_GATEWAY_BASE_URL` | `http://localhost:8082` | 需 api-java 已启动 |
 
 ## 测试
 

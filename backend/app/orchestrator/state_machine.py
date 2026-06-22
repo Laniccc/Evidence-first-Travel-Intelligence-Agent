@@ -25,6 +25,7 @@ from app.agents.place_research_agent import PlaceResearchAgent
 from app.agents.review_mining_agent import ReviewAspectMiningAgent, VerifierAgent
 from app.agents.suitability_scorer import TravelSuitabilityScorer
 from app.agents.travel_task_to_user_goal_adapter import SUPPORTED_REGIONS, TravelTaskToUserGoalAdapter
+from app.catalog.location_resolver import resolve_city_country_from_text
 from app.catalog.place_catalog import get_place_catalog
 from app.config import get_settings
 from app.llm_client import LLMClient
@@ -393,6 +394,18 @@ class TravelAgentStateMachine:
                         country=loc.country,
                         city=loc.city,
                         reason=f"Resolved from place catalog: {place}",
+                    )
+
+        if not region.supported:
+            for text in (raw_query, gate_query):
+                hit = resolve_city_country_from_text(text)
+                if hit:
+                    country, city = hit
+                    return RegionGateResult(
+                        supported=True,
+                        country=country,
+                        city=city,
+                        reason=f"Resolved from city catalog: {city}",
                     )
 
         if not region.supported and memory.last_country:

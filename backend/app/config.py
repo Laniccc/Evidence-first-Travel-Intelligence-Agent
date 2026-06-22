@@ -1,6 +1,7 @@
 from functools import lru_cache
 from typing import Literal
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -65,10 +66,17 @@ class Settings(BaseSettings):
 
     supported_countries: list[str] = ["Japan", "China", "South Korea"]
     supported_cities: dict[str, list[str]] = {
-        "Japan": ["Tokyo", "Kyoto", "Osaka", "Nara", "Sapporo", "Fukuoka", "Okinawa", "Hakone", "Nagoya", "Hiroshima"],
+        "Japan": ["Tokyo", "Kyoto", "Osaka", "Nara", "Sapporo", "Fukuoka", "Okinawa", "Hakone", "Nagoya", "Hiroshima", "Okayama"],
         "China": ["Beijing", "Shanghai", "Hangzhou", "Suzhou", "Xi'an", "Chengdu", "Chongqing", "Guangzhou", "Shenzhen", "Nanjing", "Xiamen", "Qingdao"],
         "South Korea": ["Seoul", "Busan", "Jeju", "Gyeongju", "Incheon", "Daegu"],
     }
+
+    @field_validator("deepseek_api_key", "anthropic_api_key", "weather_api_key", "places_api_key", mode="before")
+    @classmethod
+    def _empty_str_to_none(cls, value: str | None) -> str | None:
+        if value is None or (isinstance(value, str) and not value.strip()):
+            return None
+        return value
 
     def llm_api_key(self) -> str | None:
         return self.deepseek_api_key or self.anthropic_api_key

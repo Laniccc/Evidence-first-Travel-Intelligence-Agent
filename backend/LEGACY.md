@@ -1,5 +1,8 @@
 # LEGACY — `backend/` 冻结说明
 
+> **Cursor / AI**：**默认不要读取** `backend/` 下源码（已列入根目录 `.cursorignore`）。  
+> 运行时以 **`apps/agent-python`** 为准。仅当用户**明确要求** legacy 对照或紧急回退时，才打开其指定的 `backend/...` 文件。
+
 > **状态**：Legacy（只读对照 / 紧急回退）  
 > **生效**：自 Round 0 起  
 > **新功能禁止写入本目录**
