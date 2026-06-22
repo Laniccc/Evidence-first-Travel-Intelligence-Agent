@@ -14,8 +14,10 @@ from app.schemas.evidence import Evidence
 from app.schemas.tool_whitelist import ToolWhitelist
 from app.schemas.user_query import TravelAgentState
 from app.tools.capability_registry import CapabilityRegistry
+from app.tools.mcp.tool_specs import NEED_TOOL_PROFILES
 from app.tools.tool_name_resolver import resolve_tool_name
 from app.tools.tool_router import ToolRouter
+from tools.mcp.http_autostart import ensure_http_mcp_services
 
 
 class EvidencePlanningAndToolUseState:
@@ -40,6 +42,11 @@ class EvidencePlanningAndToolUseState:
         )
 
     async def run(self, state: TravelAgentState, **ctx) -> TravelAgentState:
+        settings = get_settings()
+        if settings.mcp_enabled and settings.mcp_http_autostart:
+            for note in await ensure_http_mcp_services(settings):
+                TraceRecorder.add(state, f"✓ S5 MCP autostart: {note}")
+
         if state.travel_task and not state.information_needs:
             state.information_needs = InformationNeedPlanner.plan(state.travel_task)
 
@@ -52,6 +59,9 @@ class EvidencePlanningAndToolUseState:
             state,
             f"✓ S5 动态工具白名单：{', '.join(tool_whitelist.allowed_tool_names()) or '（空）'}",
         )
+        for tool_name in tool_whitelist.blocked_tools[:12]:
+            reason = tool_whitelist.reason_by_tool.get(tool_name, "blocked")
+            TraceRecorder.add(state, f"⊘ S5 blocked {tool_name}: {reason}")
 
         state = await self.runner.run(state, EVIDENCE_PLANNING_AND_TOOL_USE_POLICY, prompt_context)
         state = await self._supplement_answer_mode_tools(state, prompt_context, tool_whitelist)
@@ -163,7 +173,7 @@ class EvidencePlanningAndToolUseState:
             return state
 
         called = {resolve_tool_name(t.tool_name) for t in state.tool_traces}
-        pending = list(decision.required_tools or []) + list(decision.optional_tools or [])
+        pending = self._supplement_tool_order(state, decision)
         executor = ActionExecutor(self.llm_client, self.tools)
         reducer = StateReducer()
         allowed_names = set(tool_whitelist.allowed_tool_names())
@@ -210,6 +220,26 @@ class EvidencePlanningAndToolUseState:
             )
             called.add(resolved)
             tool_call_count += 1
-            TraceRecorder.add(state, f"✓ [supplement] CALL_TOOL {tool}")
+            TraceRecorder.add(state, f"✓ [supplement] CALL_TOOL {tool} (selected_by_llm=false)")
 
         return state
+
+    def _supplement_tool_order(self, state: TravelAgentState, decision) -> list[str]:
+        """Order supplement tools by NEED_TOOL_PROFILES priority for hard-fact needs."""
+        frame = state.semantic_frame
+        hard_needs = []
+        if frame:
+            hard_needs = [n for n in frame.information_needs if n in NEED_TOOL_PROFILES]
+
+        profile_order: list[str] = []
+        for need in hard_needs:
+            for tool in NEED_TOOL_PROFILES.get(need, []):
+                if tool not in profile_order:
+                    profile_order.append(tool)
+
+        raw = list(decision.required_tools or []) + list(decision.optional_tools or [])
+        if profile_order:
+            ordered = [t for t in profile_order if t in raw]
+            ordered += [t for t in raw if t not in ordered]
+            return ordered
+        return raw

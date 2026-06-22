@@ -223,6 +223,8 @@ class ActionExecutor:
                 domains = settings.official_page_domain_allowlist() or settings.browser_domain_allowlist()
                 if domains:
                     args.setdefault("allowed_domains", domains)
+                if state.evidence and "url" not in args and "source_url" not in args:
+                    args.setdefault("prior_evidence", list(state.evidence))
 
         return args
 

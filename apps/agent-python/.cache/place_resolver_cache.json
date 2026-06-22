@@ -7,7 +7,7 @@
     "region": null,
     "place_type": "city",
     "confidence": 0.88,
-    "resolution_source": "llm_geocode",
+    "resolution_source": "local_cache",
     "coordinates": null,
     "metadata": {}
   },
@@ -23,11 +23,35 @@
     "coordinates": null,
     "metadata": {}
   },
-  "禾木景区|altay|china": {
-    "mention": "禾木景区",
-    "canonical_name": "Altay",
+  "kyoto|kyoto|japan": {
+    "mention": "Kyoto",
+    "canonical_name": "Kyoto",
+    "country": "Japan",
+    "city": "Kyoto",
+    "region": null,
+    "place_type": "city",
+    "confidence": 0.8,
+    "resolution_source": "session_memory",
+    "coordinates": null,
+    "metadata": {}
+  },
+  "beijing|beijing|china": {
+    "mention": "Beijing",
+    "canonical_name": "Beijing",
     "country": "China",
-    "city": "Altay",
+    "city": "Beijing",
+    "region": null,
+    "place_type": "city",
+    "confidence": 0.8,
+    "resolution_source": "session_memory",
+    "coordinates": null,
+    "metadata": {}
+  },
+  "札幌|sapporo|japan": {
+    "mention": "札幌",
+    "canonical_name": "Sapporo",
+    "country": "Japan",
+    "city": "Sapporo",
     "region": null,
     "place_type": "city",
     "confidence": 0.88,

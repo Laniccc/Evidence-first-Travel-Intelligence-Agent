@@ -1,4 +1,5 @@
 from app.policies.evidence_policy import EvidencePolicy
+from app.tools.mcp.tool_specs import NEED_TOOL_PROFILES
 from app.schemas.semantic_frame import (
     AnswerMode,
     AnswerModeDecision,
@@ -194,16 +195,16 @@ class AnswerModeRouter:
       required: bool,
   ) -> list[str]:
       mapping = {
-          "opening_hours": "official",
-          "ticket_price": "official",
-          "reservation_policy": "official",
+          "opening_hours": "official_page_reader_mcp",
+          "ticket_price": "search_mcp",
+          "reservation_policy": "official_page_reader_mcp",
           "weather": "weather",
-          "weather_today": "weather",
+          "weather_today": "openmeteo_mcp",
           "crowd_level": "reviews",
           "current_crowd": "reviews",
           "transit": "transit",
-          "seasonality": "weather",
-          "best_time_to_visit": "weather",
+          "seasonality": "search_mcp",
+          "best_time_to_visit": "search_mcp",
           "nearby_food": "restaurant",
       }
       tools: list[str] = []
@@ -212,6 +213,10 @@ class AnswerModeRouter:
           if tool and tool not in tools:
               if not caps or tool in caps or required:
                   tools.append(tool)
+          profile = NEED_TOOL_PROFILES.get(need, [])
+          for profile_tool in profile:
+              if profile_tool not in tools and (not caps or profile_tool in caps or required):
+                  tools.append(profile_tool)
       return tools
 
   def _default_place_tools(self, frame: SemanticFrame, caps: set[str]) -> list[str]:

@@ -8,8 +8,8 @@ from app.schemas.semantic_frame import AnswerMode
 from app.schemas.tool_whitelist import ToolWhitelist
 from app.schemas.user_query import TravelAgentState
 from app.tools.mcp.client_manager import get_mcp_client_manager
-from app.tools.mcp.tool_specs import MCP_POLICY_SPECS
-from app.tools.tool_name_resolver import is_mcp_policy_tool
+from app.tools.mcp.tool_specs import MCP_POLICY_SPECS, NEED_TOOL_PROFILES
+from app.tools.tool_name_resolver import is_mcp_policy_tool, resolve_tool_name
 _HARD_FACT_NEEDS = frozenset(
     {
         "opening_hours",
@@ -52,7 +52,7 @@ class EvidencePolicyGuard(PolicyGuard):
             self._validate_tool_call(action, state, tool_whitelist)
 
         if action.action_type == AgentActionType.FINISH_STATE:
-            self._validate_finish(action, state)
+            self._validate_finish(action, state, tool_whitelist)
 
     @staticmethod
     def _validate_max_tool_calls(tool_call_count: int) -> None:
@@ -104,7 +104,12 @@ class EvidencePolicyGuard(PolicyGuard):
                 reason = tool_whitelist.reason_by_tool.get(tool, f"MCP {tool} blocked")
                 raise ValueError(reason)
 
-    def _validate_finish(self, action: AgentAction, state: TravelAgentState) -> None:
+    def _validate_finish(
+        self,
+        action: AgentAction,
+        state: TravelAgentState,
+        tool_whitelist: ToolWhitelist | None = None,
+    ) -> None:
         decision = state.answer_mode_decision
         if not decision or decision.answer_mode != AnswerMode.EVIDENCE_REQUIRED:
             return
@@ -117,12 +122,42 @@ class EvidencePolicyGuard(PolicyGuard):
             return
 
         missing = self._missing_required_needs(state, frame.information_needs)
+        untried = self._unconfigured_or_untried_tools(state, frame.information_needs, tool_whitelist)
+        if untried:
+            raise ValueError(
+                "Cannot FINISH evidence planning: configured tools not yet attempted: "
+                + ", ".join(untried)
+            )
+
         if missing:
             raise ValueError(
                 "Cannot FINISH evidence planning without required evidence for: "
                 + ", ".join(missing)
                 + "; set evidence_gap_acknowledged=true with a limitation if tools failed"
             )
+
+    @staticmethod
+    def _unconfigured_or_untried_tools(
+        state: TravelAgentState,
+        needs: list[str],
+        tool_whitelist: ToolWhitelist | None,
+    ) -> list[str]:
+        if tool_whitelist is None:
+            return []
+
+        allowed = set(tool_whitelist.allowed_tool_names())
+        called = {resolve_tool_name(t.tool_name) for t in state.tool_traces}
+        pending: list[str] = []
+
+        for need in needs:
+            if need not in _HARD_FACT_NEEDS:
+                continue
+            profile = NEED_TOOL_PROFILES.get(need, [])
+            for tool in profile:
+                resolved = resolve_tool_name(tool)
+                if tool in allowed and resolved not in called and tool not in pending:
+                    pending.append(tool)
+        return pending
 
     @staticmethod
     def _primary_need(state: TravelAgentState) -> str | None:

@@ -204,9 +204,24 @@ class ActionModelController:
 
         finish_args: dict = {}
         decision = state.answer_mode_decision
-        if decision and decision.answer_mode == AnswerMode.EVIDENCE_REQUIRED and not state.evidence:
-            finish_args["evidence_gap_acknowledged"] = True
-            finish_args["limitations"] = ["所需证据未能通过工具获取，将在后续回答中说明限制。"]
+        frame = state.semantic_frame
+        if decision and decision.answer_mode == AnswerMode.EVIDENCE_REQUIRED:
+            missing_needs: list[str] = []
+            if frame:
+                from app.orchestrator.evidence_policy_guard import EvidencePolicyGuard
+
+                guard = EvidencePolicyGuard()
+                missing_needs = guard._missing_required_needs(state, frame.information_needs)
+            if missing_needs or not state.evidence:
+                tried = [t.tool_name for t in state.tool_traces]
+                finish_args["evidence_gap_acknowledged"] = True
+                finish_args["limitations"] = [
+                    "已尝试 "
+                    + (", ".join(tried) if tried else "（无）")
+                    + "，但未获取到可验证"
+                    + (" " + "/".join(missing_needs) if missing_needs else "")
+                    + " 证据；强事实问题不能用模型常识补全。"
+                ]
         return AgentAction(
             action_type=AgentActionType.FINISH_STATE,
             arguments=finish_args,
@@ -232,17 +247,38 @@ class ActionModelController:
             needs.extend(n.need_type.value for n in state.information_needs)
 
         if frame and frame.decision_type == DecisionType.BEST_TIME_TO_VISIT:
-            queue = ["weather", "seasonality", "search_mcp", "knowledge_prior"]
+            queue = [
+                "search_mcp",
+                "openmeteo_mcp",
+                "climate_mcp",
+                "wikidata_mcp",
+                "wikipedia_mcp",
+                "weather",
+                "seasonality",
+                "knowledge_prior",
+            ]
         elif frame and frame.decision_type == DecisionType.GENERAL_ADVICE:
             queue = ["search_mcp", "wikipedia_mcp", "wikidata_mcp", "places", "knowledge_prior", "fallback"]
         elif frame and frame.decision_type == DecisionType.WHETHER_TO_GO:
             queue = ["weather", "official", "places", "reviews", "weather_mcp"]
         elif any(n in needs for n in ("crowd_level", "queue_time", "current_crowd")):
-            queue = ["reviews", "places", "fallback", "search_mcp"]
+            queue = ["search_mcp", "reviews", "places", "fallback"]
         elif any(n in needs for n in ("opening_hours", "ticket_price", "reservation_policy")):
-            queue = ["official", "places", "official_page_reader_mcp", "browser_mcp", "search_mcp"]
+            queue = [
+                "search_mcp",
+                "official_page_reader_mcp",
+                "browser_mcp",
+                "official",
+                "fallback",
+            ]
         elif frame and frame.decision_type == DecisionType.FACT_LOOKUP and frame.requires_exact_fact:
-            queue = ["official", "places", "official_page_reader_mcp", "browser_mcp", "search_mcp"]
+            queue = [
+                "search_mcp",
+                "official_page_reader_mcp",
+                "browser_mcp",
+                "official",
+                "fallback",
+            ]
         else:
             candidate = prompt_context.get("candidate_tool_plan") or {}
             queue = list(candidate.get("selected_tools") or ["places", "reviews", "weather"])

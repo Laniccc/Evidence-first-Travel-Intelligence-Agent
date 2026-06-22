@@ -149,9 +149,10 @@ def test_hokkaido_best_time_not_forced_to_fixed_toolrouter():
         reason="test",
     )
     queue = ctrl._evidence_tool_queue(state, {})
-    assert queue[0] in {"weather", "seasonality"}
+    assert queue[0] == "search_mcp"
+    assert "openmeteo_mcp" in queue or "climate_mcp" in queue
     assert "knowledge_prior" in queue
-    assert queue.index("knowledge_prior") > 0
+    assert queue.index("knowledge_prior") > queue.index("search_mcp")
 
 
 def test_evidence_required_cannot_finish_without_required_evidence():
@@ -251,8 +252,9 @@ def test_s5_tool_whitelist_for_opening_hours():
     )
     wl = ToolWhitelistBuilder(tools_registry=ToolRegistry()).build(state)
     names = set(wl.allowed_tool_names())
-    assert "official" in names
+    assert "search_mcp" in names
     assert "places" in names
+    assert "official" not in names
     assert "knowledge_prior" not in names
     assert "knowledge_prior" in wl.blocked_tools or "knowledge_prior" in wl.reason_by_tool
 

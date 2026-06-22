@@ -28,8 +28,8 @@ MCP_POLICY_SPECS: dict[str, tuple[str, str, list[str]]] = {
         ],
     ),
     "official_page_reader_mcp": (
-        "browser",
-        "official_page_read",
+        "search",
+        "fetch-web",
         [
             "official_page_read",
             "tourism_board_page_read",
