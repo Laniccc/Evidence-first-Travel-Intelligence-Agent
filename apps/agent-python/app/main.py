@@ -20,6 +20,12 @@ async def lifespan(fastapi_app: FastAPI):
     global _settings, _state_machine
     _settings = get_settings()
     setup_logging(_settings.log_level)
+    if _settings.llm_mode != "mock" and not _settings.llm_api_key():
+        _logger.warning(
+            "llm_api_key_missing",
+            llm_mode=_settings.llm_mode,
+            hint="Set DEEPSEEK_API_KEY in apps/agent-python/.env for real LLM understanding",
+        )
     install_java_tool_gateway()
     _state_machine = TravelAgentStateMachine()
     fastapi_app.version = _settings.app_version
@@ -40,7 +46,14 @@ app.add_middleware(
 @app.get("/agent/health")
 async def agent_health():
     version = _settings.app_version if _settings else "unknown"
-    return {"status": "ok", "service": "agent-python", "version": version}
+    llm_configured = bool(_settings and _settings.llm_api_key())
+    return {
+        "status": "ok",
+        "service": "agent-python",
+        "version": version,
+        "llm_mode": _settings.llm_mode if _settings else "unknown",
+        "llm_configured": llm_configured,
+    }
 
 
 @app.post("/agent/query", response_model=AgentQueryResponse)

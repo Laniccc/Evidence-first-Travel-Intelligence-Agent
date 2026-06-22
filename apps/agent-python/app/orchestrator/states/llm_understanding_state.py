@@ -36,6 +36,9 @@ class LLMUnderstandingState:
         )
         state.normalized_request = normalized
 
+        using_llm = self.agent.llm._should_use_anthropic()
+        mode_label = "LLM" if using_llm else "规则回退（未配置 DEEPSEEK_API_KEY 或 LLM_MODE=mock）"
+
         frame = NormalizedRequestToSemanticFrame.convert(normalized)
         task = NormalizedRequestToTravelTask.convert(normalized, user_ctx)
         qu = NormalizedRequestToQueryUnderstanding.convert(normalized, frame, task)
@@ -54,7 +57,7 @@ class LLMUnderstandingState:
             key_concerns=qu.key_concerns,
         )
 
-        TraceRecorder.add(state, f"✓ LLM 用户理解完成：{normalized.rewritten_query[:80]}")
+        TraceRecorder.add(state, f"✓ 用户理解完成（{mode_label}）：{normalized.rewritten_query[:80]}")
         TraceRecorder.add(
             state,
             f"✓ NormalizedUserRequest：{normalized.query_scope}/{normalized.task_family}/"

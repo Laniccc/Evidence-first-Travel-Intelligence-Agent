@@ -203,6 +203,15 @@ CITY_COUNTRY = {
     "冈山": ("Japan", "Okayama"),
     "chengdu": ("China", "Chengdu"),
     "成都": ("China", "Chengdu"),
+    "hemu": ("China", "Altay"),
+    "禾木": ("China", "Altay"),
+    "禾木景区": ("China", "Altay"),
+    "kanas": ("China", "Altay"),
+    "喀纳斯": ("China", "Altay"),
+    "喀纳斯湖": ("China", "Altay"),
+    "新疆": ("China", "Altay"),
+    "阿勒泰": ("China", "Altay"),
+    "altay": ("China", "Altay"),
 }
 
 LOCATION_ALIASES = {
@@ -212,6 +221,10 @@ LOCATION_ALIASES = {
     "myeongdong": ("South Korea", "Seoul", "Myeongdong"),
     "北京": ("China", "Beijing", "Beijing"),
     "上海": ("China", "Shanghai", "Shanghai"),
+    "禾木": ("China", "Altay", "Hemu"),
+    "禾木景区": ("China", "Altay", "Hemu"),
+    "喀纳斯": ("China", "Altay", "Kanas Lake"),
+    "喀纳斯湖": ("China", "Altay", "Kanas Lake"),
 }
 
 MOCK_REVIEWS = {

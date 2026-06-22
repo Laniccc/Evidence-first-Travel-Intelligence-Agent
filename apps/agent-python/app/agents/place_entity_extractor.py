@@ -32,6 +32,15 @@ GEO_CITY_ALIASES: dict[str, tuple[str, str]] = {
     "seoul": ("South Korea", "Seoul"),
     "釜山": ("South Korea", "Busan"),
     "busan": ("South Korea", "Busan"),
+    "禾木": ("China", "Altay"),
+    "禾木景区": ("China", "Altay"),
+    "喀纳斯": ("China", "Altay"),
+    "喀纳斯湖": ("China", "Altay"),
+    "kanas": ("China", "Altay"),
+    "hemu": ("China", "Altay"),
+    "新疆": ("China", "Altay"),
+    "阿勒泰": ("China", "Altay"),
+    "altay": ("China", "Altay"),
 }
 
 _POI_SUFFIX_PATTERN = re.compile(r"(塔|寺|宫|公园|塔|神社|城|博物馆|塔|tower|temple|shrine|palace|park)", re.I)

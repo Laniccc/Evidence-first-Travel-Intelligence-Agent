@@ -1,5 +1,6 @@
 from datetime import date
 
+from app.catalog.location_resolver import resolve_city_country_from_text
 from app.agents.semantic_frame_builder import SemanticFrameBuilder
 from app.catalog.place_resolver import PlaceResolver
 from app.schemas.conversation_context import ConversationContext
@@ -170,6 +171,10 @@ class RuleBasedUnderstanding:
             if city_hit:
                 country = city_hit.country or country
                 city = city_hit.city or city_hit.canonical_name or city
+            if not country or not city:
+                hit = resolve_city_country_from_text(text)
+                if hit:
+                    country, city = hit
 
         is_best_time_city = (
             not places

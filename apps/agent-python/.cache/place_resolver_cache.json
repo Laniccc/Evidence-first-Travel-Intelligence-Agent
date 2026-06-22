@@ -22,5 +22,17 @@
     "resolution_source": "llm_geocode",
     "coordinates": null,
     "metadata": {}
+  },
+  "禾木景区|altay|china": {
+    "mention": "禾木景区",
+    "canonical_name": "Altay",
+    "country": "China",
+    "city": "Altay",
+    "region": null,
+    "place_type": "city",
+    "confidence": 0.88,
+    "resolution_source": "local_cache",
+    "coordinates": null,
+    "metadata": {}
   }
 }
