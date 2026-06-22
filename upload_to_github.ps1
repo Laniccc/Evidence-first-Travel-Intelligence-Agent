@@ -90,6 +90,33 @@ function Invoke-GitCommit {
     }
 }
 
+function Test-ForbiddenStagedPaths {
+    param([string[]]$Paths)
+    $blocked = @(
+        @{ Pattern = '(^|/|\\)\.env$'; Label = '.env (secrets)' }
+        @{ Pattern = '(^|/|\\)backend[/\\]\.env$'; Label = 'backend/.env (secrets)' }
+        @{ Pattern = '(^|/|\\)\.npm-cache(/|\\|$)'; Label = '.npm-cache (npm download cache)' }
+        @{ Pattern = '(^|/|\\)node_modules(/|\\|$)'; Label = 'node_modules' }
+        @{ Pattern = '(^|/|\\)\.venv(/|\\|$)'; Label = '.venv (Python virtualenv)' }
+        @{ Pattern = '(^|/|\\)target(/|\\|$)'; Label = 'target (Java build output)' }
+        @{ Pattern = '(^|/|\\)__pycache__(/|\\|$)'; Label = '__pycache__' }
+        @{ Pattern = '(^|/|\\)\.pytest_cache(/|\\|$)'; Label = '.pytest_cache' }
+        @{ Pattern = '(^|/|\\)github-pat\.txt$'; Label = 'github-pat.txt (credentials)' }
+        @{ Pattern = '(^|/|\\)debug_last_session\.md$'; Label = 'debug_last_session.md (local debug)' }
+    )
+    $hits = @()
+    foreach ($p in $Paths) {
+        $norm = ($p -replace '\\', '/').Trim()
+        foreach ($rule in $blocked) {
+            if ($norm -match $rule.Pattern) {
+                $hits += [pscustomobject]@{ Path = $norm; Reason = $rule.Label }
+                break
+            }
+        }
+    }
+    return ,$hits
+}
+
 if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
     throw "git is not installed or not in PATH."
 }
@@ -121,6 +148,25 @@ if (-not $DryRun) {
     if (-not $status) {
         Write-Host "No changes to commit." -ForegroundColor Green
         $hasChanges = $false
+    } else {
+        $stagedPaths = @(
+            git diff --cached --name-only --diff-filter=AM 2>$null
+        ) | Where-Object { $_ } | Select-Object -Unique
+        $forbidden = Test-ForbiddenStagedPaths -Paths $stagedPaths
+        if ($forbidden.Count -gt 0) {
+            Write-Host ""
+            Write-Host "=== Blocked: staged paths should stay local (check .gitignore) ===" -ForegroundColor Red
+            $forbidden | Select-Object -First 20 | ForEach-Object {
+                Write-Host ("  - {0}  ({1})" -f $_.Path, $_.Reason) -ForegroundColor Red
+            }
+            if ($forbidden.Count -gt 20) {
+                Write-Host ("  ... and {0} more" -f ($forbidden.Count - 20)) -ForegroundColor Red
+            }
+            Write-Host ""
+            Write-Host "Fix: update .gitignore, then run:" -ForegroundColor Yellow
+            Write-Host "  git rm -r --cached <path>   # stop tracking without deleting local files" -ForegroundColor Yellow
+            throw "Refusing to commit sensitive or cache artifacts. See messages above."
+        }
     }
 }
 
