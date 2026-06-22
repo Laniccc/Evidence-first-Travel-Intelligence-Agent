@@ -51,6 +51,16 @@ class ClaimType(str, Enum):
     TRAVEL_ADVICE = "travel_advice"
     SEASONALITY = "seasonality"
     BEST_TIME_TO_VISIT = "best_time_to_visit"
+    PLACE_CANDIDATES = "place_candidates"
+    OPENING_HOURS_CANDIDATE = "opening_hours_candidate"
+    PRICE_CANDIDATE = "price_candidate"
+    RATING_CANDIDATE = "rating_candidate"
+    POI_UID = "poi_uid"
+    COORDINATES = "coordinates"
+    SEASONAL_OPERATION_STATUS = "seasonal_operation_status"
+    GENERAL_SEASONAL_CONTEXT = "general_seasonal_context"
+    ROAD_OPENING_PERIOD = "road_opening_period"
+    PUBLIC_NOTICE = "public_notice"
 
 
 class Claim(BaseModel):

@@ -22,6 +22,7 @@ from app.schemas.user_query import TravelAgentState, UserGoal
 from app.orchestrator.tool_whitelist_builder import ToolWhitelistBuilder
 from app.tools import ToolRegistry
 from app.tools.tool_name_resolver import resolve_tool_name
+from app.evals.mcp_evidence_planning_tests import _patch_search_only_settings
 
 
 def _hokkaido_frame() -> SemanticFrame:
@@ -242,7 +243,8 @@ def test_s5_tool_whitelist_for_best_time_to_visit():
     assert "search_mcp" in names or "search_mcp" in wl.blocked_tools
 
 
-def test_s5_tool_whitelist_for_opening_hours():
+def test_s5_tool_whitelist_for_opening_hours(monkeypatch):
+    _patch_search_only_settings(monkeypatch)
     state = TravelAgentState(session_id="s", query_id="q", raw_user_query="清水寺今天几点关门")
     state.semantic_frame = _opening_hours_frame()
     state.answer_mode_decision = AnswerModeDecision(

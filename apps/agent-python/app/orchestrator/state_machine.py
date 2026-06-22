@@ -30,6 +30,7 @@ from app.catalog.place_catalog import get_place_catalog
 from app.config import get_settings
 from app.llm_client import LLMClient
 from app.orchestrator.answer_mode_router import AnswerModeRouter
+from app.orchestrator.response_contract_compiler import ResponseContractCompiler
 from app.orchestrator.citation_check import CitationChecker
 from app.orchestrator.evidence_aggregator import EvidenceAggregator
 from app.orchestrator.states.answer_composition_state import AnswerCompositionState
@@ -63,6 +64,7 @@ class TravelAgentStateMachine:
         self.capability_registry = CapabilityRegistry()
         self.tool_router = ToolRouter(self.capability_registry)
         self.answer_mode_router = AnswerModeRouter()
+        self.contract_compiler = ResponseContractCompiler()
         self.llm_understanding_state = LLMUnderstandingState(self.llm)
         self.answer_composition_state = AnswerCompositionState(self.llm)
         self.evidence_planning_state = EvidencePlanningAndToolUseState(
@@ -92,39 +94,45 @@ class TravelAgentStateMachine:
             confidence = state.query_understanding.confidence if state.query_understanding else 0.3
             return self._to_response(state, confidence)
 
-        # S3: AnswerModeRouting（早于 RegionGate / place 判断）
+        # S3: AnswerModeRouting + ResponseContract（早于 RegionGate / place 判断）
         state = self._run_answer_mode_routing(state)
-        decision = state.answer_mode_decision
-        mode = decision.answer_mode if decision else AnswerMode.EVIDENCE_REQUIRED
 
-        if mode == AnswerMode.CLARIFICATION_REQUIRED:
-            return self._clarification_from_answer_mode(state)
-        if mode == AnswerMode.UNSUPPORTED:
-            state.final_response = "暂无法理解该问题类型，请补充国家/城市/景点或换一种问法。"
-            return self._to_response(state, 0.25)
-        if mode == AnswerMode.MODEL_PRIOR_ALLOWED:
-            gate_query = state.rewritten_query_result.rewritten_query if state.rewritten_query_result else query
+        dispatch = self._dispatch_from_contract(state)
+        if dispatch == "clarification":
+            return self._clarification_from_contract(state)
+
+        gate_query = state.rewritten_query_result.rewritten_query if state.rewritten_query_result else query
+
+        if dispatch == "legacy":
+            decision = state.answer_mode_decision
+            mode = decision.answer_mode if decision else AnswerMode.EVIDENCE_REQUIRED
+            if mode == AnswerMode.CLARIFICATION_REQUIRED:
+                return self._clarification_from_answer_mode(state)
+            if mode == AnswerMode.UNSUPPORTED:
+                state.final_response = "暂无法理解该问题类型，请补充国家/城市/景点或换一种问法。"
+                return self._to_response(state, 0.25)
+            if mode == AnswerMode.MODEL_PRIOR_ALLOWED:
+                blocked = self._apply_region_gate(state, query, gate_query, memory)
+                if blocked:
+                    return blocked
+                return await self._run_advisory(state)
+            if mode == AnswerMode.EVIDENCE_PREFERRED and decision and decision.allow_knowledge_prior:
+                return await self._run_evidence_preferred_or_prior(state, ctx, query, gate_query, memory)
+        elif dispatch == "prior_advisory":
             blocked = self._apply_region_gate(state, query, gate_query, memory)
             if blocked:
                 return blocked
             return await self._run_advisory(state)
-        if mode == AnswerMode.EVIDENCE_PREFERRED and decision and decision.allow_knowledge_prior:
-            gate_query = state.rewritten_query_result.rewritten_query if state.rewritten_query_result else query
-            return await self._run_evidence_preferred_or_prior(state, ctx, query, gate_query, memory)
 
-        gate_query = state.rewritten_query_result.rewritten_query if state.rewritten_query_result else query
-
-        # S4: RegionGate
+        # evidence_pipeline (contract-required hard claims or conservative default)
         blocked = self._apply_region_gate(state, query, gate_query, memory)
         if blocked:
             return blocked
 
-        # S5: UserGoal + context
         state.user_goal = await self._resolve_user_goal(state, ctx, gate_query)
         self._complete_context(state, ctx)
         TraceRecorder.add(state, f"✓ 识别用户画像：{', '.join(p.value for p in state.user_goal.party) or '一般游客'}")
 
-        # S6–S10: 按 AnswerMode 进入工具链 / 聚合 / 合成
         return await self._dispatch_by_answer_mode(state)
 
     async def _dispatch_by_answer_mode(self, state: TravelAgentState) -> TravelQueryResponse:
@@ -251,12 +259,83 @@ class TravelAgentStateMachine:
         available_caps = self.tool_router.available_capabilities()
         decision = self.answer_mode_router.route(frame, available_caps)
         state.answer_mode_decision = decision
+
+        contract = self.contract_compiler.compile(
+            frame,
+            state.normalized_request,
+            conversation_context=state.conversation_context.model_dump() if state.conversation_context else None,
+            available_tools=set(available_caps),
+        )
+        contract.derived_debug_answer_mode = decision.answer_mode.value
+        state.response_contract = contract
+
+        claim_types = ", ".join(c.claim_type for c in contract.claim_requirements) or "none"
+        TraceRecorder.add(state, f"✓ 已生成 ResponseContract：{claim_types}")
+        required_summary = ", ".join(
+            f"{c.claim_type}({c.priority})" for c in contract.claim_requirements if c.priority == "required"
+        )
+        if required_summary:
+            TraceRecorder.add(state, f"✓ Claim 证据要求：{required_summary}")
+
         TraceRecorder.add(
             state,
-            f"✓ 已判定回答模式：{decision.answer_mode.value}（{decision.reason}）",
+            f"✓ 已判定回答模式（debug）：{decision.answer_mode.value}（{decision.reason}）",
         )
         state.limitations.extend(decision.limitations_to_add)
+        state.limitations.extend(contract.limitations_to_add)
         return state
+
+    @staticmethod
+    def _requires_full_evidence_pipeline(contract) -> bool:
+        if contract.entity_policy.requires_disambiguation:
+            return True
+        return any(
+            c.priority == "required" and not c.model_prior_allowed
+            for c in contract.claim_requirements
+        )
+
+    @staticmethod
+    def _allows_prior_advisory(contract) -> bool:
+        required = [c for c in contract.claim_requirements if c.priority == "required"]
+        if not required:
+            return not contract.entity_policy.requires_disambiguation
+        return (
+            all(c.model_prior_allowed for c in required)
+            and not contract.entity_policy.requires_disambiguation
+        )
+
+    @staticmethod
+    def _has_required_hard_claims(contract) -> bool:
+        return any(
+            c.priority == "required" and not c.model_prior_allowed
+            for c in contract.claim_requirements
+        )
+
+    def _dispatch_from_contract(self, state: TravelAgentState) -> str:
+        contract = state.response_contract
+        if not contract:
+            return "legacy"
+        if self._has_required_hard_claims(contract):
+            return "evidence_pipeline"
+        if contract.clarification_policy.should_ask:
+            return "clarification"
+        if self._requires_full_evidence_pipeline(contract):
+            return "evidence_pipeline"
+        if self._allows_prior_advisory(contract):
+            return "prior_advisory"
+        return "evidence_pipeline"
+
+    def _clarification_from_contract(self, state: TravelAgentState) -> TravelQueryResponse:
+        contract = state.response_contract
+        state.next_state = "clarification_response"
+        prompt = (
+            contract.clarification_policy.question
+            if contract and contract.clarification_policy.question
+            else "请补充具体地点或出行时间，以便继续分析。"
+        )
+        state.final_response = prompt
+        confidence = state.query_understanding.confidence if state.query_understanding else 0.3
+        return self._to_response(state, confidence)
 
     def _clarification_from_answer_mode(self, state: TravelAgentState) -> TravelQueryResponse:
         state.next_state = "clarification_response"
@@ -757,7 +836,9 @@ class TravelAgentStateMachine:
         ]
         structured = StructuredResult.model_validate(state.structured_result or {})
         answer_mode = (
-            state.answer_mode_decision.answer_mode.value if state.answer_mode_decision else None
+            state.response_contract.derived_debug_answer_mode
+            if state.response_contract and state.response_contract.derived_debug_answer_mode
+            else (state.answer_mode_decision.answer_mode.value if state.answer_mode_decision else None)
         )
         return TravelQueryResponse(
             answer=state.final_response or "",

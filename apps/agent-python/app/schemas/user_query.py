@@ -11,6 +11,8 @@ from app.schemas.query_understanding import QueryUnderstandingResult
 from app.schemas.place_context import PlaceContext
 from app.schemas.rewritten_query import RewrittenQueryResult
 from app.schemas.tool_trace import ToolTrace
+from app.schemas.coverage_report import CoverageReport
+from app.schemas.response_contract import ResponseContract
 from app.schemas.semantic_frame import AnswerModeDecision, SemanticFrame
 from app.schemas.travel_task import TravelTask
 from app.tools.tool_router import ToolExecutionPlan
@@ -130,6 +132,8 @@ class TravelAgentState(BaseModel):
     travel_task: TravelTask | None = None
     semantic_frame: SemanticFrame | None = None
     answer_mode_decision: AnswerModeDecision | None = None
+    response_contract: ResponseContract | None = None
+    coverage_report: CoverageReport | None = None
     information_needs: list[InformationNeed] = Field(default_factory=list)
     tool_execution_plan: ToolExecutionPlan | None = None
     user_goal: UserGoal | None = None

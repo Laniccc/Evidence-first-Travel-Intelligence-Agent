@@ -12,6 +12,10 @@ from tools.mcp.client_manager import MCPClientManager, MCPInvokeResult, get_mcp_
 
 logger = logging.getLogger(__name__)
 
+_OPENING_SNIPPET = re.compile(
+    r"开放|通车|封路|几月|月份|\d{1,2}月",
+    re.I,
+)
 _OFFICIAL_DOMAIN_HINTS = (
     ".gov",
     ".gov.cn",
@@ -119,7 +123,14 @@ class SearchMCPAdapter(BaseTravelTool):
             officialish = self._looks_official(url, title, snippet)
             confidence = 0.62 if officialish else 0.5
             claim_type = ClaimType.TRAVEL_ADVICE
-            if information_need == "ticket_price" and officialish:
+            if information_need in {"seasonal_operation_status", "road_opening_period"}:
+                if _OPENING_SNIPPET.search(f"{title} {snippet}"):
+                    claim_type = ClaimType.SEASONAL_OPERATION_STATUS
+                    confidence = 0.68 if officialish else 0.58
+                elif officialish:
+                    claim_type = ClaimType.ROAD_OPENING_PERIOD
+                    confidence = 0.55
+            elif information_need == "ticket_price" and officialish:
                 claim_type = ClaimType.TICKET_PRICE
                 confidence = 0.55
 
@@ -164,10 +175,18 @@ class SearchMCPAdapter(BaseTravelTool):
             return [h for h in raw if isinstance(h, dict)]
         if not isinstance(raw, dict):
             return []
-        for key in ("results", "items", "data", "hits"):
+        for key in ("results", "items", "hits"):
             bucket = raw.get(key)
             if isinstance(bucket, list):
                 return [h for h in bucket if isinstance(h, dict)]
+        nested = raw.get("data")
+        if isinstance(nested, dict):
+            for key in ("results", "items", "hits"):
+                bucket = nested.get(key)
+                if isinstance(bucket, list):
+                    return [h for h in bucket if isinstance(h, dict)]
+        if isinstance(nested, list):
+            return [h for h in nested if isinstance(h, dict)]
         return []
 
     @staticmethod

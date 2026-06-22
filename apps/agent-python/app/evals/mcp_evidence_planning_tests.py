@@ -34,6 +34,7 @@ from app.tools.tool_name_resolver import resolve_tool_name
 
 def _mcp_settings(**overrides) -> Settings:
     base = {
+        "mcp_profile": "search_only",
         "mcp_enabled": True,
         "mcp_search_enabled": True,
         "mcp_search_server_url": "mock://",
@@ -48,6 +49,7 @@ def _mcp_settings(**overrides) -> Settings:
         "mcp_wikipedia_server_url": "mock://",
         "mcp_wikidata_enabled": True,
         "mcp_wikidata_server_url": "mock://",
+        "enable_real_official_page": False,
     }
     base.update(overrides)
     return Settings(**base)
@@ -134,6 +136,20 @@ def _register_mcp_mocks(settings: Settings) -> None:
     mgr.register_mock_handler("browser", "browser_snapshot", browser_snap_mock)
     mgr.register_mock_handler("sqlite", "read_records", lambda _a: [])
     mgr.register_mock_handler("sqlite", "query", lambda _a: [])
+
+
+def _patch_search_only_settings(monkeypatch, **overrides) -> Settings:
+    settings = _mcp_settings(**overrides)
+    for target in (
+        "app.config.get_settings",
+        "app.tools.mcp.client_manager.get_settings",
+        "app.tools.mcp.registry_setup.get_settings",
+        "app.orchestrator.tool_whitelist_builder.get_settings",
+        "app.orchestrator.evidence_policy_guard.get_settings",
+    ):
+        monkeypatch.setattr(target, lambda _s=settings: _s)
+    reset_mcp_client_manager()
+    return settings
 
 
 @pytest.fixture
@@ -274,12 +290,20 @@ def test_mcp_tools_registered_only_when_configured(monkeypatch):
         "app.tools.mcp.client_manager.get_settings",
     ):
         monkeypatch.setattr(target, lambda: settings_on)
+    reset_mcp_client_manager()
     _register_mcp_mocks(settings_on)
     registry_on = ToolRegistry()
     assert "search_mcp" in registry_on._mcp_tool_names
     assert "official_page_reader_mcp" in registry_on._mcp_tool_names
-    assert "openmeteo_mcp" not in registry_on._mcp_tool_names
-    assert "browser_mcp" not in registry_on._mcp_tool_names
+    for name in (
+        "openmeteo_mcp",
+        "browser_mcp",
+        "osm_mcp",
+        "baidu_place_search_mcp",
+        "baidu_place_detail_mcp",
+        "baidu_weather_mcp",
+    ):
+        assert name not in registry_on._mcp_tool_names
 
 
 def test_unconfigured_mcp_not_exposed_to_s5(monkeypatch):
@@ -311,7 +335,8 @@ def test_s5_whitelist_best_time_to_visit(mcp_env):
     assert "openmeteo_mcp" not in names
 
 
-def test_s5_whitelist_opening_hours_excludes_knowledge_prior():
+def test_s5_whitelist_opening_hours_excludes_knowledge_prior(monkeypatch):
+    _patch_search_only_settings(monkeypatch)
     state = TravelAgentState(session_id="s", query_id="q", raw_user_query="清水寺今天几点关门")
     state.semantic_frame = _opening_hours_frame()
     wl = ToolWhitelistBuilder(tools_registry=ToolRegistry()).build(state)
@@ -780,7 +805,8 @@ async def test_he_mu_ticket_price_uses_search_mcp_when_available(mcp_env):
     assert any(t.tool_name == "search_mcp" for t in out.tool_traces)
 
 
-def test_stub_mcp_tools_blocked_from_ticket_price_whitelist():
+def test_stub_mcp_tools_blocked_from_ticket_price_whitelist(monkeypatch):
+    _patch_search_only_settings(monkeypatch)
     state = TravelAgentState(session_id="s", query_id="q", raw_user_query="禾木景区票价如何？")
     state.semantic_frame = _hemu_ticket_price_frame()
     wl = ToolWhitelistBuilder(tools_registry=ToolRegistry()).build(state)

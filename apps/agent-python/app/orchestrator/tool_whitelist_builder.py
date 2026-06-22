@@ -25,7 +25,13 @@ _HARD_FACT_NEEDS = frozenset(
     }
 )
 
-_PLACE_VALIDATION_TOOLS = frozenset({"osm_mcp", "places_mcp", "wikidata_mcp"})
+_PLACE_VALIDATION_TOOLS = frozenset(
+    {"osm_mcp", "places_mcp", "wikidata_mcp", "baidu_place_search_mcp"}
+)
+
+_BAIDU_DISAMBIGUATION_NEEDS = frozenset(
+    {"best_time_to_visit", "seasonality", "entity_resolution"}
+)
 
 _CAPABILITY_TO_POLICY: dict[str, str] = {
     "official": "official",
@@ -51,6 +57,9 @@ _CAPABILITY_TO_POLICY: dict[str, str] = {
     "wikidata_mcp": "wikidata_mcp",
     "sqlite_mcp": "sqlite_mcp",
     "evidence_store_mcp": "evidence_store_mcp",
+    "baidu_place_search_mcp": "baidu_place_search_mcp",
+    "baidu_place_detail_mcp": "baidu_place_detail_mcp",
+    "baidu_weather_mcp": "baidu_weather_mcp",
     "reviews": "reviews",
     "transit": "transit",
     "restaurant": "restaurant",
@@ -161,6 +170,33 @@ _TOOL_CATALOG: dict[str, dict] = {
         "capabilities": ["read_evidence_cache", "query_tool_trace"],
         "source_type": "mcp",
     },
+    "baidu_place_search_mcp": {
+        "description": "百度地图地点检索和 POI 搜索，用于地点解析、消歧、城市/行政区补全",
+        "capabilities": [
+            "entity_resolution",
+            "place_lookup",
+            "poi_search",
+            "country_region_lookup",
+            "city_region_lookup",
+        ],
+        "source_type": "mcp",
+    },
+    "baidu_place_detail_mcp": {
+        "description": "百度地图地点详情，用于地址、营业时间候选、评分、可能的价格字段",
+        "capabilities": [
+            "place_details",
+            "address_lookup",
+            "opening_hours_candidate",
+            "price_candidate",
+            "rating_candidate",
+        ],
+        "source_type": "mcp",
+    },
+    "baidu_weather_mcp": {
+        "description": "百度地图天气，用于实时天气和短期预报",
+        "capabilities": ["current_weather", "forecast", "weather_risk", "short_term_weather"],
+        "source_type": "mcp",
+    },
     "seasonality": {
         "description": "Seasonal / best-time advisory (non-hard-fact).",
         "capabilities": ["seasonality", "best_time_to_visit"],
@@ -197,6 +233,50 @@ class ToolWhitelistBuilder:
         self.tools_registry = tools_registry
 
     def build(self, state: TravelAgentState) -> ToolWhitelist:
+        if state.response_contract:
+            return self._build_from_contract(state)
+        return self._build_legacy(state)
+
+    def _build_from_contract(self, state: TravelAgentState) -> ToolWhitelist:
+        contract = state.response_contract
+        assert contract is not None
+
+        candidates: set[str] = set()
+        forbidden: set[str] = set()
+        claim_types: list[str] = []
+
+        for claim in contract.claim_requirements:
+            claim_types.append(claim.claim_type)
+            candidates.update(claim.preferred_tools)
+            for tool in claim.forbidden_tools:
+                if tool == "knowledge_prior":
+                    continue
+                forbidden.add(tool)
+
+        candidates.update(contract.entity_policy.preferred_tools)
+        candidates.update(contract.tool_strategy.initial_tools)
+        candidates &= set(EVIDENCE_PLANNING_TOOL_NAMES)
+        candidates -= forbidden
+
+        allow_prior = any(c.model_prior_allowed for c in contract.claim_requirements)
+        if allow_prior:
+            candidates.add("knowledge_prior")
+
+        blocked: dict[str, str] = {}
+        policy_notes = [
+            "ResponseContract 驱动白名单；claim_types: " + ", ".join(claim_types),
+        ]
+        if forbidden:
+            policy_notes.append("contract forbidden: " + ", ".join(sorted(forbidden)))
+
+        if not allow_prior:
+            blocked["knowledge_prior"] = "ResponseContract: no claim allows model_prior."
+            candidates.discard("knowledge_prior")
+
+        allowed = self._finalize_candidates(candidates, blocked, claim_types, policy_notes)
+        return allowed
+
+    def _build_legacy(self, state: TravelAgentState) -> ToolWhitelist:
         frame = state.semantic_frame
         decision = state.answer_mode_decision
         needs = self._collect_needs(state, frame)
@@ -227,6 +307,11 @@ class ToolWhitelistBuilder:
 
         candidates &= set(EVIDENCE_PLANNING_TOOL_NAMES)
 
+        if frame and self._needs_baidu_disambiguation(frame, needs):
+            for tool in ("baidu_place_search_mcp", "baidu_place_detail_mcp"):
+                if tool in EVIDENCE_PLANNING_TOOL_NAMES:
+                    candidates.add(tool)
+
         blocked: dict[str, str] = {}
         policy_notes: list[str] = []
 
@@ -244,6 +329,15 @@ class ToolWhitelistBuilder:
         if decision and decision.answer_mode == AnswerMode.EVIDENCE_REQUIRED:
             policy_notes.append("evidence_required：优先 official/places/MCP，不足时记录 limitation。")
 
+        return self._finalize_candidates(candidates, blocked, needs, policy_notes)
+
+    def _finalize_candidates(
+        self,
+        candidates: set[str],
+        blocked: dict[str, str],
+        needs: list[str],
+        policy_notes: list[str],
+    ) -> ToolWhitelist:
         for tool_name in list(candidates):
             if tool_name in _NEED_GATED_TOOLS:
                 if not _NEED_GATED_TOOLS[tool_name] & set(needs):
@@ -295,6 +389,16 @@ class ToolWhitelistBuilder:
             reason_by_tool=blocked,
             policy_notes=policy_notes,
         )
+
+    @staticmethod
+    def _needs_baidu_disambiguation(frame: SemanticFrame, needs: list[str]) -> bool:
+        if (frame.entities.country or "").lower() not in {"china", "中国"}:
+            return False
+        if not frame.entities.places:
+            return False
+        if frame.entities.city:
+            return False
+        return bool(_BAIDU_DISAMBIGUATION_NEEDS & set(needs))
 
     @staticmethod
     def _collect_needs(state: TravelAgentState, frame: SemanticFrame | None) -> list[str]:

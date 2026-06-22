@@ -39,6 +39,11 @@ class Settings(BaseSettings):
     mcp_search_tool_name: str = "search"
     mcp_search_command: str = ""
     mcp_search_args: str = ""
+    # open-webSearch: baidu/sogou work better in CN than duckduckgo
+    mcp_search_default_engine: str = "baidu"
+    mcp_search_timeout_seconds: float = 30.0
+    mcp_search_use_proxy: bool = False
+    mcp_search_proxy_url: str = "http://127.0.0.1:7890"
     mcp_browser_enabled: bool = True
     mcp_browser_server_url: str = ""
     mcp_browser_transport: str = "stdio"
@@ -71,10 +76,19 @@ class Settings(BaseSettings):
     mcp_sqlite_command: str = "npx"
     mcp_sqlite_args: str = "-y,mcp-sqlite,./data/evidence_cache.db"
     mcp_sqlite_readonly: bool = True
+    baidu_map_ak: str | None = None
+    mcp_baidu_map_enabled: bool = False
+    mcp_baidu_map_transport: str = "baidu_streamable_http"
+    mcp_baidu_map_server_url: str = "https://mcp.map.baidu.com/mcp"
+    mcp_baidu_map_sse_url: str = "https://mcp.map.baidu.com/sse"
+    mcp_baidu_map_timeout_seconds: float = 10.0
+    mcp_baidu_map_stdio_enabled: bool = False
+    mcp_baidu_map_stdio_command: str = "npx"
+    mcp_baidu_map_stdio_args: str = "-y,@baidumap/mcp-server-baidu-map"
     mcp_timeout_seconds: float = 10.0
     mcp_browser_timeout_seconds: float = 45.0
     mcp_max_result_chars: int = 6000
-    mcp_max_tool_calls_per_state: int = 5
+    mcp_max_tool_calls_per_state: int = 8
     mcp_http_autostart: bool = True
     mcp_http_autostart_new_window: bool = True
     mcp_http_autostart_kill_stale: bool = True
@@ -103,7 +117,14 @@ class Settings(BaseSettings):
         "South Korea": ["Seoul", "Busan", "Jeju", "Gyeongju", "Incheon", "Daegu"],
     }
 
-    @field_validator("deepseek_api_key", "anthropic_api_key", "weather_api_key", "places_api_key", mode="before")
+    @field_validator(
+        "deepseek_api_key",
+        "anthropic_api_key",
+        "weather_api_key",
+        "places_api_key",
+        "baidu_map_ak",
+        mode="before",
+    )
     @classmethod
     def _empty_str_to_none(cls, value: str | None) -> str | None:
         if value is None or (isinstance(value, str) and not value.strip()):
@@ -161,6 +182,22 @@ class Settings(BaseSettings):
 
     def browser_domain_allowlist(self) -> list[str]:
         return [d.strip() for d in self.browser_allowed_domains.split(",") if d.strip()]
+
+    def baidu_map_mcp_url(self) -> str:
+        base = (self.mcp_baidu_map_server_url or "").rstrip("/")
+        ak = self.baidu_map_ak or ""
+        if not base or not ak:
+            return ""
+        sep = "&" if "?" in base else "?"
+        return f"{base}{sep}ak={ak}"
+
+    def baidu_map_sse_url(self) -> str:
+        base = (self.mcp_baidu_map_sse_url or "").rstrip("/")
+        ak = self.baidu_map_ak or ""
+        if not base or not ak:
+            return ""
+        sep = "&" if "?" in base else "?"
+        return f"{base}{sep}ak={ak}"
 
 
 @lru_cache

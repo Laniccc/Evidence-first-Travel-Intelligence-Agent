@@ -60,9 +60,9 @@ if ($searchHealth.ok) {
         Start-Sleep -Seconds 1
     }
     Start-DaemonWindow "open-webSearch" @"
-`$env:DEFAULT_SEARCH_ENGINE='duckduckgo'; `$env:ENABLE_CORS='true'; npx -y open-websearch@latest serve
+`$env:DEFAULT_SEARCH_ENGINE='baidu'; `$env:ENABLE_CORS='true'; `$env:USE_PROXY='false'; npx -y open-websearch@latest serve
 "@
-        Start-Sleep -Seconds 3
+        Start-Sleep -Seconds 8
         $searchHealth = Test-McpHealth "http://127.0.0.1:3210/health"
         if ($searchHealth.ok) {
             Write-Host "[OK] open-webSearch started" -ForegroundColor Green

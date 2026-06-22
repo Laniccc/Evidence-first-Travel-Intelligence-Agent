@@ -76,6 +76,16 @@ CLAIM_POLICIES: dict[str, ClaimPolicy] = {
     "flower_season": ClaimPolicy(model_prior_allowed=True, preferred_source_types=["climate_api", "web"]),
     "crowd_by_season": ClaimPolicy(model_prior_allowed=True, preferred_source_types=["review", "web"]),
     "nearby_poi": ClaimPolicy(model_prior_allowed=False, preferred_source_types=["map"]),
+    "price_candidate": ClaimPolicy(
+        model_prior_allowed=False,
+        allowed_estimation_sources=["map"],
+        requires_exact_fact=False,
+    ),
+    "opening_hours_candidate": ClaimPolicy(
+        model_prior_allowed=False,
+        allowed_estimation_sources=["map"],
+        requires_exact_fact=False,
+    ),
     "general_travel_advice": ClaimPolicy(
         model_prior_allowed=True,
         preferred_source_types=["web", "tourism_board", "wikidata", "model_prior"],
@@ -93,6 +103,15 @@ CLAIM_POLICIES: dict[str, ClaimPolicy] = {
         model_prior_allowed=False,
         preferred_source_types=["transit_api", "map"],
     ),
+    "seasonal_operation_status": ClaimPolicy(
+        model_prior_allowed=False,
+        required_source_types=["official", "public_web", "tourism_board"],
+        requires_exact_fact=True,
+    ),
+    "general_seasonal_context": ClaimPolicy(
+        model_prior_allowed=True,
+        preferred_source_types=["model_prior", "web", "climate_api"],
+    ),
 }
 
 
@@ -105,6 +124,7 @@ FORBIDDEN_MODEL_PRIOR_CLAIMS = frozenset(
         "current_crowd",
         "crowd_level",
         "reservation_policy",
+        "seasonal_operation_status",
     }
 )
 

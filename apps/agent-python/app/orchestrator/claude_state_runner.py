@@ -1,6 +1,6 @@
 from app.orchestrator.action_executor import ActionExecutor
 from app.orchestrator.action_model_controller import ActionModelController
-from app.orchestrator.actions import AgentActionType
+from app.orchestrator.actions import AgentAction, AgentActionType
 from app.orchestrator.evidence_policy_guard import EvidencePolicyGuard
 from app.orchestrator.policy_guard import PolicyGuard
 from app.orchestrator.state_policy import StateNodePolicy
@@ -71,13 +71,90 @@ class ClaudeStateRunner:
 
             result = await self.action_executor.execute(action, state, ctx)
             state = self.state_reducer.apply(state, action, result, policy)
-            if action.action_type == AgentActionType.CALL_TOOL:
-                tool_call_count += 1
-                ctx["tool_call_count"] = tool_call_count
+            if action.action_type == AgentActionType.CALL_SUBAGENT:
+                sub_calls = int((result.output or {}).get("tool_call_count", 0))
+                if sub_calls:
+                    tool_call_count += sub_calls
+                    ctx["tool_call_count"] = tool_call_count
+            if action.action_type in {
+                AgentActionType.CALL_TOOL,
+                AgentActionType.CALL_SUBAGENT,
+            }:
+                if action.action_type == AgentActionType.CALL_TOOL:
+                    tool_call_count += 1
+                    ctx["tool_call_count"] = tool_call_count
+                if state.response_contract:
+                    from app.orchestrator.evidence_coverage_checker import EvidenceCoverageChecker
+
+                    state.coverage_report = EvidenceCoverageChecker().check(
+                        state.response_contract,
+                        state.evidence,
+                        state.tool_traces,
+                    )
+                if action.action_type == AgentActionType.CALL_TOOL:
+                    clarify_state = await self._maybe_baidu_disambiguation(
+                        state, action, policy, ctx
+                    )
+                    if clarify_state is not None:
+                        return clarify_state
 
         state.limitations.append(f"{policy.state_name} reached max_steps")
         TraceRecorder.add(state, f"✓ [{policy.state_name}] 达到 max_steps={policy.max_steps}")
         return state
+
+    async def _maybe_baidu_disambiguation(
+        self,
+        state: TravelAgentState,
+        action: AgentAction,
+        policy: StateNodePolicy,
+        ctx: dict,
+    ) -> TravelAgentState | None:
+        if policy.state_name != "evidence_planning_and_tool_use":
+            return None
+        if action.action_type != AgentActionType.CALL_TOOL:
+            return None
+        if (action.target or "") != "baidu_place_search_mcp":
+            return None
+
+        from app.orchestrator.place_disambiguation_guard import (
+            apply_unique_candidate,
+            build_clarification_question,
+            detect_ambiguous_candidates,
+            extract_place_candidates,
+            should_apply_unique_resolution,
+        )
+
+        ambiguous = detect_ambiguous_candidates(state.evidence)
+        if ambiguous:
+            frame = state.semantic_frame
+            place = (
+                frame.entities.places[0]
+                if frame and frame.entities.places
+                else state.raw_user_query
+            )
+            question = build_clarification_question(place, ambiguous)
+            clarify = AgentAction(
+                action_type=AgentActionType.ASK_CLARIFICATION,
+                arguments={
+                    "question": question,
+                    "missing_critical_info": ["place_disambiguation"],
+                },
+                reason_summary="Baidu place search returned multiple candidates",
+            )
+            result = await self.action_executor.execute(clarify, state, ctx)
+            state = self.state_reducer.apply(state, clarify, result, policy)
+            TraceRecorder.add(state, "✓ [S5] place disambiguation clarification required")
+            return state
+
+        candidates = extract_place_candidates(state.evidence)
+        unique = should_apply_unique_resolution(candidates)
+        if unique:
+            state = apply_unique_candidate(state, unique)
+            TraceRecorder.add(
+                state,
+                f"✓ [S5] resolved place via Baidu: {unique.get('province', '')} {unique.get('city', '')}",
+            )
+        return None
 
 
 def action_executor_result_fail(action):

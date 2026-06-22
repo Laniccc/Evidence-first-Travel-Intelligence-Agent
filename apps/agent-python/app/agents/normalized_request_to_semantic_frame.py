@@ -68,7 +68,16 @@ class NormalizedRequestToSemanticFrame:
     def convert(cls, req: NormalizedUserRequest) -> SemanticFrame:
         country = next((e.country for e in req.entities if e.country), None)
         city = next((e.city for e in req.entities if e.city), None)
-        region = next((e.region or e.normalized_name for e in req.entities if e.entity_type == "region"), None)
+        region = next((e.region for e in req.entities if e.region), None)
+        if not region:
+            region = next(
+                (
+                    e.region or e.normalized_name
+                    for e in req.entities
+                    if e.entity_type in {"region", "province"}
+                ),
+                None,
+            )
         places = [
             e.normalized_name or e.text
             for e in req.entities

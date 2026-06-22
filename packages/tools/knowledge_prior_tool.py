@@ -23,6 +23,15 @@ _CITY_SEASON_PRIORS: dict[str, str] = {
     ),
 }
 
+_ROAD_SEASON_PRIORS: dict[str, str] = {
+    "独库公路": (
+        "独库公路一般规律（低置信度背景，非当年官方公告）：\n"
+        "• 通常每年约 6 月至 10 月前后通车，具体以融雪和路况为准\n"
+        "• 每年开放/封闭日期由新疆公路交通主管部门另行公告\n"
+        "• 出行前务必查询当年最新通车通知与限行信息"
+    ),
+}
+
 
 class KnowledgePriorTool(BaseTravelTool):
     """Low-confidence advisory evidence from general travel knowledge — never for hard facts."""
@@ -45,8 +54,12 @@ class KnowledgePriorTool(BaseTravelTool):
         if not frame:
             raise ValueError("KnowledgePriorTool requires SemanticFrame")
 
+        information_need = kwargs.get("information_need") or kwargs.get("need_type")
+        if information_need in EvidencePolicy.forbidden_model_prior_claims():
+            raise ValueError(f"KnowledgePriorTool cannot generate claim for {information_need}")
+
         for need in frame.information_needs:
-            if need in EvidencePolicy.forbidden_model_prior_claims():
+            if need in EvidencePolicy.forbidden_model_prior_claims() and information_need != "general_seasonal_context":
                 raise ValueError(f"KnowledgePriorTool cannot generate claim for {need}")
 
         allowed_needs = [
@@ -58,16 +71,17 @@ class KnowledgePriorTool(BaseTravelTool):
         }:
             raise ValueError("No model-prior-allowed information needs for this query")
 
-        content = await self._generate_content(query, frame)
+        content = await self._generate_content(query, frame, information_need=information_need)
         country = frame.entities.country or ""
         city = frame.entities.city
         place = frame.entities.places[0] if frame.entities.places else None
 
-        claim_type = (
-            ClaimType.BEST_TIME_TO_VISIT
-            if frame.decision_type == DecisionType.BEST_TIME_TO_VISIT
-            else ClaimType.TRAVEL_ADVICE
-        )
+        if information_need == "general_seasonal_context":
+            claim_type = ClaimType.GENERAL_SEASONAL_CONTEXT
+        elif frame.decision_type == DecisionType.BEST_TIME_TO_VISIT:
+            claim_type = ClaimType.BEST_TIME_TO_VISIT
+        else:
+            claim_type = ClaimType.TRAVEL_ADVICE
 
         ev_limitations = [MODEL_PRIOR_LIMITATION]
         if limitations:
@@ -102,9 +116,17 @@ class KnowledgePriorTool(BaseTravelTool):
         )
         return [evidence]
 
-    async def _generate_content(self, query: str, frame: SemanticFrame) -> str:
+    async def _generate_content(
+        self,
+        query: str,
+        frame: SemanticFrame,
+        *,
+        information_need: str | None = None,
+    ) -> str:
         city = frame.entities.city
         place = frame.entities.places[0] if frame.entities.places else None
+        if place and place in _ROAD_SEASON_PRIORS:
+            return _ROAD_SEASON_PRIORS[place]
         if frame.decision_type == DecisionType.BEST_TIME_TO_VISIT and city and city in _CITY_SEASON_PRIORS:
             return _CITY_SEASON_PRIORS[city]
 

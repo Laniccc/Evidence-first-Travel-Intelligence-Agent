@@ -113,6 +113,11 @@ async def test_kanas_not_blocked_by_place_registry(monkeypatch):
     assert decision.allow_knowledge_prior is True
 
 
+def test_kanas_region_propagates_to_semantic_frame():
+    frame = NormalizedRequestToSemanticFrame.convert(_kanas_best_month_request())
+    assert frame.entities.region == "新疆"
+
+
 @pytest.mark.asyncio
 async def test_kanas_state_machine_answers_with_model_prior():
     sm = TravelAgentStateMachine()

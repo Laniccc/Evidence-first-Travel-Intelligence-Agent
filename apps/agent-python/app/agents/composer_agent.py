@@ -1,3 +1,5 @@
+import re
+
 from app.catalog.destination_catalog import CULTURAL_SETS
 from app.catalog.location_resolver import resolve_start_location
 from app.catalog.place_catalog import get_place_catalog
@@ -86,25 +88,65 @@ class ComposerAgent:
 
     @staticmethod
     def compose_advisory(target_label: str, evidence: list[Evidence], state: TravelAgentState) -> str:
-        advice_lines: list[str] = []
+        official_lines: list[str] = []
+        context_lines: list[str] = []
+        generic_template = re.compile(r"建议查阅|旅游局|气候资料|需结合当年", re.I)
+
         for ev in evidence:
             for claim in ev.claims:
+                value = str(claim.value)
                 if claim.claim_type in {
-                    ClaimType.TRAVEL_ADVICE,
-                    ClaimType.SEASONALITY,
-                    ClaimType.BEST_TIME_TO_VISIT,
+                    ClaimType.SEASONAL_OPERATION_STATUS,
+                    ClaimType.ROAD_OPENING_PERIOD,
+                    ClaimType.PUBLIC_NOTICE,
                 }:
-                    advice_lines.append(str(claim.value))
+                    official_lines.append(value)
+                elif claim.claim_type == ClaimType.GENERAL_SEASONAL_CONTEXT:
+                    context_lines.append(value)
+                elif claim.claim_type in {
+                    ClaimType.BEST_TIME_TO_VISIT,
+                    ClaimType.SEASONALITY,
+                    ClaimType.TRAVEL_ADVICE,
+                }:
+                    if generic_template.search(value) and not official_lines:
+                        continue
+                    context_lines.append(value)
 
-        lines = [
-            f"关于 {target_label}：",
-            "",
-            "结论：",
-            advice_lines[0] if advice_lines else "暂无足够建议。",
-            "",
-            "说明：",
-            "- 以下为基于一般旅行常识的低置信度建议，非官方实时信息。",
-        ]
+        lines = [f"关于 {target_label}：", ""]
+        coverage = state.coverage_report
+        required_opening_missing = bool(
+            coverage
+            and any(
+                i.claim_type == "seasonal_operation_status" and not i.covered
+                for i in coverage.items
+            )
+        )
+
+        if official_lines:
+            lines.extend(["【开放/通车信息（检索结果）】", official_lines[0], ""])
+        elif required_opening_missing:
+            tried = ", ".join(t.tool_name for t in state.tool_traces[:8]) or "（无）"
+            lines.extend(
+                [
+                    "【官方开放月份】",
+                    "未检索到可引用的当年官方开放/通车公告，无法确认具体月份。",
+                    f"已尝试工具：{tried}",
+                    "",
+                ]
+            )
+
+        if context_lines:
+            lines.extend(["【一般规律（低置信度背景，非官方公告）】", context_lines[0], ""])
+        elif not official_lines and not required_opening_missing:
+            lines.extend(["结论：", "暂无足够建议。", ""])
+
+        lines.extend(
+            [
+                "说明：",
+                "- 开放/通车月份以交通运输主管部门或景区当年公告为准。",
+                "- 一般规律仅供参考，不能替代官方通知。",
+            ]
+        )
         for lim in state.limitations:
             if lim not in lines:
                 lines.append(f"- {lim}")

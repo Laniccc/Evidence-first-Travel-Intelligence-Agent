@@ -6,6 +6,7 @@ import logging
 
 from app.config import get_settings
 from tools.adapters.mcp_tool_adapter import ConfiguredMCPTool
+from tools.mcp.adapters.baidu_map_adapter import BaiduMapMCPAdapter
 from tools.mcp.adapters.browser_mcp_adapter import BrowserMCPAdapter
 from tools.mcp.adapters.official_page_fetch_adapter import OfficialPageFetchAdapter
 from tools.mcp.adapters.openmeteo_mcp_adapter import OpenMeteoMCPAdapter
@@ -53,6 +54,12 @@ def _build_adapter(policy_name: str, server_name: str, client, settings):
         return WikidataMCPAdapter(client=client)
     if policy_name in {"sqlite_mcp", "evidence_store_mcp"}:
         return SqliteMCPAdapter(policy_name=policy_name, client=client)
+    if policy_name in {
+        "baidu_place_search_mcp",
+        "baidu_place_detail_mcp",
+        "baidu_weather_mcp",
+    }:
+        return BaiduMapMCPAdapter(policy_name=policy_name, client=client)
 
     _, default_tool, capabilities = MCP_POLICY_SPECS[policy_name]
     raise RuntimeError(

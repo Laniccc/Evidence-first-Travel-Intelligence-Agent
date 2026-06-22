@@ -63,6 +63,9 @@ EVIDENCE_PLANNING_TOOL_NAMES = [
     "wikidata_mcp",
     "sqlite_mcp",
     "evidence_store_mcp",
+    "baidu_place_search_mcp",
+    "baidu_place_detail_mcp",
+    "baidu_weather_mcp",
     "seasonality",
     "knowledge_prior",
     "fallback",
@@ -75,11 +78,17 @@ EVIDENCE_PLANNING_AND_TOOL_USE_POLICY = StateNodePolicy(
     allowed_actions=[
         AgentActionType.UPDATE_STATE,
         AgentActionType.CALL_TOOL,
+        AgentActionType.CALL_SUBAGENT,
+        AgentActionType.ASK_CLARIFICATION,
         AgentActionType.FINISH_STATE,
         AgentActionType.FAIL_STATE,
     ],
     allowed_tools=EVIDENCE_PLANNING_TOOL_NAMES,
-    max_steps=5,
+    allowed_subagents=[
+        "search_task_planner_agent",
+        "keyword_search_agent",
+    ],
+    max_steps=8,
     required_output_schema="EvidencePlanningResult",
     allow_final_answer=False,
 )

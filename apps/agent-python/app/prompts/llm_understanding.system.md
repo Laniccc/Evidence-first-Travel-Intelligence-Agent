@@ -22,8 +22,26 @@
 6. `confidence` 为 **number**（禁止 confidence 对象）。
 7. 已识别景点/城市时 **`query_scope` 禁止 unknown**。
 8. 每个景点/城市实体 **`country` 必填**（Japan / China / South Korea 等英文）。
+9. **地点锚点必填（从用户原句提取）**：用户写了省/自治区/直辖市/城市/州，必须写入对应 `entities[].region` / `city`；禁止只写景点名而丢弃「新疆」「云南」「Kyoto」等修饰语。
 
-## JSON Schema（NormalizedUserRequest）
+## 地点信息提取（输出模板核心）
+
+对用户原句 `raw_query` **逐段扫描**地理信息，填入 **被询问主体** 对应的 `entities[]` 记录（通常一条 POI/道路/景区实体即可）：
+
+| 用户表述 | 填入字段 | 示例 |
+|---------|---------|------|
+| 国家/地区 | `country` | `China` / `Japan` |
+| 省/自治区/州 | `region` | `新疆` / `Kansai` / `Xinjiang` |
+| 城市 | `city` | `Altay` / `Kyoto` / `连云港` |
+| 景点/道路/景区名 | `text` + `normalized_name` | `独库公路` / `喀纳斯湖` |
+
+**规则：**
+- 用户写「**新疆的**独库公路」→ `region=新疆` **必须**出现在独库公路实体上，**不得**因缺 city 而 `needs_clarification`。
+- 用户写「**连云港**云台山」→ `city=连云港`（或 Lianyungang）+ `places` 含云台山。
+- 道路/公路/高速类：`entity_type` 可用 `natural_site` 或 `landmark`；`region`/`city` 仍按上表从原文提取。
+- 仅当用户用「这里/那边」且 context 无法解析地点时，才 `needs_clarification=true`。
+- `region`/`city` 写在 **POI 实体上**即可，不必单独再建一条 `entity_type=region` 记录（除非用户只问整个省）。
+
 
 ```json
 {
@@ -151,6 +169,47 @@
     "should_add_limitations": true
   },
   "needs_clarification": false,
+  "confidence": 0.9
+}
+```
+
+### 示例 D — 新疆独库公路每年几月份开放
+```json
+{
+  "raw_query": "新疆的独库公路每年几月份开放？",
+  "rewritten_query": "新疆独库公路每年的开放/通车月份",
+  "language": "zh",
+  "intent_summary": "查询独库公路官方开放月份",
+  "query_scope": "place",
+  "task_family": "advisory",
+  "decision_type": "best_time_to_visit",
+  "entities": [{
+    "text": "独库公路",
+    "normalized_name": "独库公路",
+    "entity_type": "natural_site",
+    "country": "China",
+    "region": "新疆",
+    "city": null,
+    "source": "user_explicit",
+    "confidence": 0.9,
+    "needs_verification": false
+  }],
+  "time_scope": {"scope": "seasonal", "reference_date": null, "months": []},
+  "information_needs": [
+    {"need_type": "best_time_to_visit", "priority": "high", "reason": "开放月份询问"},
+    {"need_type": "seasonality", "priority": "medium", "reason": "季节背景"}
+  ],
+  "answer_policy": {
+    "requires_live_data": false,
+    "requires_exact_fact": false,
+    "can_answer_with_model_prior": true,
+    "must_use_official_source": false,
+    "allow_partial_answer": true,
+    "should_add_limitations": true
+  },
+  "missing_critical_info": [],
+  "needs_clarification": false,
+  "clarification_question": null,
   "confidence": 0.9
 }
 ```

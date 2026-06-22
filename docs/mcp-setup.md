@@ -61,6 +61,10 @@ MCP_BROWSER_TIMEOUT_SECONDS=45
 
 见 `POLICY_TO_UPSTREAM` in `adapter_status.py`。
 
+## Baidu Map MCP
+
+国内地点解析 / POI 详情 / 短期天气：见 [baidu-map-mcp.md](baidu-map-mcp.md)。独立于 `MCP_PROFILE=search_only`，需 `BAIDU_MAP_AK`。
+
 ## E2E Manual Runbook
 
 1. **中山陵票价** — `MCP_PROFILE=search_only`，启动 open-webSearch，查询「南京中山陵票价」；期望 `search_mcp` ≥1 Evidence，补充 `official_page_reader_mcp` 产出 `ticket_price` 或 limitation。

@@ -70,7 +70,35 @@ class AnswerComposerAgent:
             "limitations": list(state.limitations),
             "citation_policy": self.citation_policy.model_dump(),
             "citation_rules": self.citation_policy.to_prompt_rules(),
+            "response_contract": (
+                state.response_contract.model_dump() if state.response_contract else None
+            ),
+            "coverage_report": (
+                state.coverage_report.model_dump() if state.coverage_report else None
+            ),
+            "composition_rules": self._composition_rules(state),
         }
+
+    @staticmethod
+    def _composition_rules(state: TravelAgentState) -> list[str]:
+        rules = [
+            "Distinguish verified facts from model-prior / general-context statements.",
+            "Do not invent unsupported claims for missing required evidence.",
+        ]
+        contract = state.response_contract
+        if not contract:
+            return rules
+        cp = contract.composition_policy
+        if cp.must_cite_evidence:
+            rules.append("Cite evidence_ids for factual claims.")
+        if cp.distinguish_fact_vs_prior:
+            rules.append("Label model-prior or general seasonal context as low-confidence background.")
+        if cp.forbid_unsupported_claims:
+            rules.append("Forbidden: stating official facts without supporting evidence.")
+        for item in state.coverage_report.items if state.coverage_report else []:
+            if not item.covered and item.missing_behavior == "answer_with_limitation":
+                rules.append(f"Missing required claim {item.claim_type}: explain gap and tools tried.")
+        return rules
 
     async def _llm_compose(self, bundle: dict) -> FinalAnswerDraft:
         system = (
@@ -169,6 +197,15 @@ class AnswerComposerAgent:
         for ev in evidence:
             for claim in ev.claims:
                 if claim.claim_type in {
+                    ClaimType.SEASONAL_OPERATION_STATUS,
+                    ClaimType.ROAD_OPENING_PERIOD,
+                    ClaimType.PUBLIC_NOTICE,
+                }:
+                    return str(claim.value)
+        for ev in evidence:
+            for claim in ev.claims:
+                if claim.claim_type in {
+                    ClaimType.GENERAL_SEASONAL_CONTEXT,
                     ClaimType.TRAVEL_ADVICE,
                     ClaimType.SEASONALITY,
                     ClaimType.BEST_TIME_TO_VISIT,

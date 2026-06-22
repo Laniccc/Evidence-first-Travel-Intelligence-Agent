@@ -24,6 +24,9 @@ IMPLEMENTED_MCP_POLICIES: frozenset[str] = frozenset(
         "wikidata_mcp",
         "sqlite_mcp",
         "evidence_store_mcp",
+        "baidu_place_search_mcp",
+        "baidu_place_detail_mcp",
+        "baidu_weather_mcp",
     }
 )
 
@@ -83,6 +86,16 @@ POLICY_TO_UPSTREAM: dict[str, list[tuple[str, str]]] = {
         ("sqlite", "read_records"),
         ("sqlite", "query"),
         ("sqlite", "list_tables"),
+    ],
+    "baidu_place_search_mcp": [
+        ("baidu_map", "map_search_places"),
+        ("baidu_map", "map_geocode"),
+    ],
+    "baidu_place_detail_mcp": [
+        ("baidu_map", "map_place_details"),
+    ],
+    "baidu_weather_mcp": [
+        ("baidu_map", "map_weather"),
     ],
 }
 

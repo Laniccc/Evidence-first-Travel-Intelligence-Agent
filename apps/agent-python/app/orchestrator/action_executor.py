@@ -4,6 +4,7 @@ from app.agents.query_understanding_agent import QueryUnderstandingAgent
 from app.config import get_settings
 from app.llm_client import LLMClient
 from app.orchestrator.actions import ActionResult, AgentAction, AgentActionType
+from app.orchestrator.claim_search_planner import ClaimSearchPlanner
 from app.schemas.tool_trace import ToolTrace
 from app.schemas.user_query import TravelAgentState
 from app.tools.tool_name_resolver import is_mcp_policy_tool, resolve_tool_name
@@ -94,6 +95,34 @@ class ActionExecutor:
             composer = AnswerComposerAgent(self.llm)
             draft = await composer.compose(state, arguments)
             return ActionResult(output={"result": draft})
+
+        if name == "search_task_planner_agent":
+            from app.agents.search_task_planner_agent import SearchTaskPlannerAgent
+
+            planner = SearchTaskPlannerAgent(self.llm)
+            tasks = await planner.run(state)
+            return ActionResult(
+                output={
+                    "search_tasks": [t.model_dump() for t in tasks],
+                    "task_count": len(tasks),
+                }
+            )
+
+        if name == "keyword_search_agent":
+            from app.agents.keyword_search_agent import KeywordSearchAgent
+
+            agent = KeywordSearchAgent(self.tools)
+            output = await agent.run(state, arguments, prompt_context)
+            loop_state = prompt_context.get("loop_state_name", "evidence_planning_and_tool_use")
+            selected_by_llm = bool(prompt_context.get("selected_by_llm", True))
+            whitelist_checked = bool(prompt_context.get("tool_whitelist") is not None)
+            for trace in output.get("tool_traces", []):
+                if isinstance(trace, dict):
+                    trace.setdefault("requested_by_state", loop_state)
+                    trace.setdefault("selected_by_llm", selected_by_llm)
+                    trace.setdefault("whitelist_checked", whitelist_checked)
+                    trace["subagent"] = "keyword_search_agent"
+            return ActionResult(output=output)
 
         return ActionResult(ok=False, error=f"Unknown subagent: {name}")
 
@@ -215,16 +244,27 @@ class ActionExecutor:
             args.setdefault("need_types", ["crowd_level"])
 
         if is_mcp_policy_tool(tool_name):
-            args.setdefault("query", state.raw_user_query)
+            if "query" not in args:
+                queries = ClaimSearchPlanner.build_queries(state)
+                args["query"] = queries[0] if queries else state.raw_user_query
             if frame and frame.information_needs:
                 args.setdefault("information_need", frame.information_needs[0])
+            need = ClaimSearchPlanner.primary_information_need(state)
+            if need:
+                args.setdefault("information_need", need)
             settings = get_settings()
-            if tool_name in {"browser_mcp", "official_page_reader_mcp"}:
+            if tool_name in {"browser_mcp", "official_page_reader_mcp", "baidu_place_detail_mcp"}:
                 domains = settings.official_page_domain_allowlist() or settings.browser_domain_allowlist()
                 if domains:
                     args.setdefault("allowed_domains", domains)
                 if state.evidence and "url" not in args and "source_url" not in args:
                     args.setdefault("prior_evidence", list(state.evidence))
+                if tool_name == "baidu_place_detail_mcp" and "uid" not in args:
+                    from tools.mcp.adapters.baidu_response_parser import pick_baidu_uid_from_evidence
+
+                    uid = pick_baidu_uid_from_evidence(list(state.evidence))
+                    if uid:
+                        args.setdefault("uid", uid)
 
         return args
 

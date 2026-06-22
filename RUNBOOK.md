@@ -34,6 +34,8 @@ $env:npm_config_cache = "$env:USERPROFILE\.npm-cache"
 ```powershell
 .\scripts\start-mcp-stack.ps1
 curl http://127.0.0.1:3210/health
+# 验证搜索（默认 baidu 引擎，国内可用）
+curl -X POST http://127.0.0.1:3210/search -H "Content-Type: application/json" -d "{\"query\":\"独库公路 开放\",\"limit\":2,\"engines\":[\"baidu\"]}"
 ```
 
 可选天气 MCP（:3000）：

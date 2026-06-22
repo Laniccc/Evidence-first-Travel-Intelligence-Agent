@@ -4,6 +4,7 @@ from app.agents.information_need_planner import InformationNeedPlanner
 from app.config import get_settings
 from app.orchestrator.action_executor import ActionExecutor
 from app.orchestrator.claude_state_runner import ClaudeStateRunner
+from app.orchestrator.claim_search_planner import ClaimSearchPlanner
 from app.orchestrator.evidence_policy_guard import EvidencePolicyGuard
 from app.orchestrator.state_policy import EVIDENCE_PLANNING_AND_TOOL_USE_POLICY
 from app.orchestrator.state_reducer import StateReducer
@@ -91,6 +92,10 @@ class EvidencePlanningAndToolUseState:
             "Do NOT generate final answer text in this state.",
             "If tools are insufficient, FINISH_STATE with limitations or use an allowed fallback tool.",
             "You may call multiple tools across steps until evidence is sufficient or max_steps reached.",
+            "For search_mcp: prefer CALL_SUBAGENT keyword_search_agent with anchor_keywords + search_query.",
+            "First CALL_SUBAGENT search_task_planner_agent once per session, then dispatch keyword_search_agent per task.",
+            "anchor_keywords are strict; search_query may add associative terms but must include at least one anchor.",
+            "After failed searches, try refined shorter queries before knowledge_prior.",
         ]
 
         if state.travel_task:
@@ -118,6 +123,13 @@ class EvidencePlanningAndToolUseState:
 
         if state.answer_mode_decision:
             prompt_context["answer_mode_decision"] = state.answer_mode_decision.model_dump()
+
+        if state.response_contract:
+            prompt_context["response_contract"] = state.response_contract.model_dump()
+            prompt_context["claim_search_queries"] = ClaimSearchPlanner.build_queries(state)
+            prompt_context["claim_search_max_attempts"] = ClaimSearchPlanner.max_search_attempts(state)
+        if state.coverage_report:
+            prompt_context["coverage_report"] = state.coverage_report.model_dump()
 
         prompt_context["blocked_tools"] = tool_whitelist.blocked_tools
         prompt_context["whitelist_policy_notes"] = tool_whitelist.policy_notes

@@ -1,5 +1,6 @@
 from app.config import get_settings
 from app.orchestrator.actions import AgentAction, AgentActionType
+from app.orchestrator.evidence_coverage_checker import EvidenceCoverageChecker
 from app.orchestrator.policy_guard import PolicyGuard
 from app.orchestrator.state_policy import StateNodePolicy
 from app.policies.evidence_policy import EvidencePolicy
@@ -51,6 +52,9 @@ class EvidencePolicyGuard(PolicyGuard):
             self._validate_max_tool_calls(tool_call_count)
             self._validate_tool_call(action, state, tool_whitelist)
 
+        if action.action_type == AgentActionType.CALL_SUBAGENT:
+            self._validate_subagent_call(action, state, tool_whitelist)
+
         if action.action_type == AgentActionType.FINISH_STATE:
             self._validate_finish(action, state, tool_whitelist)
 
@@ -76,7 +80,17 @@ class EvidencePolicyGuard(PolicyGuard):
                 or action.arguments.get("need_type")
                 or self._primary_need(state)
             )
-            if need in _HARD_FACT_NEEDS or need in EvidencePolicy.forbidden_model_prior_claims():
+            contract = state.response_contract
+            if contract:
+                if not any(c.model_prior_allowed for c in contract.claim_requirements):
+                    raise ValueError("ResponseContract: knowledge_prior not allowed for any claim")
+                if need:
+                    matching = [c for c in contract.claim_requirements if c.claim_type == need]
+                    if matching and not any(c.model_prior_allowed for c in matching):
+                        raise ValueError(
+                            f"knowledge_prior not allowed for claim {need!r} per ResponseContract"
+                        )
+            elif need in _HARD_FACT_NEEDS or need in EvidencePolicy.forbidden_model_prior_claims():
                 raise ValueError(
                     f"knowledge_prior cannot satisfy hard-fact need {need!r}; "
                     "use official/places/MCP tools from allowed_tools"
@@ -104,17 +118,79 @@ class EvidencePolicyGuard(PolicyGuard):
                 reason = tool_whitelist.reason_by_tool.get(tool, f"MCP {tool} blocked")
                 raise ValueError(reason)
 
+    def _validate_subagent_call(
+        self,
+        action: AgentAction,
+        state: TravelAgentState,
+        tool_whitelist: ToolWhitelist | None,
+    ) -> None:
+        target = action.target or ""
+        if target == "keyword_search_agent":
+            from app.agents.keyword_search_agent import KeywordSearchAgent
+            from app.schemas.search_task import SearchTask
+
+            args = action.arguments or {}
+            task = SearchTask.model_validate(
+                {
+                    "task_id": args.get("task_id") or "keyword-search",
+                    "anchor_keywords": args.get("anchor_keywords") or [],
+                    "search_query": args.get("search_query") or args.get("query") or "",
+                    "information_need": args.get("information_need") or self._primary_need(state),
+                    "preferred_tool": args.get("preferred_tool") or "search_mcp",
+                }
+            )
+            KeywordSearchAgent.validate_task(task)
+            tool = resolve_tool_name(task.preferred_tool)
+            if tool_whitelist and not tool_whitelist.is_allowed(tool):
+                raise ValueError(f"keyword_search_agent tool {tool!r} not in whitelist")
+        elif target == "search_task_planner_agent":
+            return
+        else:
+            raise ValueError(f"Subagent {target!r} not allowed in evidence_planning_and_tool_use")
+
     def _validate_finish(
         self,
         action: AgentAction,
         state: TravelAgentState,
         tool_whitelist: ToolWhitelist | None = None,
     ) -> None:
-        decision = state.answer_mode_decision
-        if not decision or decision.answer_mode != AnswerMode.EVIDENCE_REQUIRED:
+        if action.arguments.get("evidence_gap_acknowledged"):
             return
 
-        if action.arguments.get("evidence_gap_acknowledged"):
+        contract = state.response_contract
+        if contract:
+            checker = EvidenceCoverageChecker()
+            report = state.coverage_report or checker.check(
+                contract, state.evidence, state.tool_traces
+            )
+            if not report.can_finish_evidence_planning:
+                untried = checker._untried_preferred_tools(contract, state.tool_traces)
+                configured_untried = [
+                    t for t in untried if tool_whitelist and tool_whitelist.is_allowed(t)
+                ]
+                if configured_untried:
+                    raise ValueError(
+                        "Cannot FINISH evidence planning: configured tools not yet attempted: "
+                        + ", ".join(configured_untried)
+                    )
+            if not report.all_required_covered:
+                missing = [
+                    i.claim_type for i in report.items if not i.covered
+                    if any(
+                        c.claim_type == i.claim_type and c.priority == "required"
+                        for c in contract.claim_requirements
+                    )
+                ]
+                if missing:
+                    raise ValueError(
+                        "Cannot FINISH evidence planning without required claim coverage for: "
+                        + ", ".join(missing)
+                        + "; set evidence_gap_acknowledged=true with a limitation if tools failed"
+                    )
+            return
+
+        decision = state.answer_mode_decision
+        if not decision or decision.answer_mode != AnswerMode.EVIDENCE_REQUIRED:
             return
 
         frame = state.semantic_frame

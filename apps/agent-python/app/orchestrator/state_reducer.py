@@ -107,6 +107,36 @@ class StateReducer:
         elif target == "composer_agent" and "final_response" in output:
             state.final_response = output["final_response"]
             TraceRecorder.add(state, "✓ [loop] AnswerComposition 完成")
+        elif target == "search_task_planner_agent" and "search_tasks" in output:
+            structured = dict(state.structured_result or {})
+            structured["search_tasks"] = output["search_tasks"]
+            structured.setdefault("completed_search_task_ids", [])
+            state.structured_result = structured
+            TraceRecorder.add(
+                state,
+                f"✓ [A2A] search_task_planner → {output.get('task_count', len(output['search_tasks']))} keyword tasks",
+            )
+        elif target == "keyword_search_agent":
+            evidence = output.get("evidence", [])
+            if evidence:
+                state.evidence = list(state.evidence) + list(evidence)
+            for item in output.get("tool_traces", []):
+                if isinstance(item, ToolTrace):
+                    state.tool_traces.append(item)
+                elif isinstance(item, dict):
+                    state.tool_traces.append(ToolTrace.model_validate(item))
+            structured = dict(state.structured_result or {})
+            completed = list(structured.get("completed_search_task_ids", []))
+            task_id = output.get("task_id")
+            if task_id and task_id not in completed:
+                completed.append(task_id)
+            structured["completed_search_task_ids"] = completed
+            state.structured_result = structured
+            query_preview = str(output.get("search_query", ""))[:48]
+            TraceRecorder.add(
+                state,
+                f"✓ [A2A] keyword_search_agent ({task_id}) → {len(evidence)} evidence | {query_preview}",
+            )
         return state
 
     def apply_finish(

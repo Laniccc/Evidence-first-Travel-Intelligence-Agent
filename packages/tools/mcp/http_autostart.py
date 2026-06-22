@@ -35,7 +35,7 @@ def _port_listening(host: str, port: int, timeout: float = 1.0) -> bool:
 
 async def _http_ok(url: str, timeout: float = 3.0) -> bool:
     try:
-        async with httpx.AsyncClient(timeout=timeout) as client:
+        async with httpx.AsyncClient(timeout=timeout, trust_env=False) as client:
             response = await client.get(url)
             return response.status_code == 200
     except Exception:
@@ -198,10 +198,19 @@ async def _ensure_search(settings: Any, *, new_window: bool, wait_seconds: float
     _autostart_attempted.add(key)
 
     cache = _npm_cache_env()
+    engine = (getattr(settings, "mcp_search_default_engine", None) or "baidu").strip()
+    use_proxy = bool(getattr(settings, "mcp_search_use_proxy", False))
+    proxy_url = (getattr(settings, "mcp_search_proxy_url", None) or "http://127.0.0.1:7890").strip()
+    proxy_env = (
+        f"$env:USE_PROXY='true'; $env:PROXY_URL='{proxy_url}'; "
+        if use_proxy
+        else "$env:USE_PROXY='false'; "
+    )
     cmd = (
         f"$env:npm_config_cache='{cache}'; "
-        f"$env:DEFAULT_SEARCH_ENGINE='duckduckgo'; "
+        f"$env:DEFAULT_SEARCH_ENGINE='{engine}'; "
         f"$env:ENABLE_CORS='true'; "
+        f"{proxy_env}"
         f"npx -y open-websearch@latest serve"
     )
     if not _spawn_detached(cmd, new_window=new_window):

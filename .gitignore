@@ -2,14 +2,24 @@
 backend/
 
 # --- Secrets & credentials (never commit) ---
+# API keys live only in .env: DEEPSEEK_API_KEY, BAIDU_MAP_AK, WEATHER_API_KEY, etc.
 .env
 .env.*
 !.env.example
+**/.env
+**/.env.*
+!**/.env.example
 apps/agent-python/.env
+apps/agent-python/.env.local
 apps/web/.env
+apps/web/.env.local
+apps/api-java/.env
 github-pat.txt
 *.pat
 *.gitcredentials
+credentials.json
+secrets.json
+*.pem
 
 # --- Python ---
 .venv/
@@ -58,7 +68,13 @@ Thumbs.db
 desktop.ini
 
 # --- Session debug logs (local only, overwritten each query) ---
+**/debug_last_session.md
 apps/agent-python/debug_last_session.md
+
+# --- Local MCP / agent data (not schema) ---
+apps/agent-python/data/*.db
+apps/agent-python/data/*.sqlite
+apps/agent-python/data/*.sqlite3
 
 # --- Misc logs & temp ---
 *.log

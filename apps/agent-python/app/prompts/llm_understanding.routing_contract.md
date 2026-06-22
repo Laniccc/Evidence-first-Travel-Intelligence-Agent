@@ -41,10 +41,15 @@
 | normalized_name | 规范名；景点可用中文或英文 |
 | entity_type | natural_site / attraction / landmark / city / region / country … |
 | **country** | **必填**（英文）：`Japan` / `China` / `South Korea`。景点也要填所属国家 |
-| region | 省/州，如「新疆」「Xinjiang」 |
-| city | 城市英文名或常用英文名，如 Sapporo、Beijing；景区可填最近城市 |
-| needs_verification | 归属不确定时 true，但 **country 仍应尽量填写** |
+| **region** | **从用户原句提取**省/州/自治区，如「新疆」「Xinjiang」「Kansai」；写在 POI 实体上即可 |
+| **city** | **从用户原句提取**城市；英文或常用名，如 Sapporo、Kyoto、连云港；景区可填最近城市 |
+| needs_verification | 归属不确定时 true，但 **country 仍应尽量填写**；有省/市修饰语时仍须填 `region`/`city` |
 | source | llm_understanding / conversation_context / user_explicit |
+
+**地点提取示例：**
+- 「新疆的独库公路几月开放」→ 独库公路实体：`country=China`, `region=新疆`
+- 「喀纳斯湖适合几月去」→ 喀纳斯湖实体：`country=China`, `region=新疆`, `city=Altay`（能推断则填）
+- 「云峰山什么时候去」且无省市 → 可只填 `places`，下游可能工具消歧；**不要**因无 city 就 needs_clarification
 
 **禁止** `query_scope=unknown` 当已识别具体景点或城市。
 

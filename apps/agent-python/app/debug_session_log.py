@@ -52,17 +52,17 @@ def write_debug_session_md(query: str, result: TravelQueryResponse) -> Path:
 
     if result.evidence_summary:
         lines.extend(["", "## Evidence Summary", "", "```json"])
-        lines.append(json.dumps(result.evidence_summary, ensure_ascii=False, indent=2))
+        lines.append(json.dumps(result.evidence_summary, ensure_ascii=False, indent=2, default=str))
         lines.append("```")
 
     if result.tool_traces:
         lines.extend(["", "## Tool Traces", "", "```json"])
-        lines.append(json.dumps(result.tool_traces, ensure_ascii=False, indent=2))
+        lines.append(json.dumps(result.tool_traces, ensure_ascii=False, indent=2, default=str))
         lines.append("```")
 
     if result.semantic_frame_summary:
         lines.extend(["", "## Semantic Frame", "", "```json"])
-        lines.append(json.dumps(result.semantic_frame_summary, ensure_ascii=False, indent=2))
+        lines.append(json.dumps(result.semantic_frame_summary, ensure_ascii=False, indent=2, default=str))
         lines.append("```")
 
     lines.append("")

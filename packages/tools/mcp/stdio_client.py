@@ -25,11 +25,13 @@ class StdioMCPSession:
         args: list[str],
         *,
         timeout: float = 10.0,
+        env: dict[str, str] | None = None,
     ) -> None:
         self.server_name = server_name
         self.command = command
         self.args = args
         self.timeout = timeout
+        self.env = env
         self._proc: asyncio.subprocess.Process | None = None
         self._lock = asyncio.Lock()
         self._initialized = False
@@ -93,6 +95,7 @@ class StdioMCPSession:
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
+            env=self.env,
         )
 
     async def _request(self, method: str, params: dict[str, Any] | None = None) -> Any:

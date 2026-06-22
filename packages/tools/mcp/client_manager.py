@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import time
 from typing import Any
 
@@ -77,6 +78,13 @@ _SERVER_FIELDS: dict[str, dict[str, str]] = {
         "command": "mcp_sqlite_command",
         "args": "mcp_sqlite_args",
     },
+    "baidu_map": {
+        "enabled": "mcp_baidu_map_enabled",
+        "url": "mcp_baidu_map_server_url",
+        "transport": "mcp_baidu_map_transport",
+        "command": "mcp_baidu_map_stdio_command",
+        "args": "mcp_baidu_map_stdio_args",
+    },
 }
 
 _STDIO_TRANSPORTS = frozenset({"stdio", "stdio_or_http"})
@@ -135,7 +143,7 @@ class MCPClientManager:
             )
         transport = self.server_transport(server_name)
         try:
-            if transport == "streamable_http":
+            if transport in {"streamable_http", "baidu_streamable_http"}:
                 session = self._http_session(server_name)
                 tools = await session.list_tools()
             elif transport in _STDIO_TRANSPORTS or (
@@ -190,6 +198,8 @@ class MCPClientManager:
         return bool(getattr(self.settings, meta["enabled"], False))
 
     def server_transport(self, server_name: str) -> str:
+        if server_name == "baidu_map" and getattr(self.settings, "mcp_baidu_map_stdio_enabled", False):
+            return "stdio"
         meta = self._server_meta(server_name)
         if not meta:
             return ""
@@ -202,6 +212,13 @@ class MCPClientManager:
         return "legacy_invoke"
 
     def server_url(self, server_name: str) -> str:
+        if server_name == "baidu_map":
+            base = (self.settings.mcp_baidu_map_server_url or "").strip()
+            if base.startswith("mock://"):
+                return base
+            url = self.settings.baidu_map_mcp_url()
+            if url:
+                return url
         meta = self._server_meta(server_name)
         if not meta:
             return ""
@@ -222,6 +239,19 @@ class MCPClientManager:
     def server_block_reason(self, server_name: str) -> str:
         if not self.is_globally_enabled():
             return "MCP_ENABLED=false"
+        if server_name == "baidu_map":
+            if not getattr(self.settings, "mcp_baidu_map_enabled", False):
+                return "MCP_BAIDU_MAP_ENABLED=false"
+            if not self.settings.baidu_map_ak:
+                return "BAIDU_MAP_AK missing"
+            transport = self.server_transport(server_name)
+            if transport == "stdio":
+                if not self.server_command(server_name):
+                    return "stdio MCP: COMMAND missing"
+                return "stdio MCP configured (command present)"
+            if not self.settings.baidu_map_mcp_url():
+                return "MCP_BAIDU_MAP_SERVER_URL or BAIDU_MAP_AK missing"
+            return "baidu_map configured"
         meta = self._server_meta(server_name)
         if not meta:
             return f"Unknown MCP server {server_name!r}"
@@ -249,13 +279,21 @@ class MCPClientManager:
     def is_server_configured(self, server_name: str) -> bool:
         if not self.is_server_enabled(server_name):
             return False
+        if server_name == "baidu_map":
+            if not self.settings.baidu_map_ak:
+                return False
+            transport = self.server_transport(server_name)
+            if transport == "stdio":
+                return bool(self.server_command(server_name))
+            url = self.settings.baidu_map_mcp_url()
+            return bool(url) or (self.mcp_baidu_map_server_url or "").startswith("mock://")
         transport = self.server_transport(server_name)
         if transport in _STDIO_TRANSPORTS:
             return bool(self.server_command(server_name))
         if transport == "stdio_or_http":
             return bool(self.server_url(server_name)) or bool(self.server_command(server_name))
         url = self.server_url(server_name)
-        if transport in {"open_websearch_http", "streamable_http", "legacy_invoke", "mock"}:
+        if transport in {"open_websearch_http", "streamable_http", "baidu_streamable_http", "legacy_invoke", "mock"}:
             return bool(url) or url == "mock://"
         if transport:
             return bool(url) or url == "mock://"
@@ -302,7 +340,7 @@ class MCPClientManager:
                 )
 
         url = self.server_url(server_name)
-        if url == "mock://":
+        if url.startswith("mock://"):
             return MCPInvokeResult(
                 ok=False,
                 error=f"No mock handler for {server_name}/{tool_name}",
@@ -314,7 +352,7 @@ class MCPClientManager:
         transport = self.server_transport(server_name)
         if transport == "open_websearch_http":
             return await self._invoke_open_websearch(server_name, tool_name, arguments, start)
-        if transport == "streamable_http":
+        if transport in {"streamable_http", "baidu_streamable_http"}:
             return await self._invoke_streamable_http(server_name, tool_name, arguments, start)
         if transport in _STDIO_TRANSPORTS or (
             transport == "stdio_or_http" and not self.server_url(server_name)
@@ -358,6 +396,26 @@ class MCPClientManager:
                 return configured
         return fallback
 
+    def _open_websearch_timeout(self) -> float:
+        return float(
+            getattr(self.settings, "mcp_search_timeout_seconds", None)
+            or self.settings.mcp_timeout_seconds
+        )
+
+    @staticmethod
+    def _unwrap_open_websearch_payload(data: Any) -> tuple[Any | None, str | None]:
+        if not isinstance(data, dict):
+            return data, None
+        if data.get("status") == "error":
+            err = data.get("error")
+            if isinstance(err, dict):
+                return None, err.get("message") or str(err)
+            return None, str(err or "open-webSearch error")
+        inner = data.get("data")
+        if data.get("status") == "ok" and inner is not None:
+            return inner, None
+        return data, None
+
     async def _invoke_open_websearch(
         self,
         server_name: str,
@@ -366,9 +424,10 @@ class MCPClientManager:
         start: float,
     ) -> MCPInvokeResult:
         base = self.server_url(server_name).rstrip("/")
-        timeout = float(self.settings.mcp_timeout_seconds)
+        timeout = self._open_websearch_timeout()
+        engine = (getattr(self.settings, "mcp_search_default_engine", None) or "baidu").strip()
         try:
-            async with httpx.AsyncClient(timeout=timeout) as client:
+            async with httpx.AsyncClient(timeout=timeout, trust_env=False) as client:
                 if tool_name in {"fetch", "fetch-web", "fetch_web"}:
                     payload = {
                         "url": arguments.get("url"),
@@ -380,9 +439,20 @@ class MCPClientManager:
                         "query": arguments.get("query") or arguments.get("q") or "",
                         "limit": int(arguments.get("limit") or 5),
                     }
+                    if engine:
+                        payload["engines"] = [engine]
                     response = await client.post(f"{base}/search", json=payload)
                 response.raise_for_status()
-                data = response.json()
+                raw = response.json()
+                data, api_error = self._unwrap_open_websearch_payload(raw)
+                if api_error:
+                    return MCPInvokeResult(
+                        ok=False,
+                        error=api_error,
+                        latency_ms=(time.perf_counter() - start) * 1000,
+                        server_name=server_name,
+                        tool_name=tool_name,
+                    )
                 data = self._truncate_payload(data)
                 return MCPInvokeResult(
                     ok=True,
@@ -395,7 +465,7 @@ class MCPClientManager:
             logger.warning("open-webSearch call failed %s/%s: %s", server_name, tool_name, exc)
             return MCPInvokeResult(
                 ok=False,
-                error=str(exc),
+                error=f"open-webSearch {tool_name} failed: {exc}",
                 latency_ms=(time.perf_counter() - start) * 1000,
                 server_name=server_name,
                 tool_name=tool_name,
@@ -434,10 +504,16 @@ class MCPClientManager:
         existing = self._http_sessions.get(server_name)
         if existing is not None:
             return existing
+        if server_name == "baidu_map":
+            base_url = self.settings.baidu_map_mcp_url()
+            timeout = float(getattr(self.settings, "mcp_baidu_map_timeout_seconds", self.settings.mcp_timeout_seconds))
+        else:
+            base_url = self.server_url(server_name)
+            timeout = float(self.settings.mcp_timeout_seconds)
         session = StreamableHTTPMCPSession(
             server_name,
-            self.server_url(server_name),
-            timeout=float(self.settings.mcp_timeout_seconds),
+            base_url,
+            timeout=timeout,
         )
         self._http_sessions[server_name] = session
         return session
@@ -451,11 +527,18 @@ class MCPClientManager:
         timeout = float(self.settings.mcp_timeout_seconds)
         if server_name == "browser":
             timeout = float(getattr(self.settings, "mcp_browser_timeout_seconds", timeout))
+        if server_name == "baidu_map":
+            timeout = float(getattr(self.settings, "mcp_baidu_map_timeout_seconds", timeout))
+        env = None
+        if server_name == "baidu_map" and self.settings.baidu_map_ak:
+            env = os.environ.copy()
+            env["BAIDU_MAP_API_KEY"] = self.settings.baidu_map_ak
         session = StdioMCPSession(
             server_name,
             command,
             args,
             timeout=timeout,
+            env=env,
         )
         self._stdio_sessions[server_name] = session
         return session

@@ -224,6 +224,30 @@ def build_default_capabilities(tool_mode: str | None = None) -> dict[str, ToolCa
                     ["read_evidence_cache", "query_tool_trace"],
                     FreshnessLevel.RECENT,
                 ),
+                "baidu_place_search_mcp": (
+                    [
+                        "entity_resolution",
+                        "place_lookup",
+                        "poi_search",
+                        "country_region_lookup",
+                        "city_region_lookup",
+                    ],
+                    FreshnessLevel.RECENT,
+                ),
+                "baidu_place_detail_mcp": (
+                    [
+                        "place_details",
+                        "address_lookup",
+                        "opening_hours_candidate",
+                        "price_candidate",
+                        "rating_candidate",
+                    ],
+                    FreshnessLevel.RECENT,
+                ),
+                "baidu_weather_mcp": (
+                    ["current_weather", "forecast", "weather_risk", "short_term_weather"],
+                    FreshnessLevel.LIVE,
+                ),
             }
             for policy_name in sorted(IMPLEMENTED_MCP_POLICIES):
                 spec = _MCP_CAPABILITY_SPECS.get(policy_name)

@@ -102,6 +102,34 @@ MCP_POLICY_SPECS: dict[str, tuple[str, str, list[str]]] = {
         "read_evidence_cache",
         ["read_evidence_cache", "read_place_cache", "query_tool_trace"],
     ),
+    "baidu_place_search_mcp": (
+        "baidu_map",
+        "map_search_places",
+        [
+            "entity_resolution",
+            "place_lookup",
+            "poi_search",
+            "country_region_lookup",
+            "city_region_lookup",
+        ],
+    ),
+    "baidu_place_detail_mcp": (
+        "baidu_map",
+        "map_place_details",
+        [
+            "place_details",
+            "address_lookup",
+            "opening_hours_candidate",
+            "rating_candidate",
+            "price_candidate",
+            "uid_detail_lookup",
+        ],
+    ),
+    "baidu_weather_mcp": (
+        "baidu_map",
+        "map_weather",
+        ["current_weather", "forecast", "weather_risk", "short_term_weather"],
+    ),
 }
 
 MCP_POLICY_TOOL_NAMES = frozenset(MCP_POLICY_SPECS.keys())
@@ -122,6 +150,9 @@ POLICY_TO_REGISTRY_ATTR: dict[str, str] = {
     "wikidata_mcp": "wikidata_mcp",
     "sqlite_mcp": "sqlite_mcp",
     "evidence_store_mcp": "evidence_store_mcp",
+    "baidu_place_search_mcp": "baidu_place_search_mcp",
+    "baidu_place_detail_mcp": "baidu_place_detail_mcp",
+    "baidu_weather_mcp": "baidu_weather_mcp",
     # backward compat
     "mcp_weather": "weather_mcp",
     "mcp_places": "places_mcp",
@@ -130,6 +161,8 @@ POLICY_TO_REGISTRY_ATTR: dict[str, str] = {
 
 NEED_TOOL_PROFILES: dict[str, list[str]] = {
     "best_time_to_visit": [
+        "baidu_place_search_mcp",
+        "baidu_place_detail_mcp",
         "search_mcp",
         "browser_mcp",
         "openmeteo_mcp",
@@ -143,6 +176,8 @@ NEED_TOOL_PROFILES: dict[str, list[str]] = {
         "weather",
     ],
     "seasonality": [
+        "baidu_place_search_mcp",
+        "baidu_place_detail_mcp",
         "search_mcp",
         "browser_mcp",
         "openmeteo_mcp",
@@ -157,6 +192,8 @@ NEED_TOOL_PROFILES: dict[str, list[str]] = {
     "climate_monthly": ["openmeteo_mcp", "climate_mcp", "weather", "weather_mcp"],
     "monthly_weather": ["openmeteo_mcp", "climate_mcp", "weather_mcp", "weather"],
     "opening_hours": [
+        "baidu_place_search_mcp",
+        "baidu_place_detail_mcp",
         "browser_mcp",
         "official_page_reader_mcp",
         "search_mcp",
@@ -167,6 +204,8 @@ NEED_TOOL_PROFILES: dict[str, list[str]] = {
         "fallback",
     ],
     "temporary_closure": [
+        "baidu_place_search_mcp",
+        "baidu_place_detail_mcp",
         "browser_mcp",
         "official_page_reader_mcp",
         "search_mcp",
@@ -175,6 +214,8 @@ NEED_TOOL_PROFILES: dict[str, list[str]] = {
         "fallback",
     ],
     "reservation_policy": [
+        "baidu_place_search_mcp",
+        "baidu_place_detail_mcp",
         "browser_mcp",
         "official_page_reader_mcp",
         "search_mcp",
@@ -182,22 +223,48 @@ NEED_TOOL_PROFILES: dict[str, list[str]] = {
         "fallback",
     ],
     "ticket_price": [
+        "baidu_place_search_mcp",
+        "baidu_place_detail_mcp",
         "official_page_reader_mcp",
         "browser_mcp",
         "search_mcp",
         "official",
         "fallback",
     ],
-    "weather_today": ["openmeteo_mcp", "weather_mcp", "weather"],
-    "today_weather": ["openmeteo_mcp", "weather_mcp", "weather"],
-    "weather": ["openmeteo_mcp", "weather_mcp", "weather"],
-    "forecast": ["openmeteo_mcp", "weather_mcp", "weather"],
+    "weather_today": ["baidu_weather_mcp", "openmeteo_mcp", "weather_mcp", "weather"],
+    "today_weather": ["baidu_weather_mcp", "openmeteo_mcp", "weather_mcp", "weather"],
+    "weather": ["baidu_weather_mcp", "openmeteo_mcp", "weather_mcp", "weather"],
+    "forecast": ["baidu_weather_mcp", "openmeteo_mcp", "weather_mcp", "weather"],
     "current_crowd": ["search_mcp", "browser_mcp", "osm_mcp", "places_mcp", "reviews", "fallback"],
     "queue_time": ["search_mcp", "browser_mcp", "osm_mcp", "places_mcp", "reviews", "fallback"],
     "crowd_level": ["search_mcp", "browser_mcp", "osm_mcp", "places_mcp", "reviews", "fallback"],
-    "nearby_food": ["osm_mcp", "places_mcp", "search_mcp", "restaurant", "fallback"],
-    "nearby_rest_area": ["osm_mcp", "places_mcp", "search_mcp", "restaurant", "fallback"],
-    "entity_resolution": ["wikidata_mcp", "wikipedia_mcp", "osm_mcp", "places_mcp", "search_mcp"],
+    "nearby_food": [
+        "baidu_place_search_mcp",
+        "baidu_place_detail_mcp",
+        "osm_mcp",
+        "places_mcp",
+        "search_mcp",
+        "restaurant",
+        "fallback",
+    ],
+    "nearby_rest_area": [
+        "baidu_place_search_mcp",
+        "baidu_place_detail_mcp",
+        "osm_mcp",
+        "places_mcp",
+        "search_mcp",
+        "restaurant",
+        "fallback",
+    ],
+    "entity_resolution": [
+        "baidu_place_search_mcp",
+        "baidu_place_detail_mcp",
+        "search_mcp",
+        "osm_mcp",
+        "wikidata_mcp",
+        "wikipedia_mcp",
+        "fallback",
+    ],
     "public_web_search": ["search_mcp", "browser_mcp", "fallback"],
     "official_page_read": ["official_page_reader_mcp", "browser_mcp", "official", "fallback"],
     "general_travel_advice": [
