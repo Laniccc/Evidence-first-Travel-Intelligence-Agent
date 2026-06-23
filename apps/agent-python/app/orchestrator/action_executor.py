@@ -8,6 +8,7 @@ from app.orchestrator.claim_search_planner import ClaimSearchPlanner
 from app.schemas.tool_trace import ToolTrace
 from app.schemas.user_query import TravelAgentState
 from app.tools.tool_name_resolver import is_mcp_policy_tool, resolve_tool_name
+from tools.ticketing.provider_config import is_ticket_provider_tool
 
 logger = logging.getLogger(__name__)
 
@@ -96,15 +97,38 @@ class ActionExecutor:
             draft = await composer.compose(state, arguments)
             return ActionResult(output={"result": draft})
 
+        if name == "evidence_curation_planner_agent":
+            from app.agents.evidence_curation_planner_agent import EvidenceCurationPlannerAgent
+
+            agent = EvidenceCurationPlannerAgent(self.llm)
+            output = await agent.run(state, arguments)
+            return ActionResult(output=output)
+
+        if name == "claim_relevance_filter_agent":
+            from app.agents.claim_relevance_filter_agent import ClaimRelevanceFilterAgent
+
+            agent = ClaimRelevanceFilterAgent(self.llm)
+            output = await agent.run(state, arguments)
+            return ActionResult(output=output)
+
+        if name == "evidence_conflict_analyzer_agent":
+            from app.agents.evidence_conflict_analyzer_agent import EvidenceConflictAnalyzerAgent
+
+            agent = EvidenceConflictAnalyzerAgent(self.llm)
+            output = await agent.run(state, arguments)
+            return ActionResult(output=output)
+
         if name == "search_task_planner_agent":
             from app.agents.search_task_planner_agent import SearchTaskPlannerAgent
 
+            refine = bool((arguments or {}).get("refine"))
             planner = SearchTaskPlannerAgent(self.llm)
-            tasks = await planner.run(state)
+            tasks = await planner.run(state, refine=refine)
             return ActionResult(
                 output={
                     "search_tasks": [t.model_dump() for t in tasks],
                     "task_count": len(tasks),
+                    "refine": refine,
                 }
             )
 
@@ -219,10 +243,25 @@ class ActionExecutor:
             if goal and goal.start_location and "start_location" not in args:
                 args["start_location"] = goal.start_location
 
+        if is_ticket_provider_tool(tool_name):
+            effective_place = place_name or city
+            if effective_place:
+                args.setdefault("place_name", effective_place)
+            if country:
+                args.setdefault("country", country)
+            if city:
+                args.setdefault("city", city)
+            need = ClaimSearchPlanner.primary_information_need(state)
+            if need:
+                args.setdefault("information_need", need)
+                args.setdefault("claim_type", need)
+            args.setdefault("query", state.raw_user_query)
+
         if tool_name in {"weather", "seasonality", "lodging"} or tool_name in {
             "openmeteo_mcp",
             "weather_mcp",
             "climate_mcp",
+            "baidu_weather_mcp",
         }:
             if city and "city" not in args:
                 args["city"] = city
@@ -230,6 +269,12 @@ class ActionExecutor:
                 args["country"] = country
             if goal and goal.travel_date and "travel_date" not in args:
                 args["travel_date"] = goal.travel_date
+            from tools.mcp.adapters.baidu_response_parser import resolve_coordinates_from_evidence
+
+            coords = resolve_coordinates_from_evidence(list(state.evidence))
+            if coords:
+                args.setdefault("latitude", coords["latitude"])
+                args.setdefault("longitude", coords["longitude"])
 
         if tool_name == "knowledge_prior":
             args.setdefault("raw_query", state.raw_user_query)
@@ -245,8 +290,7 @@ class ActionExecutor:
 
         if is_mcp_policy_tool(tool_name):
             if "query" not in args:
-                queries = ClaimSearchPlanner.build_queries(state)
-                args["query"] = queries[0] if queries else state.raw_user_query
+                args["query"] = state.raw_user_query
             if frame and frame.information_needs:
                 args.setdefault("information_need", frame.information_needs[0])
             need = ClaimSearchPlanner.primary_information_need(state)
@@ -265,6 +309,11 @@ class ActionExecutor:
                     uid = pick_baidu_uid_from_evidence(list(state.evidence))
                     if uid:
                         args.setdefault("uid", uid)
+            if tool_name == "baidu_geocode_mcp":
+                if place_name and "address" not in args and "query" not in args:
+                    args.setdefault("address", place_name)
+            if tool_name == "baidu_ip_location_mcp":
+                args["location_sensitive"] = True
 
         return args
 
@@ -278,6 +327,9 @@ class ActionExecutor:
 
         annotated: list[ToolTrace] = []
         for trace in self.tools.traces[trace_before:]:
+            input_data = dict(trace.input or {})
+            if policy_tool_name == "baidu_ip_location_mcp":
+                input_data.setdefault("location_sensitive", True)
             annotated.append(
                 trace.model_copy(
                     update={
@@ -285,6 +337,7 @@ class ActionExecutor:
                         "selected_by_llm": selected_by_llm,
                         "whitelist_checked": whitelist_checked,
                         "tool_name": policy_tool_name if trace.tool_name != policy_tool_name else trace.tool_name,
+                        "input": input_data,
                     }
                 )
             )

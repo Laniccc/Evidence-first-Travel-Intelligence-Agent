@@ -58,6 +58,12 @@ def _build_adapter(policy_name: str, server_name: str, client, settings):
         "baidu_place_search_mcp",
         "baidu_place_detail_mcp",
         "baidu_weather_mcp",
+        "baidu_geocode_mcp",
+        "baidu_reverse_geocode_mcp",
+        "baidu_route_mcp",
+        "baidu_route_matrix_mcp",
+        "baidu_traffic_mcp",
+        "baidu_ip_location_mcp",
     }:
         return BaiduMapMCPAdapter(policy_name=policy_name, client=client)
 

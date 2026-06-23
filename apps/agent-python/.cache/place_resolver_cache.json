@@ -19,7 +19,7 @@
     "region": null,
     "place_type": "poi",
     "confidence": 0.78,
-    "resolution_source": "llm_geocode",
+    "resolution_source": "local_cache",
     "coordinates": null,
     "metadata": {}
   },

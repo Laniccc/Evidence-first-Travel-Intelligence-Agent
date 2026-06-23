@@ -130,9 +130,14 @@ class SearchMCPAdapter(BaseTravelTool):
                 elif officialish:
                     claim_type = ClaimType.ROAD_OPENING_PERIOD
                     confidence = 0.55
-            elif information_need == "ticket_price" and officialish:
-                claim_type = ClaimType.TICKET_PRICE
-                confidence = 0.55
+            elif information_need == "ticket_price":
+                ticketish = re.search(r"门票|票价|收费|免费|元", f"{title} {snippet}", re.I)
+                if officialish:
+                    claim_type = ClaimType.TICKET_PRICE
+                    confidence = 0.55
+                elif ticketish:
+                    claim_type = ClaimType.TICKET_PRICE_CANDIDATE
+                    confidence = 0.48
 
             summary = title
             if snippet:

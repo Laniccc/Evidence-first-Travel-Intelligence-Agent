@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 
 from app.schemas.coverage_report import CoverageItem, CoverageReport
-from app.schemas.evidence import ClaimType, Evidence
+from app.schemas.evidence import ClaimType, Evidence, SourceType
 from app.schemas.response_contract import ClaimRequirement, ResponseContract
 from app.schemas.tool_trace import ToolTrace
 from app.tools.tool_name_resolver import resolve_tool_name
@@ -16,7 +16,18 @@ _GENERIC_TEMPLATE_PATTERNS = re.compile(
 )
 
 _CLAIM_TYPE_ALIASES: dict[str, frozenset[str]] = {
-    "ticket_price": frozenset({ClaimType.TICKET_PRICE.value, "price_candidate"}),
+    "ticket_price": frozenset(
+        {
+            ClaimType.TICKET_PRICE.value,
+            ClaimType.PRICE_CANDIDATE.value,
+            ClaimType.TICKET_PRICE_CANDIDATE.value,
+            "price_candidate",
+        }
+    ),
+    "booking_channel": frozenset({ClaimType.BOOKING_CHANNEL.value}),
+    "historical_ticket_price": frozenset(
+        {ClaimType.HISTORICAL_TICKET_SNAPSHOT.value, ClaimType.TICKET_PRICE_HISTORY.value}
+    ),
     "opening_hours": frozenset(
         {ClaimType.OPENING_HOURS.value, ClaimType.OPENING_HOURS_CANDIDATE.value}
     ),
@@ -45,14 +56,105 @@ _CLAIM_TYPE_ALIASES: dict[str, frozenset[str]] = {
     "general_seasonal_context": frozenset(
         {ClaimType.GENERAL_SEASONAL_CONTEXT.value, ClaimType.SEASONALITY.value, ClaimType.TRAVEL_ADVICE.value}
     ),
+    "route_plan": frozenset(
+        {
+            ClaimType.ROUTE_STEPS.value,
+            ClaimType.DISTANCE.value,
+            ClaimType.DURATION.value,
+        }
+    ),
+    "transport_planning": frozenset(
+        {
+            ClaimType.ROUTE_STEPS.value,
+            ClaimType.DISTANCE.value,
+            ClaimType.DURATION.value,
+        }
+    ),
+    "road_traffic": frozenset({ClaimType.TRAFFIC_STATUS.value}),
+    "traffic_status": frozenset({ClaimType.TRAFFIC_STATUS.value}),
+    "congestion_risk": frozenset({ClaimType.CONGESTION_RISK.value, ClaimType.TRAFFIC_STATUS.value}),
+    "user_location": frozenset(
+        {ClaimType.INFERRED_CITY.value, ClaimType.USER_LOCATION_ESTIMATION.value}
+    ),
+    "entity_resolution": frozenset(
+        {ClaimType.PLACE_CANDIDATES.value, ClaimType.COORDINATES.value, ClaimType.POI_UID.value}
+    ),
 }
 
+_GEO_ONLY_CLAIMS = frozenset(
+    {
+        ClaimType.PLACE_CANDIDATES.value,
+        ClaimType.COORDINATES.value,
+        ClaimType.POI_UID.value,
+        ClaimType.RESOLVED_ADDRESS.value,
+        ClaimType.ADDRESS.value,
+    }
+)
+
+_REVIEW_EXPERIENCE_CLAIMS = frozenset(
+    {
+        "review_summary",
+        "value_for_money",
+        "elderly_suitability",
+        "family_friendly",
+        "commercialization_risk",
+        "review_aspect",
+        ClaimType.REVIEW_ASPECT.value,
+    }
+)
+
+_ROUTE_ONLY_CLAIMS = frozenset(
+    {
+        "route_plan",
+        "transport_planning",
+        "route_steps",
+        ClaimType.ROUTE_STEPS.value,
+        ClaimType.DISTANCE.value,
+        ClaimType.DURATION.value,
+    }
+)
+
 _IRRELEVANT_FOR: dict[str, frozenset[str]] = {
-    "ticket_price": frozenset({ClaimType.CROWD.value, ClaimType.WEATHER.value}),
-    "opening_hours": frozenset({ClaimType.CROWD.value, ClaimType.WEATHER.value}),
-    "best_time_to_visit": frozenset({ClaimType.CROWD.value, ClaimType.TICKET_PRICE.value}),
+    "ticket_price": frozenset(
+        {
+            ClaimType.CROWD.value,
+            ClaimType.WEATHER.value,
+            *_GEO_ONLY_CLAIMS,
+            ClaimType.REVIEW_ASPECT.value,
+            ClaimType.REVIEW_SUMMARY.value,
+            ClaimType.TICKET_RELATED_MENTIONS.value,
+            ClaimType.ROUTE_STEPS.value,
+        }
+    ),
+    "opening_hours": frozenset({ClaimType.CROWD.value, ClaimType.WEATHER.value, *_GEO_ONLY_CLAIMS}),
+    "best_time_to_visit": frozenset(
+        {
+            ClaimType.CROWD.value,
+            ClaimType.TICKET_PRICE.value,
+            ClaimType.WEATHER.value,
+            *_GEO_ONLY_CLAIMS,
+            ClaimType.ROUTE_STEPS.value,
+        }
+    ),
+    "seasonality": frozenset(
+        {
+            ClaimType.WEATHER.value,
+            ClaimType.TICKET_PRICE.value,
+            *_GEO_ONLY_CLAIMS,
+        }
+    ),
     "seasonal_operation_status": frozenset(
-        {ClaimType.CROWD.value, ClaimType.GENERAL_SEASONAL_CONTEXT.value}
+        {ClaimType.CROWD.value, ClaimType.GENERAL_SEASONAL_CONTEXT.value, *_GEO_ONLY_CLAIMS}
+    ),
+    "forecast": frozenset({ClaimType.SEASONALITY.value, ClaimType.BEST_TIME_TO_VISIT.value}),
+    "weather": frozenset({ClaimType.SEASONALITY.value, ClaimType.BEST_TIME_TO_VISIT.value}),
+    "weather_today": frozenset({ClaimType.SEASONALITY.value, ClaimType.BEST_TIME_TO_VISIT.value}),
+    "current_weather": frozenset({ClaimType.SEASONALITY.value, ClaimType.BEST_TIME_TO_VISIT.value}),
+    "value_for_money": frozenset(
+        {ClaimType.TICKET_PRICE.value, ClaimType.OPENING_HOURS.value, ClaimType.ROUTE_STEPS.value}
+    ),
+    "elderly_suitability": frozenset(
+        {ClaimType.TICKET_PRICE.value, ClaimType.OPENING_HOURS.value, ClaimType.ROUTE_STEPS.value}
     ),
 }
 
@@ -118,8 +220,36 @@ class EvidenceCoverageChecker:
                     continue
                 if req.claim_type == "seasonal_operation_status" and ev.source_type.value == "model_prior":
                     continue
-                if req.claim_type == "ticket_price" and ct == ClaimType.PRICE_CANDIDATE.value:
+                if req.claim_type == "ticket_price" and ct in {
+                    ClaimType.PRICE_CANDIDATE.value,
+                    ClaimType.TICKET_PRICE_CANDIDATE.value,
+                }:
+                    matched_ids.append(ev.evidence_id)
+                    if self._quality_rank("partial") > self._quality_rank(best_quality):
+                        best_quality = "partial"
                     continue
+                if ct in _GEO_ONLY_CLAIMS and req.claim_type not in {
+                    "entity_resolution",
+                    "place_lookup",
+                    "coordinates",
+                    "disambiguation",
+                }:
+                    continue
+                if req.claim_type in _REVIEW_EXPERIENCE_CLAIMS and ct in {
+                    ClaimType.TICKET_PRICE.value,
+                    ClaimType.OPENING_HOURS.value,
+                    ClaimType.PRICE_CANDIDATE.value,
+                }:
+                    continue
+                if req.claim_type in _ROUTE_ONLY_CLAIMS and ct == ClaimType.REVIEW_ASPECT.value:
+                    continue
+                if req.claim_type in {"best_time_to_visit", "seasonality"} and ct == ClaimType.WEATHER.value:
+                    continue
+                if req.claim_type in {"ticket_price", "seasonal_operation_status", "best_time_to_visit"}:
+                    if ev.source_type == SourceType.UNKNOWN and "fallback" in (ev.source_name or "").lower():
+                        continue
+                    if ev.source_type.value == "fallback":
+                        continue
                 quality = self._quality_for_claim(req, claim, ev)
                 if quality == "none":
                     continue
@@ -130,7 +260,9 @@ class EvidenceCoverageChecker:
         covered = best_quality in ("partial", "strong") or (
             req.priority == "optional" and best_quality == "weak"
         )
-        if req.priority == "required" and best_quality not in ("partial", "strong"):
+        if req.priority == "required" and req.claim_type == "ticket_price" and best_quality != "strong":
+            covered = False
+        elif req.priority == "required" and best_quality not in ("partial", "strong"):
             covered = False
 
         missing_reason = None
@@ -165,7 +297,23 @@ class EvidenceCoverageChecker:
             if re.search(r"\d{1,2}月", text):
                 return "strong"
             return "partial"
+        if req.claim_type == "ticket_price" and claim.claim_type.value in {
+            ClaimType.PRICE_CANDIDATE.value,
+            ClaimType.TICKET_PRICE_CANDIDATE.value,
+        }:
+            return "partial"
         if req.claim_type == "ticket_price" and claim.claim_type.value == ClaimType.TICKET_PRICE.value:
+            return "strong"
+        if req.claim_type in _REVIEW_EXPERIENCE_CLAIMS and claim.claim_type.value == ClaimType.REVIEW_SUMMARY.value:
+            return "strong"
+        if req.claim_type == "booking_channel" and claim.claim_type.value == ClaimType.BOOKING_CHANNEL.value:
+            if ev.source_type in {SourceType.OFFICIAL, SourceType.TICKET_PLATFORM}:
+                return "strong"
+            return "partial"
+        if req.claim_type == "historical_ticket_price" and claim.claim_type.value in {
+            ClaimType.HISTORICAL_TICKET_SNAPSHOT.value,
+            ClaimType.TICKET_PRICE_HISTORY.value,
+        }:
             return "strong"
         if ev.source_type.value == "model_prior" and not req.model_prior_allowed:
             return "none"

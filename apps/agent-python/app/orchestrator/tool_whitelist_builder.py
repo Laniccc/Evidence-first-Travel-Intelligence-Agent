@@ -1,13 +1,30 @@
+from __future__ import annotations
+
+import re
+
 from app.config import get_settings
+from app.orchestrator.s5_domain_planner import S5DomainPlanner
 from app.orchestrator.state_policy import EVIDENCE_PLANNING_TOOL_NAMES
+from app.orchestrator.s5_information_domain_registry import placeholder_tool_names
 from app.policies.evidence_policy import EvidencePolicy
+from app.schemas.s5_information_domain import S5DomainPlan
 from app.schemas.semantic_frame import AnswerMode, DecisionType, QueryScope, SemanticFrame
 from app.schemas.tool_whitelist import ToolDescriptor, ToolWhitelist
 from app.schemas.user_query import TravelAgentState
 from app.tools.capability_registry import CapabilityRegistry
 from app.tools.mcp.client_manager import get_mcp_client_manager
 from app.tools.mcp.tool_specs import MCP_POLICY_SPECS, MCP_POLICY_TOOL_NAMES, NEED_TOOL_PROFILES
-from app.tools.mcp.adapter_status import is_mcp_policy_implemented, mcp_policy_stub_reason
+from app.tools.mcp.adapter_status import (
+    is_mcp_policy_implemented,
+    is_mcp_policy_placeholder,
+    mcp_policy_stub_reason,
+)
+from tools.ticketing.provider_config import (
+    TICKET_PROVIDER_TOOL_NAMES,
+    is_ticket_provider_tool,
+    provider_configured_for_tool,
+    provider_enabled_for_tool,
+)
 from app.tools.gateway_config import use_java_tool_gateway
 from app.tools.tool_name_resolver import is_mcp_policy_tool, resolve_tool_name
 
@@ -60,6 +77,12 @@ _CAPABILITY_TO_POLICY: dict[str, str] = {
     "baidu_place_search_mcp": "baidu_place_search_mcp",
     "baidu_place_detail_mcp": "baidu_place_detail_mcp",
     "baidu_weather_mcp": "baidu_weather_mcp",
+    "baidu_geocode_mcp": "baidu_geocode_mcp",
+    "baidu_reverse_geocode_mcp": "baidu_reverse_geocode_mcp",
+    "baidu_route_mcp": "baidu_route_mcp",
+    "baidu_route_matrix_mcp": "baidu_route_matrix_mcp",
+    "baidu_traffic_mcp": "baidu_traffic_mcp",
+    "baidu_ip_location_mcp": "baidu_ip_location_mcp",
     "reviews": "reviews",
     "transit": "transit",
     "restaurant": "restaurant",
@@ -197,6 +220,37 @@ _TOOL_CATALOG: dict[str, dict] = {
         "capabilities": ["current_weather", "forecast", "weather_risk", "short_term_weather"],
         "source_type": "mcp",
     },
+    "baidu_geocode_mcp": {
+        "description": "百度地图地理编码，将地址/地名解析为坐标",
+        "capabilities": ["geocode", "address_to_coordinates", "city_region_lookup"],
+        "source_type": "mcp",
+    },
+    "baidu_reverse_geocode_mcp": {
+        "description": "百度地图逆地理编码，将坐标解析为地址/行政区",
+        "capabilities": ["reverse_geocode", "coordinates_to_address", "nearby_context"],
+        "source_type": "mcp",
+    },
+    "baidu_route_mcp": {
+        "description": "百度地图路线规划（驾车/步行/公交/骑行）",
+        "capabilities": ["route_planning", "transport_planning", "distance", "duration", "route_steps"],
+        "source_type": "mcp",
+    },
+    "baidu_route_matrix_mcp": {
+        "description": "百度地图批量距离/时间矩阵，用于多点行程可行性",
+        "capabilities": ["directions_matrix", "travel_time_matrix", "itinerary_feasibility"],
+        "source_type": "mcp",
+    },
+    "baidu_traffic_mcp": {
+        "description": "百度地图路况查询，用于自驾拥堵与路况风险",
+        "capabilities": ["road_traffic", "traffic_status", "congestion_risk", "self_drive_risk"],
+        "source_type": "mcp",
+    },
+    "baidu_ip_location_mcp": {
+        "description": "百度地图 IP 定位，仅用于用户授权或明确「我附近」场景",
+        "capabilities": ["ip_location", "user_city_estimation", "user_location"],
+        "source_type": "mcp",
+        "restrictions": ["Requires location_usage_allowed or explicit nearby-me query."],
+    },
     "seasonality": {
         "description": "Seasonal / best-time advisory (non-hard-fact).",
         "capabilities": ["seasonality", "best_time_to_visit"],
@@ -220,6 +274,101 @@ _NEED_GATED_TOOLS: dict[str, frozenset[str]] = {
     "lodging": frozenset({"lodging_area", "locker"}),
 }
 
+_NEARBY_ME_PATTERNS = re.compile(r"我附近|从我这里|附近有什么|离我最近|在我这边|周边", re.I)
+
+_TICKET_PLATFORM_TOOLS = frozenset(
+    {
+        "ctrip_ticket_crawler_mcp",
+        "fliggy_ticket_crawler_mcp",
+        "meituan_ticket_crawler_mcp",
+        "dianping_ticket_crawler_mcp",
+        "qunar_ticket_crawler_mcp",
+    }
+)
+_REVIEW_PLATFORM_TOOLS = frozenset(
+    {
+        "review_signal_mcp",
+        "public_review_search_mcp",
+        "meituan_review_crawler_mcp",
+        "qunar_review_crawler_mcp",
+        "tripadvisor_review_crawler_mcp",
+        "dianping_review_signal_mcp",
+        "ctrip_review_signal_mcp",
+    }
+)
+_TRAVEL_NOTE_TOOLS = frozenset(
+    {
+        "mafengwo_note_crawler_mcp",
+        "xiaohongshu_note_crawler_mcp",
+        "ctrip_guide_crawler_mcp",
+        "tourism_board_notice_mcp",
+        "platform_notice_crawler_mcp",
+    }
+)
+_NEARBY_PLATFORM_TOOLS = frozenset(
+    {
+        "nearby_food_mcp",
+        "nearby_rest_area_mcp",
+        "nearby_toilet_mcp",
+        "nearby_parking_mcp",
+        "nearby_station_mcp",
+        "nearby_attraction_mcp",
+        "nearby_hotel_mcp",
+        "dianping_nearby_crawler_mcp",
+        "meituan_nearby_crawler_mcp",
+    }
+)
+_ITINERARY_PLANNER_TOOLS = frozenset(
+    {
+        "itinerary_planner_mcp",
+        "route_feasibility_checker_mcp",
+        "elderly_friendly_route_scorer_mcp",
+        "family_trip_planner_mcp",
+    }
+)
+_CROWD_ESTIMATION_TOOLS = frozenset(
+    {
+        "crowd_estimation_mcp",
+        "event_calendar_mcp",
+    }
+)
+
+for _ph in sorted(placeholder_tool_names()):
+    _TOOL_CATALOG.setdefault(
+        _ph,
+        {
+            "description": f"S5 placeholder provider tool ({_ph}) — not implemented.",
+            "capabilities": ["placeholder_provider"],
+            "source_type": "placeholder",
+            "implemented": False,
+        },
+    )
+
+for _tp in sorted(TICKET_PROVIDER_TOOL_NAMES):
+    _TOOL_CATALOG.setdefault(
+        _tp,
+        {
+            "description": f"Ticket/review provider ({_tp}).",
+            "capabilities": ["ticket_price", "review_summary", "booking_channel"],
+            "source_type": "ticket_platform",
+        },
+    )
+
+
+def location_usage_allowed(state: TravelAgentState, prompt_context: dict | None = None) -> bool:
+    ctx = prompt_context or {}
+    user_ctx = ctx.get("user_ctx")
+    if user_ctx is not None:
+        if isinstance(user_ctx, dict) and user_ctx.get("location_usage_allowed"):
+            return True
+        if getattr(user_ctx, "location_usage_allowed", False):
+            return True
+    query = state.raw_user_query or ""
+    frame = state.semantic_frame
+    if frame:
+        query = f"{query} {frame.raw_query} {frame.normalized_request}"
+    return bool(_NEARBY_ME_PATTERNS.search(query))
+
 
 class ToolWhitelistBuilder:
     """Build task-level dynamic tool whitelist for S5 evidence planning."""
@@ -232,51 +381,78 @@ class ToolWhitelistBuilder:
         self.capability_registry = capability_registry or CapabilityRegistry()
         self.tools_registry = tools_registry
 
-    def build(self, state: TravelAgentState) -> ToolWhitelist:
+    def build(self, state: TravelAgentState, prompt_context: dict | None = None) -> ToolWhitelist:
         if state.response_contract:
-            return self._build_from_contract(state)
-        return self._build_legacy(state)
+            return self._build_from_contract(state, prompt_context)
+        return self._build_legacy(state, prompt_context)
 
-    def _build_from_contract(self, state: TravelAgentState) -> ToolWhitelist:
+    def _build_from_contract(self, state: TravelAgentState, prompt_context: dict | None = None) -> ToolWhitelist:
         contract = state.response_contract
         assert contract is not None
 
-        candidates: set[str] = set()
-        forbidden: set[str] = set()
+        plan = S5DomainPlanner().plan(
+            contract,
+            state.semantic_frame,
+            evidence=state.evidence,
+        )
+        state.s5_domain_plan = plan
+
+        domain_candidates = plan.candidate_tool_names()
+        forbidden: set[str] = set(plan.effective_forbidden_tool_names())
+        candidates: set[str] = set(domain_candidates)
         claim_types: list[str] = []
+        contract_preferred: set[str] = set()
 
         for claim in contract.claim_requirements:
             claim_types.append(claim.claim_type)
-            candidates.update(claim.preferred_tools)
+            contract_preferred.update(claim.preferred_tools)
             for tool in claim.forbidden_tools:
                 if tool == "knowledge_prior":
                     continue
                 forbidden.add(tool)
 
-        candidates.update(contract.entity_policy.preferred_tools)
-        candidates.update(contract.tool_strategy.initial_tools)
-        candidates &= set(EVIDENCE_PLANNING_TOOL_NAMES)
+        contract_preferred.update(contract.entity_policy.preferred_tools)
+        contract_preferred.update(contract.tool_strategy.initial_tools)
+        candidates |= contract_preferred
         candidates -= forbidden
+        candidates &= set(EVIDENCE_PLANNING_TOOL_NAMES)
+
+        settings = get_settings()
+        for tool_name in TICKET_PROVIDER_TOOL_NAMES:
+            if provider_configured_for_tool(tool_name, settings):
+                candidates.add(tool_name)
 
         allow_prior = any(c.model_prior_allowed for c in contract.claim_requirements)
-        if allow_prior:
-            candidates.add("knowledge_prior")
-
         blocked: dict[str, str] = {}
         policy_notes = [
-            "ResponseContract 驱动白名单；claim_types: " + ", ".join(claim_types),
+            "ResponseContract + S5DomainPlan 驱动白名单；claim_types: " + ", ".join(claim_types),
+            "S5 domains: " + ", ".join(d.value for d in plan.domains),
         ]
         if forbidden:
-            policy_notes.append("contract forbidden: " + ", ".join(sorted(forbidden)))
+            policy_notes.append("forbidden: " + ", ".join(sorted(forbidden)))
 
-        if not allow_prior:
-            blocked["knowledge_prior"] = "ResponseContract: no claim allows model_prior."
+        if allow_prior:
+            candidates.add("knowledge_prior")
+        else:
+            blocked["knowledge_prior"] = "forbidden_by_claim_policy: ResponseContract disallows model_prior."
             candidates.discard("knowledge_prior")
 
-        allowed = self._finalize_candidates(candidates, blocked, claim_types, policy_notes)
-        return allowed
+        if "baidu_ip_location_mcp" in candidates and not location_usage_allowed(state, prompt_context):
+            blocked["baidu_ip_location_mcp"] = "requires_user_permission: IP location needs location_usage_allowed."
+            candidates.discard("baidu_ip_location_mcp")
 
-    def _build_legacy(self, state: TravelAgentState) -> ToolWhitelist:
+        return self._finalize_candidates(
+            candidates,
+            blocked,
+            claim_types,
+            policy_notes,
+            state,
+            domain_plan=plan,
+            domain_candidates=domain_candidates,
+            contract_preferred=contract_preferred,
+        )
+
+    def _build_legacy(self, state: TravelAgentState, prompt_context: dict | None = None) -> ToolWhitelist:
         frame = state.semantic_frame
         decision = state.answer_mode_decision
         needs = self._collect_needs(state, frame)
@@ -307,10 +483,10 @@ class ToolWhitelistBuilder:
 
         candidates &= set(EVIDENCE_PLANNING_TOOL_NAMES)
 
-        if frame and self._needs_baidu_disambiguation(frame, needs):
-            for tool in ("baidu_place_search_mcp", "baidu_place_detail_mcp"):
-                if tool in EVIDENCE_PLANNING_TOOL_NAMES:
-                    candidates.add(tool)
+        settings = get_settings()
+        for tool_name in TICKET_PROVIDER_TOOL_NAMES:
+            if provider_configured_for_tool(tool_name, settings):
+                candidates.add(tool_name)
 
         blocked: dict[str, str] = {}
         policy_notes: list[str] = []
@@ -329,7 +505,22 @@ class ToolWhitelistBuilder:
         if decision and decision.answer_mode == AnswerMode.EVIDENCE_REQUIRED:
             policy_notes.append("evidence_required：优先 official/places/MCP，不足时记录 limitation。")
 
-        return self._finalize_candidates(candidates, blocked, needs, policy_notes)
+        if frame and self._needs_baidu_disambiguation(frame, needs):
+            for tool in (
+                "baidu_place_search_mcp",
+                "baidu_place_detail_mcp",
+                "baidu_geocode_mcp",
+            ):
+                if tool in EVIDENCE_PLANNING_TOOL_NAMES:
+                    candidates.add(tool)
+
+        if "baidu_ip_location_mcp" in candidates and not location_usage_allowed(state, prompt_context):
+            blocked["baidu_ip_location_mcp"] = (
+                "IP location requires location_usage_allowed or explicit nearby-me query."
+            )
+            candidates.discard("baidu_ip_location_mcp")
+
+        return self._finalize_candidates(candidates, blocked, needs, policy_notes, state)
 
     def _finalize_candidates(
         self,
@@ -337,7 +528,16 @@ class ToolWhitelistBuilder:
         blocked: dict[str, str],
         needs: list[str],
         policy_notes: list[str],
+        state: TravelAgentState | None = None,
+        *,
+        domain_plan: S5DomainPlan | None = None,
+        domain_candidates: set[str] | None = None,
+        contract_preferred: set[str] | None = None,
     ) -> ToolWhitelist:
+        domain_candidates = domain_candidates or set()
+        contract_preferred = contract_preferred or set()
+        relevant = domain_candidates | contract_preferred | candidates
+
         for tool_name in list(candidates):
             if tool_name in _NEED_GATED_TOOLS:
                 if not _NEED_GATED_TOOLS[tool_name] & set(needs):
@@ -346,6 +546,15 @@ class ToolWhitelistBuilder:
 
         allowed: list[ToolDescriptor] = []
         for tool_name in sorted(candidates):
+            block_reason = self._block_reason_for_tool(
+                tool_name,
+                relevant=relevant,
+                domain_plan=domain_plan,
+            )
+            if block_reason:
+                blocked[tool_name] = block_reason
+                continue
+
             configured, config_reason = self._is_configured(tool_name)
             meta = _TOOL_CATALOG.get(tool_name, {"description": tool_name, "capabilities": []})
             restrictions = list(meta.get("restrictions", []))
@@ -367,10 +576,48 @@ class ToolWhitelistBuilder:
             if configured:
                 allowed.append(descriptor)
             else:
-                blocked[tool_name] = config_reason or "Tool not configured."
+                blocked[tool_name] = config_reason or "not_configured"
 
         for tool_name in EVIDENCE_PLANNING_TOOL_NAMES:
-            if tool_name not in candidates and tool_name not in blocked:
+            if tool_name in candidates or tool_name in blocked:
+                continue
+            if domain_plan and tool_name in domain_plan.effective_forbidden_tool_names():
+                blocked[tool_name] = "forbidden_by_claim_policy"
+                continue
+            if is_ticket_provider_tool(tool_name):
+                settings = get_settings()
+                if not provider_enabled_for_tool(tool_name, settings):
+                    blocked[tool_name] = "disabled_by_config"
+                elif not provider_configured_for_tool(tool_name, settings):
+                    if tool_name in {"ticketlens_experience_mcp", "ticketlens_experience_review_signal_mcp"}:
+                        if not settings.ticketlens_api_key:
+                            blocked[tool_name] = "missing_api_key"
+                        else:
+                            blocked[tool_name] = "not_configured"
+                    else:
+                        blocked[tool_name] = "not_configured"
+                elif domain_plan and tool_name not in relevant:
+                    blocked[tool_name] = "not_relevant_for_domain"
+                else:
+                    blocked[tool_name] = "not_relevant_for_domain"
+                continue
+            if is_mcp_policy_placeholder(tool_name):
+                if not self._placeholder_config_enabled(tool_name):
+                    blocked[tool_name] = "disabled_by_config"
+                else:
+                    blocked[tool_name] = "not_implemented"
+                continue
+            if domain_plan and tool_name in domain_candidates:
+                block_reason = self._block_reason_for_tool(tool_name, relevant=relevant, domain_plan=domain_plan)
+                if block_reason:
+                    blocked[tool_name] = block_reason
+                else:
+                    blocked[tool_name] = "not_configured"
+                continue
+            if domain_plan and tool_name not in relevant:
+                blocked[tool_name] = "not_relevant_for_domain"
+                continue
+            if tool_name not in blocked:
                 blocked[tool_name] = "Not relevant for current information needs."
 
         if not allowed:
@@ -380,7 +627,7 @@ class ToolWhitelistBuilder:
             f"{tool}: {reason}" for tool, reason in sorted(blocked.items()) if tool in blocked
         ]
         if blocked_summary:
-            policy_notes.append("blocked_tools: " + "; ".join(blocked_summary[:8]))
+            policy_notes.append("blocked_tools: " + "; ".join(blocked_summary[:12]))
 
         return ToolWhitelist(
             state_name="evidence_planning_and_tool_use",
@@ -389,6 +636,48 @@ class ToolWhitelistBuilder:
             reason_by_tool=blocked,
             policy_notes=policy_notes,
         )
+
+    def _block_reason_for_tool(
+        self,
+        tool_name: str,
+        *,
+        relevant: set[str],
+        domain_plan: S5DomainPlan | None,
+    ) -> str | None:
+        if domain_plan and tool_name in domain_plan.effective_forbidden_tool_names():
+            return "forbidden_by_claim_policy"
+        if is_mcp_policy_placeholder(tool_name):
+            if not self._placeholder_config_enabled(tool_name):
+                return "disabled_by_config"
+            return "not_implemented"
+        if is_ticket_provider_tool(tool_name):
+            settings = get_settings()
+            if not provider_enabled_for_tool(tool_name, settings):
+                return "disabled_by_config"
+            if not provider_configured_for_tool(tool_name, settings):
+                if tool_name == "ticketlens_experience_mcp" and not settings.ticketlens_api_key:
+                    return "missing_api_key"
+                return "not_configured"
+        if tool_name == "baidu_ip_location_mcp":
+            return None
+        return None
+
+    @staticmethod
+    def _placeholder_config_enabled(tool_name: str) -> bool:
+        settings = get_settings()
+        if tool_name in _TICKET_PLATFORM_TOOLS:
+            return settings.enable_ticket_platform_crawlers
+        if tool_name in _REVIEW_PLATFORM_TOOLS:
+            return settings.enable_review_platform_crawlers
+        if tool_name in _TRAVEL_NOTE_TOOLS:
+            return settings.enable_travel_note_crawlers
+        if tool_name in _NEARBY_PLATFORM_TOOLS:
+            return settings.enable_nearby_platform_crawlers
+        if tool_name in _ITINERARY_PLANNER_TOOLS:
+            return settings.enable_itinerary_planner_tools
+        if tool_name in _CROWD_ESTIMATION_TOOLS:
+            return settings.enable_crowd_estimation_tools
+        return False
 
     @staticmethod
     def _needs_baidu_disambiguation(frame: SemanticFrame, needs: list[str]) -> bool:
@@ -423,6 +712,32 @@ class ToolWhitelistBuilder:
         return client.server_block_reason(server_name)
 
     def _is_configured(self, policy_tool_name: str) -> tuple[bool, str | None]:
+        if is_ticket_provider_tool(policy_tool_name):
+            settings = get_settings()
+            if not provider_enabled_for_tool(policy_tool_name, settings):
+                return False, "disabled_by_config"
+            if policy_tool_name == "ticketlens_experience_mcp" and not settings.ticketlens_api_key:
+                return False, "missing_api_key"
+            if provider_configured_for_tool(policy_tool_name, settings):
+                return True, None
+            if policy_tool_name in {
+                "ctrip_review_crawler_mcp",
+                "ctrip_ticket_signal_crawler_mcp",
+                "fliggy_ticket_snapshot_crawler_mcp",
+                "fliggy_ticket_review_signal_mcp",
+                "dianping_review_crawler_mcp",
+                "dianping_ticket_signal_crawler_mcp",
+            }:
+                return False, "not_configured"
+            if policy_tool_name in {"ticket_snapshot_store", "ticket_price_history_query"}:
+                return False, "not_configured"
+            return False, "missing_api_key"
+
+        if is_mcp_policy_placeholder(policy_tool_name):
+            if not self._placeholder_config_enabled(policy_tool_name):
+                return False, "disabled_by_config"
+            return False, mcp_policy_stub_reason(policy_tool_name) or "not_implemented"
+
         if is_mcp_policy_tool(policy_tool_name) and use_java_tool_gateway():
             return True, None
 

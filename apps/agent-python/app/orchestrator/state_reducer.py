@@ -1,6 +1,8 @@
 from app.orchestrator.actions import ActionResult, AgentAction, AgentActionType
+from app.orchestrator.evidence_brief_builder import apply_evidence_brief
 from app.orchestrator.state_policy import StateNodePolicy
 from app.orchestrator.trace import TraceRecorder
+from app.schemas.evidence_brief import EvidenceBrief
 from app.schemas.final_answer_draft import FinalAnswerDraft
 from app.schemas.query_understanding import QueryUnderstandingResult
 from app.schemas.rewritten_query import RewrittenQueryResult
@@ -109,7 +111,12 @@ class StateReducer:
             TraceRecorder.add(state, "✓ [loop] AnswerComposition 完成")
         elif target == "search_task_planner_agent" and "search_tasks" in output:
             structured = dict(state.structured_result or {})
-            structured["search_tasks"] = output["search_tasks"]
+            new_tasks = output["search_tasks"]
+            if output.get("refine"):
+                existing = list(structured.get("search_tasks") or [])
+                structured["search_tasks"] = existing + list(new_tasks)
+            else:
+                structured["search_tasks"] = new_tasks
             structured.setdefault("completed_search_task_ids", [])
             state.structured_result = structured
             TraceRecorder.add(
@@ -137,6 +144,28 @@ class StateReducer:
                 state,
                 f"✓ [A2A] keyword_search_agent ({task_id}) → {len(evidence)} evidence | {query_preview}",
             )
+        elif target == "evidence_curation_planner_agent" and "curation_plan" in output:
+            structured = dict(state.structured_result or {})
+            structured["curation_plan"] = output["curation_plan"]
+            state.structured_result = structured
+            TraceRecorder.add(state, "✓ [S7] evidence_curation_planner → plan ready")
+        elif target == "claim_relevance_filter_agent":
+            structured = dict(state.structured_result or {})
+            if "curated_claims" in output:
+                structured["curated_claims"] = output["curated_claims"]
+            if "excluded_evidence_ids" in output:
+                structured["excluded_evidence_ids"] = output["excluded_evidence_ids"]
+            state.structured_result = structured
+            TraceRecorder.add(
+                state,
+                f"✓ [S7] claim_relevance_filter → {len(output.get('curated_claims', []))} claims",
+            )
+        elif target == "evidence_conflict_analyzer_agent":
+            structured = dict(state.structured_result or {})
+            structured["conflict_notes"] = output.get("conflict_notes", [])
+            structured["conflict_analyzed"] = output.get("conflict_analyzed", True)
+            state.structured_result = structured
+            TraceRecorder.add(state, "✓ [S7] evidence_conflict_analyzer → notes ready")
         return state
 
     def apply_finish(
@@ -173,6 +202,10 @@ class StateReducer:
             if action.arguments.get("limitations"):
                 state.limitations.extend(action.arguments["limitations"])
             TraceRecorder.add(state, f"✓ [{policy.state_name}] FINISH_STATE → evidence planning complete")
+        elif policy.state_name == "evidence_aggregation" and result is not None:
+            brief = result if isinstance(result, EvidenceBrief) else EvidenceBrief.model_validate(result)
+            apply_evidence_brief(state, brief)
+            TraceRecorder.add(state, f"✓ [{policy.state_name}] FINISH_STATE → EvidenceBrief")
         elif action.arguments.get("final_response"):
             state.final_response = action.arguments["final_response"]
         return state

@@ -56,6 +56,13 @@ def apply_unique_candidate(state: TravelAgentState, candidate: dict) -> TravelAg
         frame.entities.region = candidate["province"]
     if candidate.get("name") and not frame.entities.places:
         frame.entities.places = [candidate["name"]]
+    if candidate.get("latitude") is not None and candidate.get("longitude") is not None:
+        structured = dict(state.structured_result or {})
+        structured["resolved_coordinates"] = {
+            "latitude": candidate["latitude"],
+            "longitude": candidate["longitude"],
+        }
+        state.structured_result = structured
     return state
 
 

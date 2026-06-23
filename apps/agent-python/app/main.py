@@ -1,6 +1,6 @@
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import get_settings
@@ -20,11 +20,10 @@ async def lifespan(fastapi_app: FastAPI):
     global _settings, _state_machine
     _settings = get_settings()
     setup_logging(_settings.log_level)
-    if _settings.llm_mode != "mock" and not _settings.llm_api_key():
-        _logger.warning(
-            "llm_api_key_missing",
-            llm_mode=_settings.llm_mode,
-            hint="Set DEEPSEEK_API_KEY in apps/agent-python/.env for real LLM understanding",
+    if not _settings.llm_api_key():
+        raise RuntimeError(
+            "DEEPSEEK_API_KEY or ANTHROPIC_API_KEY is required. "
+            "Configure apps/agent-python/.env before starting the agent."
         )
     install_java_tool_gateway()
     _state_machine = TravelAgentStateMachine()
@@ -48,16 +47,21 @@ async def agent_health():
     version = _settings.app_version if _settings else "unknown"
     llm_configured = bool(_settings and _settings.llm_api_key())
     return {
-        "status": "ok",
+        "status": "ok" if llm_configured else "degraded",
         "service": "agent-python",
         "version": version,
-        "llm_mode": _settings.llm_mode if _settings else "unknown",
+        "llm_mode": "anthropic",
         "llm_configured": llm_configured,
     }
 
 
 @app.post("/agent/query", response_model=AgentQueryResponse)
 async def agent_query(payload: AgentQueryRequest):
+    if not _settings or not _settings.llm_api_key():
+        raise HTTPException(
+            status_code=503,
+            detail="LLM API key not configured; set DEEPSEEK_API_KEY in .env",
+        )
     user_context = dict(payload.user_context or {})
     if payload.session_id and "session_id" not in user_context:
         user_context["session_id"] = payload.session_id

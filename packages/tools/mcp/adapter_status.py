@@ -27,6 +27,12 @@ IMPLEMENTED_MCP_POLICIES: frozenset[str] = frozenset(
         "baidu_place_search_mcp",
         "baidu_place_detail_mcp",
         "baidu_weather_mcp",
+        "baidu_geocode_mcp",
+        "baidu_reverse_geocode_mcp",
+        "baidu_route_mcp",
+        "baidu_route_matrix_mcp",
+        "baidu_traffic_mcp",
+        "baidu_ip_location_mcp",
     }
 )
 
@@ -97,7 +103,89 @@ POLICY_TO_UPSTREAM: dict[str, list[tuple[str, str]]] = {
     "baidu_weather_mcp": [
         ("baidu_map", "map_weather"),
     ],
+    "baidu_geocode_mcp": [
+        ("baidu_map", "map_geocode"),
+    ],
+    "baidu_reverse_geocode_mcp": [
+        ("baidu_map", "map_reverse_geocode"),
+    ],
+    "baidu_route_mcp": [
+        ("baidu_map", "map_directions"),
+    ],
+    "baidu_route_matrix_mcp": [
+        ("baidu_map", "map_directions_matrix"),
+    ],
+    "baidu_traffic_mcp": [
+        ("baidu_map", "map_road_traffic"),
+    ],
+    "baidu_ip_location_mcp": [
+        ("baidu_map", "map_ip_location"),
+    ],
 }
+
+# S5 placeholder MCP policies — registered for domain planning but not implemented.
+PLACEHOLDER_MCP_POLICIES: frozenset[str] = frozenset(
+    {
+        "ctrip_ticket_crawler_mcp",
+        "fliggy_ticket_crawler_mcp",
+        "meituan_ticket_crawler_mcp",
+        "dianping_ticket_crawler_mcp",
+        "qunar_ticket_crawler_mcp",
+        "tourism_board_notice_mcp",
+        "platform_notice_crawler_mcp",
+        "mafengwo_note_crawler_mcp",
+        "xiaohongshu_note_crawler_mcp",
+        "ctrip_guide_crawler_mcp",
+        "review_signal_mcp",
+        "public_review_search_mcp",
+        "meituan_review_crawler_mcp",
+        "qunar_review_crawler_mcp",
+        "tripadvisor_review_crawler_mcp",
+        "nearby_food_mcp",
+        "nearby_rest_area_mcp",
+        "nearby_toilet_mcp",
+        "nearby_parking_mcp",
+        "nearby_station_mcp",
+        "nearby_attraction_mcp",
+        "nearby_hotel_mcp",
+        "dianping_nearby_crawler_mcp",
+        "meituan_nearby_crawler_mcp",
+        "itinerary_planner_mcp",
+        "route_feasibility_checker_mcp",
+        "elderly_friendly_route_scorer_mcp",
+        "family_trip_planner_mcp",
+        "crowd_estimation_mcp",
+        "event_calendar_mcp",
+        "dianping_review_signal_mcp",
+        "ctrip_review_signal_mcp",
+    }
+)
+
+
+TICKET_PROVIDER_POLICIES: frozenset[str] = frozenset(
+    {
+        "ticketlens_experience_mcp",
+        "ticketlens_experience_review_signal_mcp",
+        "ctrip_review_crawler_mcp",
+        "ctrip_ticket_signal_crawler_mcp",
+        "fliggy_ticket_snapshot_crawler_mcp",
+        "fliggy_ticket_review_signal_mcp",
+        "dianping_review_crawler_mcp",
+        "dianping_ticket_signal_crawler_mcp",
+        "ticket_snapshot_store",
+        "ticket_price_history_query",
+    }
+)
+
+
+def is_ticket_provider_policy(policy_name: str) -> bool:
+    return policy_name in TICKET_PROVIDER_POLICIES
+
+
+def is_mcp_policy_placeholder(policy_name: str) -> bool:
+    if is_ticket_provider_policy(policy_name):
+        return False
+    return policy_name in PLACEHOLDER_MCP_POLICIES
 
 
 def is_mcp_policy_implemented(policy_name: str) -> bool:
@@ -107,6 +195,8 @@ def is_mcp_policy_implemented(policy_name: str) -> bool:
 def mcp_policy_stub_reason(policy_name: str) -> str | None:
     if policy_name not in MCP_POLICY_SPECS:
         return f"Unknown MCP policy tool {policy_name!r}"
+    if is_mcp_policy_placeholder(policy_name):
+        return f"not_implemented: placeholder MCP policy {policy_name!r} (provider not wired)"
     if is_mcp_policy_implemented(policy_name):
         return None
     server_name, default_tool, _ = MCP_POLICY_SPECS[policy_name]

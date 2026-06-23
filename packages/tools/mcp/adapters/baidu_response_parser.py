@@ -204,3 +204,287 @@ def pick_baidu_uid_from_evidence(evidence_list: list) -> str | None:
                 if uid:
                     return str(uid)
     return None
+
+
+def _unwrap_result(data: Any) -> dict[str, Any]:
+    if isinstance(data, dict) and "text" in data and len(data) == 1:
+        try:
+            data = json.loads(data["text"])
+        except json.JSONDecodeError:
+            pass
+    if not isinstance(data, dict):
+        return {"raw": str(data)[:2000]}
+    result = data.get("result")
+    if isinstance(result, dict):
+        return result
+    return data
+
+
+def parse_geocode(data: Any) -> dict[str, Any]:
+    result = _unwrap_result(data)
+    location = result.get("location") or result
+    lat = location.get("lat") or location.get("latitude") or result.get("lat")
+    lng = location.get("lng") or location.get("lon") or location.get("longitude") or result.get("lng")
+    return {
+        "latitude": float(lat) if lat is not None else None,
+        "longitude": float(lng) if lng is not None else None,
+        "address": result.get("formatted_address") or result.get("address") or result.get("name"),
+        "city": result.get("city") or result.get("cityname"),
+        "province": result.get("province") or result.get("provincename"),
+        "confidence": result.get("confidence"),
+    }
+
+
+def parse_reverse_geocode(data: Any) -> dict[str, Any]:
+    result = _unwrap_result(data)
+    address = result.get("formatted_address") or result.get("address")
+    return {
+        "address": address,
+        "city": result.get("addressComponent", {}).get("city")
+        if isinstance(result.get("addressComponent"), dict)
+        else result.get("city") or result.get("cityname"),
+        "province": result.get("addressComponent", {}).get("province")
+        if isinstance(result.get("addressComponent"), dict)
+        else result.get("province") or result.get("provincename"),
+        "district": result.get("addressComponent", {}).get("district")
+        if isinstance(result.get("addressComponent"), dict)
+        else result.get("district"),
+        "latitude": result.get("location", {}).get("lat")
+        if isinstance(result.get("location"), dict)
+        else result.get("lat"),
+        "longitude": result.get("location", {}).get("lng")
+        if isinstance(result.get("location"), dict)
+        else result.get("lng"),
+    }
+
+
+def parse_directions(data: Any) -> dict[str, Any]:
+    result = _unwrap_result(data)
+    routes = result.get("routes") or result.get("route") or []
+    if isinstance(routes, dict):
+        routes = [routes]
+    route = routes[0] if routes else result
+    distance = route.get("distance") or result.get("distance")
+    duration = route.get("duration") or result.get("duration")
+    steps = route.get("steps") or result.get("steps") or []
+    return {
+        "distance_m": distance,
+        "duration_s": duration,
+        "steps": steps[:20] if isinstance(steps, list) else [],
+        "summary": json.dumps(route, ensure_ascii=False)[:1200],
+    }
+
+
+def parse_directions_matrix(data: Any) -> dict[str, Any]:
+    result = _unwrap_result(data)
+    return {
+        "distances": result.get("distances") or result.get("distance"),
+        "durations": result.get("durations") or result.get("duration"),
+        "summary": json.dumps(result, ensure_ascii=False)[:1200],
+    }
+
+
+def parse_road_traffic(data: Any) -> dict[str, Any]:
+    result = _unwrap_result(data)
+    evaluation = result.get("evaluation") or result.get("traffic_condition") or result.get("status")
+    congestion = result.get("congestion") or result.get("congestion_index") or result.get("congestion_level")
+    return {
+        "status": evaluation or result.get("description"),
+        "congestion": congestion,
+        "summary": json.dumps(result, ensure_ascii=False)[:1200],
+    }
+
+
+def parse_ip_location(data: Any) -> dict[str, Any]:
+    result = _unwrap_result(data)
+    content = result.get("content") if isinstance(result.get("content"), dict) else result
+    point = content.get("point") if isinstance(content.get("point"), dict) else {}
+    return {
+        "city": content.get("address_detail", {}).get("city")
+        if isinstance(content.get("address_detail"), dict)
+        else content.get("city"),
+        "province": content.get("address_detail", {}).get("province")
+        if isinstance(content.get("address_detail"), dict)
+        else content.get("province"),
+        "latitude": point.get("y") or content.get("lat"),
+        "longitude": point.get("x") or content.get("lng"),
+        "address": content.get("address"),
+    }
+
+
+def geocode_claims(parsed: dict[str, Any]) -> list[Claim]:
+    claims: list[Claim] = []
+    if parsed.get("latitude") is not None and parsed.get("longitude") is not None:
+        claims.append(
+            Claim(
+                claim_type=ClaimType.COORDINATES,
+                value={"latitude": parsed["latitude"], "longitude": parsed["longitude"]},
+                normalized_value={"latitude": parsed["latitude"], "longitude": parsed["longitude"]},
+                confidence=0.72,
+            )
+        )
+    if parsed.get("address"):
+        claims.append(
+            Claim(
+                claim_type=ClaimType.RESOLVED_ADDRESS,
+                value=str(parsed["address"]),
+                confidence=0.7,
+            )
+        )
+    if parsed.get("city"):
+        claims.append(
+            Claim(
+                claim_type=ClaimType.INFERRED_CITY,
+                value=str(parsed["city"]),
+                confidence=0.68,
+            )
+        )
+    return claims
+
+
+def reverse_geocode_claims(parsed: dict[str, Any]) -> list[Claim]:
+    claims: list[Claim] = []
+    if parsed.get("address"):
+        claims.append(
+            Claim(claim_type=ClaimType.RESOLVED_ADDRESS, value=str(parsed["address"]), confidence=0.72)
+        )
+    if parsed.get("city"):
+        claims.append(
+            Claim(claim_type=ClaimType.INFERRED_CITY, value=str(parsed["city"]), confidence=0.7)
+        )
+    if parsed.get("latitude") is not None and parsed.get("longitude") is not None:
+        claims.append(
+            Claim(
+                claim_type=ClaimType.COORDINATES,
+                value={"latitude": parsed["latitude"], "longitude": parsed["longitude"]},
+                normalized_value={"latitude": parsed["latitude"], "longitude": parsed["longitude"]},
+                confidence=0.7,
+            )
+        )
+    return claims
+
+
+def directions_claims(parsed: dict[str, Any]) -> list[Claim]:
+    claims: list[Claim] = []
+    if parsed.get("distance_m") is not None:
+        claims.append(
+            Claim(
+                claim_type=ClaimType.DISTANCE,
+                value=parsed["distance_m"],
+                normalized_value={"meters": parsed["distance_m"]},
+                confidence=0.72,
+            )
+        )
+    if parsed.get("duration_s") is not None:
+        claims.append(
+            Claim(
+                claim_type=ClaimType.DURATION,
+                value=parsed["duration_s"],
+                normalized_value={"seconds": parsed["duration_s"]},
+                confidence=0.72,
+            )
+        )
+    if parsed.get("steps"):
+        claims.append(
+            Claim(
+                claim_type=ClaimType.ROUTE_STEPS,
+                value=parsed["steps"],
+                confidence=0.68,
+            )
+        )
+    if not claims and parsed.get("summary"):
+        claims.append(
+            Claim(claim_type=ClaimType.TRAVEL_ADVICE, value=parsed["summary"], confidence=0.6)
+        )
+    return claims
+
+
+def directions_matrix_claims(parsed: dict[str, Any]) -> list[Claim]:
+    claims: list[Claim] = []
+    if parsed.get("distances") is not None:
+        claims.append(
+            Claim(
+                claim_type=ClaimType.DISTANCE,
+                value=parsed["distances"],
+                normalized_value={"matrix": parsed["distances"]},
+                confidence=0.7,
+            )
+        )
+    if parsed.get("durations") is not None:
+        claims.append(
+            Claim(
+                claim_type=ClaimType.DURATION,
+                value=parsed["durations"],
+                normalized_value={"matrix": parsed["durations"]},
+                confidence=0.7,
+            )
+        )
+    return claims
+
+
+def traffic_claims(parsed: dict[str, Any]) -> list[Claim]:
+    claims: list[Claim] = []
+    if parsed.get("status"):
+        claims.append(
+            Claim(
+                claim_type=ClaimType.TRAFFIC_STATUS,
+                value=str(parsed["status"]),
+                confidence=0.72,
+            )
+        )
+    if parsed.get("congestion") is not None:
+        claims.append(
+            Claim(
+                claim_type=ClaimType.CONGESTION_RISK,
+                value=parsed["congestion"],
+                confidence=0.68,
+            )
+        )
+    if not claims and parsed.get("summary"):
+        claims.append(
+            Claim(claim_type=ClaimType.TRAFFIC_STATUS, value=parsed["summary"], confidence=0.6)
+        )
+    return claims
+
+
+def ip_location_claims(parsed: dict[str, Any]) -> list[Claim]:
+    claims: list[Claim] = []
+    if parsed.get("city"):
+        claims.append(
+            Claim(
+                claim_type=ClaimType.INFERRED_CITY,
+                value=str(parsed["city"]),
+                confidence=0.55,
+            )
+        )
+    loc = {
+        "city": parsed.get("city"),
+        "province": parsed.get("province"),
+        "latitude": parsed.get("latitude"),
+        "longitude": parsed.get("longitude"),
+        "address": parsed.get("address"),
+    }
+    if any(v is not None for v in loc.values()):
+        claims.append(
+            Claim(
+                claim_type=ClaimType.USER_LOCATION_ESTIMATION,
+                value=loc,
+                normalized_value=loc,
+                confidence=0.55,
+            )
+        )
+    return claims
+
+
+def resolve_coordinates_from_evidence(evidence_list: list) -> dict[str, float] | None:
+    for ev in evidence_list:
+        for claim in getattr(ev, "claims", []) or []:
+            if claim.claim_type != ClaimType.COORDINATES:
+                continue
+            nv = claim.normalized_value
+            if isinstance(nv, dict) and nv.get("latitude") is not None and nv.get("longitude") is not None:
+                return {"latitude": float(nv["latitude"]), "longitude": float(nv["longitude"])}
+            val = claim.value
+            if isinstance(val, dict) and val.get("latitude") is not None and val.get("longitude") is not None:
+                return {"latitude": float(val["latitude"]), "longitude": float(val["longitude"])}
+    return None

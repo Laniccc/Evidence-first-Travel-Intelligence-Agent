@@ -4,6 +4,7 @@ import pytest
 
 from app.agents.keyword_search_agent import KeywordSearchAgent
 from app.agents.search_task_planner_agent import SearchTaskPlannerAgent
+from app.evals.llm_test_helpers import StubLLMClient, duku_search_tasks_json
 from app.orchestrator.evidence_policy_guard import EvidencePolicyGuard
 from app.orchestrator.actions import AgentAction, AgentActionType
 from app.orchestrator.state_policy import EVIDENCE_PLANNING_AND_TOOL_USE_POLICY
@@ -38,7 +39,8 @@ def _duku_state() -> TravelAgentState:
 
 @pytest.mark.asyncio
 async def test_search_task_planner_creates_keyword_tasks():
-    tasks = await SearchTaskPlannerAgent(llm_client=None).run(_duku_state())
+    llm = StubLLMClient(lambda _s, _u: duku_search_tasks_json())
+    tasks = await SearchTaskPlannerAgent(llm).run(_duku_state())
     assert len(tasks) >= 3
     assert all(isinstance(t, SearchTask) for t in tasks)
     assert all(t.anchor_keywords for t in tasks)

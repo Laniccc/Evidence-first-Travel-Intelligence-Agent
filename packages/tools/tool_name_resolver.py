@@ -1,6 +1,7 @@
 ﻿"""Map policy-level tool names to TravelToolRegistry attributes."""
 
 from tools.mcp.tool_specs import MCP_POLICY_TOOL_NAMES, POLICY_TO_REGISTRY_ATTR
+from tools.ticketing.provider_config import TICKET_PROVIDER_TOOL_NAMES, is_ticket_provider_tool
 
 POLICY_TOOL_ALIASES: dict[str, str] = {
     "official_mcp": "official_page_reader_mcp",
@@ -18,6 +19,8 @@ def resolve_tool_name(policy_name: str) -> str:
 
 
 def is_mcp_policy_tool(name: str) -> bool:
+    if is_ticket_provider_tool(name):
+        return False
     return name in MCP_POLICY_TOOL_NAMES or name in {
         "official_mcp",
         "mcp_weather",

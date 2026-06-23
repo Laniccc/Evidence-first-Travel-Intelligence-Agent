@@ -1,6 +1,7 @@
 import re
 
 from app.catalog.destination_catalog import CULTURAL_SETS
+from app.orchestrator.claim_search_planner import ClaimSearchPlanner, is_search_miss_value
 from app.catalog.location_resolver import resolve_start_location
 from app.catalog.place_catalog import get_place_catalog
 from app.schemas.evidence import ClaimType, Evidence
@@ -13,6 +14,148 @@ from app.schemas.user_query import TravelAgentState, UserGoal
 
 
 class ComposerAgent:
+    @staticmethod
+    def _resolve_primary_need(state: TravelAgentState) -> str:
+        contract = state.response_contract
+        if contract:
+            for claim in contract.claim_requirements:
+                if claim.priority == "required":
+                    return claim.claim_type
+            if contract.claim_requirements:
+                return contract.claim_requirements[0].claim_type
+        frame = state.semantic_frame
+        if frame and frame.information_needs:
+            return frame.information_needs[0]
+        return "general"
+
+    @staticmethod
+    def _need_topic_label(need: str) -> str:
+        return {
+            "ticket_price": "门票/收费",
+            "opening_hours": "开放时间",
+            "reservation_policy": "预约政策",
+            "temporary_closure": "闭园/暂停开放",
+            "seasonal_operation_status": "开放/营业季节",
+        }.get(need, "关键事实")
+
+    @staticmethod
+    def _collect_actionable_claim_rows(
+        evidence: list[Evidence],
+    ) -> list[dict]:
+        rows: list[dict] = []
+        for ev in evidence:
+            if not isinstance(ev, Evidence):
+                continue
+            for claim in ev.claims:
+                value = str(claim.value or "").strip()
+                if not value or is_search_miss_value(value):
+                    continue
+                conf = float(getattr(claim, "confidence", None) or ev.confidence or 0.5)
+                rows.append(
+                    {
+                        "claim_type": claim.claim_type.value,
+                        "value": value,
+                        "confidence": conf,
+                        "source_name": ev.source_name,
+                        "source_url": ev.source_url,
+                        "evidence_id": ev.evidence_id,
+                    }
+                )
+        rows.sort(key=lambda r: r["confidence"], reverse=True)
+        return rows
+
+    @staticmethod
+    def compose_fact_lookup(target_label: str, evidence: list[Evidence], state: TravelAgentState) -> str:
+        """Hard-fact questions (ticket, hours, etc.) — always explain what was found and confidence."""
+        need = ComposerAgent._resolve_primary_need(state)
+        topic = ComposerAgent._need_topic_label(need)
+        rows = ComposerAgent._collect_actionable_claim_rows(evidence)
+        tried = sorted(ClaimSearchPlanner.tried_from_traces(state))
+
+        strong_types = {
+            ClaimType.TICKET_PRICE.value,
+            ClaimType.OPENING_HOURS.value,
+            ClaimType.RESERVATION.value,
+            ClaimType.SEASONAL_OPERATION_STATUS.value,
+            ClaimType.PUBLIC_NOTICE.value,
+        }
+        partial_types = {
+            ClaimType.PRICE_CANDIDATE.value,
+            ClaimType.TICKET_PRICE_CANDIDATE.value,
+            ClaimType.OPENING_HOURS_CANDIDATE.value,
+            ClaimType.BOOKING_CHANNEL.value,
+            ClaimType.TRAVEL_ADVICE.value,
+        }
+
+        strong = [r for r in rows if r["claim_type"] in strong_types and r["confidence"] >= 0.55]
+        partial = [r for r in rows if r["claim_type"] in partial_types or r not in strong]
+
+        lines = [f"关于 {target_label} 的{topic}：", ""]
+
+        if strong:
+            lines.extend(["【检索要点（相对较高置信度）】"])
+            for idx, row in enumerate(strong[:4], start=1):
+                lines.append(f"{idx}. （置信度 {row['confidence']:.0%}）{row['value'][:280]}")
+                if row.get("source_url"):
+                    lines.append(f"   来源：{row['source_url']}")
+            lines.append("")
+            lines.append(
+                f"结论：检索到与{topic}相关的公开信息，但尚未经官方页面逐项核实；"
+                "出发前建议再核对景区官网或权威售票渠道。"
+            )
+        elif partial:
+            lines.extend(
+                [
+                    f"结论：未能确认{target_label}的{topic}官方定论，但检索到以下相关线索（置信度偏低，仅供参考）：",
+                    "",
+                    "【检索线索】",
+                ]
+            )
+            seen: set[str] = set()
+            shown = 0
+            for row in partial:
+                key = row["value"][:120]
+                if key in seen:
+                    continue
+                seen.add(key)
+                shown += 1
+                lines.append(f"{shown}. （置信度 {row['confidence']:.0%}）{row['value'][:280]}")
+                if row.get("source_url"):
+                    lines.append(f"   来源：{row['source_url']}")
+                if shown >= 6:
+                    break
+            lines.append("")
+            lines.append(
+                "说明：以上来自公开网页搜索摘要，可能过时或不完整，不能替代景区官方票价/入园政策。"
+            )
+        else:
+            lines.extend(
+                [
+                    f"结论：本次未能从公开检索中获得可用于回答「{state.raw_user_query}」的有效线索。",
+                    f"已尝试搜索：{'; '.join(tried[:6]) or '（无）'}",
+                    "",
+                    "建议：",
+                    "- 查询景区官方公众号/官网或新疆文旅平台公布的门票政策；",
+                    "- 或通过携程/飞猪等平台查看实时售票页（以页面显示为准）。",
+                ]
+            )
+
+        if tried and (strong or partial):
+            lines.extend(["", f"已尝试搜索：{'; '.join(tried[:6])}"])
+
+        coverage = state.coverage_report
+        if coverage:
+            for item in coverage.items:
+                if item.claim_type == need and not item.covered:
+                    lines.append(
+                        f"- 系统判定 required 证据「{need}」尚未达到可确证标准（当前覆盖：{item.coverage_quality}）。"
+                    )
+
+        if state.limitations:
+            lines.extend(["", "限制说明：", *[f"- {lim}" for lim in state.limitations[:5]]])
+
+        return "\n".join(lines)
+
     @staticmethod
     def _is_zh(text: str) -> bool:
         return any("\u4e00" <= ch <= "\u9fff" for ch in text)
@@ -87,6 +230,72 @@ class ComposerAgent:
         return "\n".join(lines)
 
     @staticmethod
+    def _road_opening_relevant(state: TravelAgentState, evidence: list[Evidence]) -> bool:
+        coverage = state.coverage_report
+        if coverage and any(
+            i.claim_type in {"seasonal_operation_status", "road_opening_period"} for i in coverage.items
+        ):
+            return True
+        for ev in evidence:
+            for claim in ev.claims:
+                if claim.claim_type in {
+                    ClaimType.SEASONAL_OPERATION_STATUS,
+                    ClaimType.ROAD_OPENING_PERIOD,
+                }:
+                    return True
+        frame = state.semantic_frame
+        if frame and frame.decision_type and frame.decision_type.value in {
+            "best_time_to_visit",
+            "risk_check",
+        }:
+            return True
+        return False
+
+    @staticmethod
+    def compose_suitability(target_label: str, evidence: list[Evidence], state: TravelAgentState) -> str:
+        """Whether-to-go / elderly suitability when evidence is thin or missing."""
+        actionable: list[str] = []
+        for ev in evidence:
+            for claim in ev.claims:
+                value = str(claim.value)
+                if is_search_miss_value(value):
+                    continue
+                actionable.append(value)
+
+        tried_queries = sorted(ClaimSearchPlanner.tried_from_traces(state))
+        tried_tools = list(dict.fromkeys(t.tool_name for t in state.tool_traces if t.tool_name))
+
+        lines = [f"关于「{target_label}是否适合带父母」：", "", "结论："]
+        if not actionable:
+            lines.extend(
+                [
+                    "目前未能从公开检索获得关于无障碍、步行强度、客流或老年友好体验的有效信息，"
+                    "无法负责任地给出明确的「适合/不适合」判断。",
+                    "",
+                    "检索情况：",
+                    f"- 已尝试关键词：{'; '.join(tried_queries[:5]) or '（无）'}",
+                    f"- 已调用工具：{', '.join(tried_tools[:8]) or '（无）'}",
+                    "",
+                    "建议你出发前自行确认：",
+                    "- 官方预约/入馆政策与闭馆日",
+                    "- 馆内是否有轮椅、无障碍通道与休息座椅",
+                    "- 节假日与周末客流（博物馆类景点通常上午更拥挤）",
+                    "- 若父母行动不便，优先选平日并预留充足休息时间",
+                ]
+            )
+        else:
+            lines.append(actionable[0])
+            if len(actionable) > 1:
+                lines.extend(["", "其他参考：", *[f"- {v}" for v in actionable[1:4]]])
+
+        if state.limitations:
+            lines.extend(["", "限制说明：", *[f"- {lim}" for lim in state.limitations[:5]]])
+        summary = ComposerAgent._evidence_summary_lines(state)
+        if summary:
+            lines.extend(["", "证据摘要：", *summary])
+        return "\n".join(lines)
+
+    @staticmethod
     def compose_advisory(target_label: str, evidence: list[Evidence], state: TravelAgentState) -> str:
         official_lines: list[str] = []
         context_lines: list[str] = []
@@ -95,6 +304,8 @@ class ComposerAgent:
         for ev in evidence:
             for claim in ev.claims:
                 value = str(claim.value)
+                if is_search_miss_value(value):
+                    continue
                 if claim.claim_type in {
                     ClaimType.SEASONAL_OPERATION_STATUS,
                     ClaimType.ROAD_OPENING_PERIOD,
@@ -121,10 +332,11 @@ class ComposerAgent:
                 for i in coverage.items
             )
         )
+        road_relevant = ComposerAgent._road_opening_relevant(state, evidence)
 
         if official_lines:
             lines.extend(["【开放/通车信息（检索结果）】", official_lines[0], ""])
-        elif required_opening_missing:
+        elif required_opening_missing and road_relevant:
             tried = ", ".join(t.tool_name for t in state.tool_traces[:8]) or "（无）"
             lines.extend(
                 [
@@ -137,20 +349,39 @@ class ComposerAgent:
 
         if context_lines:
             lines.extend(["【一般规律（低置信度背景，非官方公告）】", context_lines[0], ""])
-        elif not official_lines and not required_opening_missing:
-            lines.extend(["结论：", "暂无足够建议。", ""])
+        elif not official_lines and not (required_opening_missing and road_relevant):
+            tried_queries = sorted(ClaimSearchPlanner.tried_from_traces(state))
+            lines.extend(
+                [
+                    "结论：",
+                    "未能从检索获得可用于回答的有效信息。",
+                    f"已尝试关键词：{'; '.join(tried_queries[:5]) or '（无）'}",
+                    "",
+                ]
+            )
 
-        lines.extend(
-            [
-                "说明：",
-                "- 开放/通车月份以交通运输主管部门或景区当年公告为准。",
-                "- 一般规律仅供参考，不能替代官方通知。",
-            ]
-        )
+        if road_relevant:
+            lines.extend(
+                [
+                    "说明：",
+                    "- 开放/通车月份以交通运输主管部门或景区当年公告为准。",
+                    "- 一般规律仅供参考，不能替代官方通知。",
+                ]
+            )
+        elif context_lines or official_lines:
+            lines.extend(
+                [
+                    "说明：",
+                    "- 以上信息来自公开检索，请出发前核对官方公告。",
+                ]
+            )
+
         for lim in state.limitations:
             if lim not in lines:
                 lines.append(f"- {lim}")
-        lines.extend(["", "证据摘要：", *ComposerAgent._evidence_summary_lines(state)])
+        summary = ComposerAgent._evidence_summary_lines(state)
+        if summary:
+            lines.extend(["", "证据摘要：", *summary])
         return "\n".join(lines)
 
     @staticmethod
@@ -194,10 +425,14 @@ class ComposerAgent:
     @staticmethod
     def _evidence_summary_lines(state: TravelAgentState, fact_sheet: PlaceFactSheet | None = None) -> list[str]:
         if state.field_evidence_summary:
-            return [
-                f"- {row['field']}: {row['value']} ({', '.join(row.get('source_names') or []) or 'aggregated'})"
-                for row in state.field_evidence_summary[:8]
-            ]
+            rows = []
+            for row in state.field_evidence_summary[:8]:
+                if is_search_miss_value(str(row.get("value", ""))):
+                    continue
+                rows.append(
+                    f"- {row['field']}: {row['value']} ({', '.join(row.get('source_names') or []) or 'aggregated'})"
+                )
+            return rows
         if fact_sheet:
             return [
                 f"- {row['field']}: {row['value']}"

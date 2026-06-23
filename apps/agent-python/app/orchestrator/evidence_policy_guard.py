@@ -8,20 +8,34 @@ from app.schemas.evidence import ClaimType, Evidence
 from app.schemas.semantic_frame import AnswerMode
 from app.schemas.tool_whitelist import ToolWhitelist
 from app.schemas.user_query import TravelAgentState
+from app.orchestrator.tool_whitelist_builder import location_usage_allowed
+from app.tools.mcp.adapter_status import is_mcp_policy_placeholder
 from app.tools.mcp.client_manager import get_mcp_client_manager
 from app.tools.mcp.tool_specs import MCP_POLICY_SPECS, NEED_TOOL_PROFILES
 from app.tools.tool_name_resolver import is_mcp_policy_tool, resolve_tool_name
-_HARD_FACT_NEEDS = frozenset(
+from tools.ticketing.provider_config import (
+    is_ticket_provider_tool,
+    provider_configured_for_tool,
+    provider_enabled_for_tool,
+)
+_HARD_FACT_CLAIMS = frozenset(
     {
         "opening_hours",
         "ticket_price",
-        "weather_today",
-        "today_weather",
-        "current_crowd",
+        "seasonal_operation_status",
+        "road_opening_period",
         "temporary_closure",
         "reservation_policy",
+        "reservation_required",
+        "current_weather",
+        "today_weather",
+        "forecast",
+        "current_crowd",
+        "queue_time",
     }
 )
+
+_HARD_FACT_NEEDS = _HARD_FACT_CLAIMS
 
 _CLAIM_TYPE_TO_NEED: dict[str, str] = {
     ClaimType.OPENING_HOURS.value: "opening_hours",
@@ -74,6 +88,37 @@ class EvidencePolicyGuard(PolicyGuard):
     ) -> None:
         tool = action.target or ""
 
+        if is_mcp_policy_placeholder(tool):
+            raise ValueError(f"not_implemented: MCP policy tool {tool!r} is a placeholder (provider not wired)")
+
+        if is_ticket_provider_tool(tool):
+            settings = get_settings()
+            if not provider_enabled_for_tool(tool, settings):
+                raise ValueError(f"disabled_by_config: ticket provider {tool!r}")
+            if not provider_configured_for_tool(tool, settings):
+                if tool in {"ticketlens_experience_mcp", "ticketlens_experience_review_signal_mcp"}:
+                    if not settings.ticketlens_api_key:
+                        raise ValueError(f"missing_api_key: TicketLens API key required for {tool!r}")
+                raise ValueError(f"not_configured: ticket provider {tool!r}")
+            if tool_whitelist and not tool_whitelist.is_allowed(tool):
+                reason = tool_whitelist.reason_by_tool.get(tool, f"ticket provider {tool} blocked")
+                raise ValueError(reason)
+            return
+
+        if state.s5_domain_plan and tool in state.s5_domain_plan.effective_forbidden_tool_names():
+            raise ValueError(f"forbidden_by_claim_policy: tool {tool!r} is forbidden for current S5 domain plan")
+
+        if action.arguments.get("single_review_override"):
+            raise ValueError(
+                "review_signal evidence must be aggregated; single_review_override is not allowed"
+            )
+
+        if tool == "baidu_ip_location_mcp":
+            if not location_usage_allowed(state):
+                raise ValueError(
+                    "baidu_ip_location_mcp requires location_usage_allowed or explicit nearby-me query"
+                )
+
         if tool == "knowledge_prior":
             need = (
                 action.arguments.get("information_need")
@@ -84,13 +129,23 @@ class EvidencePolicyGuard(PolicyGuard):
             if contract:
                 if not any(c.model_prior_allowed for c in contract.claim_requirements):
                     raise ValueError("ResponseContract: knowledge_prior not allowed for any claim")
+                hard_required = [
+                    c.claim_type
+                    for c in contract.claim_requirements
+                    if c.priority == "required" and c.claim_type in _HARD_FACT_CLAIMS
+                ]
+                if hard_required:
+                    raise ValueError(
+                        "knowledge_prior cannot satisfy required hard-fact claims: "
+                        + ", ".join(hard_required)
+                    )
                 if need:
                     matching = [c for c in contract.claim_requirements if c.claim_type == need]
                     if matching and not any(c.model_prior_allowed for c in matching):
                         raise ValueError(
                             f"knowledge_prior not allowed for claim {need!r} per ResponseContract"
                         )
-            elif need in _HARD_FACT_NEEDS or need in EvidencePolicy.forbidden_model_prior_claims():
+            elif need in _HARD_FACT_NEEDS or need in _HARD_FACT_CLAIMS or need in EvidencePolicy.forbidden_model_prior_claims():
                 raise ValueError(
                     f"knowledge_prior cannot satisfy hard-fact need {need!r}; "
                     "use official/places/MCP tools from allowed_tools"

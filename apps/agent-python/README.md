@@ -15,7 +15,7 @@ copy .env.example .env
 notepad .env
 ```
 
-`.env` 建议先设 `LLM_MODE=mock`（无 API Key 也能跑通）；有 DeepSeek Key 再改 `LLM_MODE=anthropic` 并填写 `DEEPSEEK_API_KEY`。
+`.env` 必须配置 `DEEPSEEK_API_KEY`（或 `ANTHROPIC_API_KEY`），并设 `LLM_MODE=anthropic`。本项目不支持离线/模拟 LLM 模式，需联网运行。
 
 ## 启动
 

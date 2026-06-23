@@ -10,7 +10,7 @@ Main pipeline::
       → S4 Region/Policy Check
     → S5 EvidencePlanningAndToolUseState (controlled tool/MCP loop)
     → S6 Evidence accumulation (within S5 loop)
-      → S7 Evidence Aggregation
+      → S7 EvidenceAggregationState (LLM curation loop)
       → S8 Compose
       → S9 Citation/Limitations
       → S10 Response
@@ -20,11 +20,10 @@ from uuid import uuid4
 
 from app.catalog.location_resolver import resolve_city_country_from_text
 from app.agents.information_need_planner import InformationNeedPlanner
-from app.agents.composer_agent import ComposerAgent, ItineraryAgent
+from app.agents.composer_agent import ItineraryAgent
 from app.agents.intent_agent import IntentAgent, RegionGateAgent
 from app.agents.place_research_agent import PlaceResearchAgent
-from app.agents.review_mining_agent import ReviewAspectMiningAgent, VerifierAgent
-from app.agents.suitability_scorer import TravelSuitabilityScorer
+from app.agents.review_mining_agent import VerifierAgent
 from app.agents.travel_task_to_user_goal_adapter import SUPPORTED_REGIONS, TravelTaskToUserGoalAdapter
 from app.catalog.place_catalog import get_place_catalog
 from app.config import get_settings
@@ -32,8 +31,8 @@ from app.llm_client import LLMClient
 from app.orchestrator.answer_mode_router import AnswerModeRouter
 from app.orchestrator.response_contract_compiler import ResponseContractCompiler
 from app.orchestrator.citation_check import CitationChecker
-from app.orchestrator.evidence_aggregator import EvidenceAggregator
 from app.orchestrator.states.answer_composition_state import AnswerCompositionState
+from app.orchestrator.states.evidence_aggregation_state import EvidenceAggregationState
 from app.orchestrator.states.evidence_planning_and_tool_use_state import EvidencePlanningAndToolUseState
 from app.orchestrator.states.llm_understanding_state import LLMUnderstandingState
 from app.tools.capability_registry import CapabilityRegistry
@@ -45,7 +44,7 @@ from app.schemas.place_factsheet import PlaceFactSheet
 from app.schemas.response import StructuredResult, TravelQueryResponse
 from app.schemas.review import ReviewAspectResult
 from app.schemas.travel_task import TravelTaskType
-from app.schemas.semantic_frame import AnswerMode, DecisionType
+from app.schemas.semantic_frame import AnswerMode, DecisionType, TaskFamily
 from app.schemas.user_query import ConflictRecord, IntentType, RegionGateResult, TravelAgentState, UserContext, UserGoal
 from app.tools import ToolRegistry
 from app.tools.tool_router import ToolRouter
@@ -56,10 +55,7 @@ class TravelAgentStateMachine:
         self.llm = LLMClient()
         self.tools = ToolRegistry(llm_client=self.llm)
         self.place_research = PlaceResearchAgent(self.tools)
-        self.review_agent = ReviewAspectMiningAgent(self.tools)
-        self.scorer = TravelSuitabilityScorer()
         self.verifier = VerifierAgent()
-        self.aggregator = EvidenceAggregator()
         self.catalog = get_place_catalog()
         self.capability_registry = CapabilityRegistry()
         self.tool_router = ToolRouter(self.capability_registry)
@@ -67,6 +63,7 @@ class TravelAgentStateMachine:
         self.contract_compiler = ResponseContractCompiler()
         self.llm_understanding_state = LLMUnderstandingState(self.llm)
         self.answer_composition_state = AnswerCompositionState(self.llm)
+        self.evidence_aggregation_state = EvidenceAggregationState(self.llm)
         self.evidence_planning_state = EvidencePlanningAndToolUseState(
             self.llm,
             self.tools,
@@ -76,10 +73,52 @@ class TravelAgentStateMachine:
     async def _run_evidence_planning(self, state: TravelAgentState, **kwargs) -> TravelAgentState:
         return await self.evidence_planning_state.run(state, **kwargs)
 
+    async def _run_evidence_curation(self, state: TravelAgentState, target_label: str) -> TravelAgentState:
+        return await self.evidence_aggregation_state.run(state, target_label=target_label)
+
+    @staticmethod
+    def _resolve_target_label(state: TravelAgentState) -> str:
+        frame = state.semantic_frame
+        goal = state.user_goal
+        if frame and frame.entities.places:
+            return frame.entities.places[0]
+        if goal and goal.place_candidates:
+            return goal.place_candidates[0]
+        if frame and frame.entities.city:
+            return frame.entities.city
+        if goal and goal.destination_city:
+            return goal.destination_city
+        if frame and frame.entities.country:
+            return frame.entities.country
+        return "目的地"
+
     @property
     def query_understanding_state(self):
         """Backward-compatible alias."""
         return self.llm_understanding_state
+
+    @staticmethod
+    def _resolve_compose_mode(state: TravelAgentState) -> str:
+        task = state.travel_task
+        if task and task.task_type == TravelTaskType.COMPARE_PLACES:
+            return "compare"
+        if task and task.task_type == TravelTaskType.ITINERARY_PLANNING:
+            return "itinerary"
+        if task and task.task_type == TravelTaskType.CROWD_INQUIRY:
+            return "crowd"
+        if task and task.task_type == TravelTaskType.SINGLE_PLACE_SUITABILITY:
+            return "suitability"
+        frame = state.semantic_frame
+        if frame:
+            if frame.task_family == TaskFamily.FACT_LOOKUP:
+                return "fact_lookup"
+            if frame.decision_type == DecisionType.FACT_LOOKUP:
+                return "fact_lookup"
+            if frame.task_family == TaskFamily.SUITABILITY:
+                return "suitability"
+            if frame.decision_type == DecisionType.WHETHER_TO_GO:
+                return "suitability"
+        return "advisory"
 
     async def _run_answer_composition(self, state: TravelAgentState, **compose_kwargs) -> TravelAgentState:
         return await self.answer_composition_state.run(state, **compose_kwargs)
@@ -192,32 +231,16 @@ class TravelAgentStateMachine:
         evidence = [ev for ev in state.evidence if isinstance(ev, Evidence)]
         self._sync_tool_traces(state)
 
-        target = (
-            (frame.entities.places[0] if frame and frame.entities.places else None)
-            or (frame.entities.city if frame else None)
-            or (goal.destination_city if goal else None)
-            or (frame.entities.country if frame else None)
-            or "目的地"
-        )
-        state.field_evidence_summary = []
-        for ev in evidence:
-            for claim in ev.claims:
-                state.field_evidence_summary.append(
-                    {
-                        "field": claim.claim_type.value,
-                        "value": claim.value,
-                        "source_ids": [ev.evidence_id],
-                        "confidence": claim.confidence,
-                        "source_names": [ev.source_name],
-                    }
-                )
+        target = self._resolve_target_label(state)
+        state = await self._run_evidence_curation(state, target_label=target)
 
         state = await self._run_answer_composition(
             state,
-            compose_mode="advisory",
+            compose_mode=self._resolve_compose_mode(state),
             target_label=target,
         )
-        base_conf = min((ev.confidence for ev in evidence), default=0.55) if evidence else 0.45
+        brief = state.evidence_brief
+        base_conf = brief.overall_confidence if brief else 0.45
         confidence = self._citation_check(state, [], [], base_conf)
         return self._to_response(state, confidence)
 
@@ -283,6 +306,10 @@ class TravelAgentStateMachine:
         )
         state.limitations.extend(decision.limitations_to_add)
         state.limitations.extend(contract.limitations_to_add)
+        from app.orchestrator.user_need_residual import attach_user_need_residual
+
+        attach_user_need_residual(state)
+        TraceRecorder.add(state, "✓ 已生成 UserNeedResidual（S7/S8 需求残差）")
         return state
 
     @staticmethod
@@ -619,24 +646,21 @@ class TravelAgentStateMachine:
         evidence = [ev for ev in state.evidence if isinstance(ev, Evidence)]
         self._sync_tool_traces(state)
 
-        fact_sheet = self.aggregator.aggregate(canonical, evidence, [])
-        self._collect_field_summary(state, [fact_sheet])
-        review_result = await self.review_agent.run(canonical, goal)
-        recommendation = self.scorer.score_place(canonical, fact_sheet, review_result, goal, [])
+        state = await self._run_evidence_curation(state, target_label=canonical)
 
         state = await self._run_answer_composition(
             state,
-            compose_mode="crowd",
+            compose_mode=self._resolve_compose_mode(state),
+            target_label=canonical,
             place_name=canonical,
-            fact_sheet=fact_sheet,
-            review=review_result,
         )
         state.structured_result = StructuredResult(
-            recommendation=recommendation,
-            places=[{"name": canonical, "fact_sheet": fact_sheet.model_dump()}],
+            places=[{"name": canonical}],
         ).model_dump()
 
-        confidence = self._citation_check(state, [fact_sheet], [review_result], min(recommendation.confidence, 0.75))
+        brief = state.evidence_brief
+        base_conf = min(brief.overall_confidence if brief else 0.5, 0.75)
+        confidence = self._citation_check(state, [], [], base_conf)
         return self._to_response(state, confidence)
 
     async def _run_single(self, state: TravelAgentState) -> TravelQueryResponse:
@@ -670,31 +694,23 @@ class TravelAgentStateMachine:
         if conflicts:
             TraceRecorder.add(state, "✓ 发现来源冲突，已优先采用官方信息")
 
-        fact_sheet = self.aggregator.aggregate(canonical, evidence, state.conflicts)
-        self._collect_field_summary(state, [fact_sheet])
-        review_result = await self.review_agent.run(canonical, goal)
-        state.review_aspects.append(review_result.model_dump())
-        TraceRecorder.add(state, "✓ 完成评价维度抽取")
-
-        recommendation = self.scorer.score_place(canonical, fact_sheet, review_result, goal, state.conflicts)
-        state.scores.overall_suitability = recommendation.overall_score
-        state.scores.confidence = recommendation.confidence
-        TraceRecorder.add(state, "✓ 完成画像适配评分")
+        state = await self._run_evidence_curation(state, target_label=canonical)
+        brief = state.evidence_brief
+        if brief:
+            state.scores.confidence = brief.overall_confidence
 
         state = await self._run_answer_composition(
             state,
-            compose_mode="single",
+            compose_mode=self._resolve_compose_mode(state),
+            target_label=canonical,
             place_name=canonical,
-            recommendation=recommendation,
-            review=review_result,
-            fact_sheet=fact_sheet,
         )
         state.structured_result = StructuredResult(
-            recommendation=recommendation,
-            places=[{"name": canonical, "fact_sheet": fact_sheet.model_dump()}],
+            places=[{"name": canonical}],
         ).model_dump()
 
-        confidence = self._citation_check(state, [fact_sheet], [review_result], recommendation.confidence)
+        base_conf = brief.overall_confidence if brief else 0.5
+        confidence = self._citation_check(state, [], [], base_conf)
         return self._to_response(state, confidence)
 
     async def _run_compare(self, state: TravelAgentState) -> TravelQueryResponse:
@@ -704,11 +720,12 @@ class TravelAgentStateMachine:
             state.limitations.append("比较任务需要至少两个景点。")
 
         self._backfill_location_from_places(state)
-        ranked_data: list[tuple[str, object, ReviewAspectResult, PlaceFactSheet]] = []
+        canonical_places: list[str] = []
         all_evidence: list[Evidence] = []
 
         for idx, place in enumerate(places[:4]):
             canonical = self.catalog.normalize_place_name(place) or place
+            canonical_places.append(canonical)
             place_ctx = self._place_context_for(state, place, idx)
             before = len(state.evidence)
             state = await self._run_evidence_planning(
@@ -719,29 +736,28 @@ class TravelAgentStateMachine:
             )
             ev = [e for e in state.evidence[before:] if isinstance(e, Evidence)]
             all_evidence.extend(ev)
-            conflicts = [ConflictRecord(**c) for c in self.verifier.detect_conflicts(ev)]
-            fact_sheet = self.aggregator.aggregate(canonical, ev, conflicts)
-            review = await self.review_agent.run(canonical, goal)
-            rec = self.scorer.score_place(canonical, fact_sheet, review, goal, conflicts)
-            ranked_data.append((canonical, rec, review, fact_sheet))
-            TraceRecorder.add(state, f"✓ 已完成 {canonical} 情报检索与评分")
+            TraceRecorder.add(state, f"✓ 已完成 {canonical} 情报检索")
 
-        ranked = sorted(ranked_data, key=lambda x: x[1].overall_score, reverse=True)
-        rows = ComposerAgent.build_comparison_rows(ranked)
         state.evidence = all_evidence
         self._sync_tool_traces(state)
         state.conflicts = [ConflictRecord(**c) for c in self.verifier.detect_conflicts(all_evidence)]
-        fact_sheets = [fs for _, _, _, fs in ranked]
-        self._collect_field_summary(state, fact_sheets)
-        state.structured_result = StructuredResult(
-            comparison=[r.model_dump() for r in rows],
-            places=[{"name": n, "fact_sheet": fs.model_dump()} for n, _, _, fs in ranked],
-        ).model_dump()
-        state = await self._run_answer_composition(state, compose_mode="compare", ranked=ranked)
 
-        reviews = [r for _, _, r, _ in ranked]
-        top_conf = ranked[0][1].confidence if ranked else 0.5
-        confidence = self._citation_check(state, fact_sheets, reviews, top_conf)
+        compare_label = " vs ".join(canonical_places) if canonical_places else "比较"
+        state = await self._run_evidence_curation(state, target_label=compare_label)
+
+        state.structured_result = StructuredResult(
+            places=[{"name": n} for n in canonical_places],
+        ).model_dump()
+        state = await self._run_answer_composition(
+            state,
+            compose_mode=self._resolve_compose_mode(state),
+            target_label=compare_label,
+            place_names=canonical_places,
+        )
+
+        brief = state.evidence_brief
+        base_conf = brief.overall_confidence if brief else 0.5
+        confidence = self._citation_check(state, [], [], base_conf)
         return self._to_response(state, confidence)
 
     async def _run_itinerary(self, state: TravelAgentState) -> TravelQueryResponse:
@@ -768,12 +784,21 @@ class TravelAgentStateMachine:
 
         state.evidence = all_evidence
         self._sync_tool_traces(state)
+        target = "、".join(places) if places else "行程"
+        state = await self._run_evidence_curation(state, target_label=target)
         state.structured_result = StructuredResult(
             itinerary=plan.model_dump(),
             places=[{"name": p} for p in places],
         ).model_dump()
-        state = await self._run_answer_composition(state, compose_mode="itinerary", plan=plan)
-        confidence = self._citation_check(state, [], [], 0.74)
+        state = await self._run_answer_composition(
+            state,
+            compose_mode=self._resolve_compose_mode(state),
+            target_label=target,
+            plan=plan,
+        )
+        brief = state.evidence_brief
+        base_conf = brief.overall_confidence if brief else 0.74
+        confidence = self._citation_check(state, [], [], base_conf)
         return self._to_response(state, confidence)
 
     def _unsupported(self, state: TravelAgentState) -> TravelQueryResponse:

@@ -55,6 +55,34 @@ _CROWD_NEEDS = frozenset({"current_crowd", "queue_time", "crowd_level"})
 
 _ADVISORY_NEEDS = frozenset({"best_time_to_visit", "seasonality"})
 
+_TICKET_PRICE_PROVIDER_TOOLS = [
+    "ticketlens_experience_mcp",
+    "fliggy_ticket_snapshot_crawler_mcp",
+    "ctrip_ticket_signal_crawler_mcp",
+    "dianping_ticket_signal_crawler_mcp",
+    "ticket_price_history_query",
+]
+
+_REVIEW_PROVIDER_TOOLS = [
+    "ctrip_review_crawler_mcp",
+    "dianping_review_crawler_mcp",
+    "fliggy_ticket_review_signal_mcp",
+    "ticketlens_experience_mcp",
+    "ticketlens_experience_review_signal_mcp",
+]
+
+_REVIEW_CLAIM_TYPES = frozenset(
+    {
+        "review_summary",
+        "value_for_money",
+        "elderly_suitability",
+        "family_friendly",
+        "commercialization_risk",
+        "crowd_risk",
+        "queue_risk",
+    }
+)
+
 
 class ResponseContractCompiler:
     """SemanticFrame → ResponseContract (claim-level evidence plan)."""
@@ -93,6 +121,7 @@ class ResponseContractCompiler:
         if not claims:
             claims.append(self._general_advice_claim(frame))
 
+        claims = self._append_provider_preferred_tools(claims)
         entity_policy = self._build_entity_policy(frame, text)
         clarification = self._build_clarification(frame, entity_policy, claims)
         tool_strategy = self._build_tool_strategy(claims, settings.mcp_max_tool_calls_per_state)
@@ -144,6 +173,7 @@ class ResponseContractCompiler:
                 "browser_mcp",
                 "baidu_place_search_mcp",
                 "baidu_place_detail_mcp",
+                "baidu_geocode_mcp",
             ],
             forbidden_tools=["knowledge_prior"],
             model_prior_allowed=False,
@@ -175,6 +205,7 @@ class ResponseContractCompiler:
                 "ticket_price": [
                     "baidu_place_search_mcp",
                     "baidu_place_detail_mcp",
+                    "baidu_geocode_mcp",
                     "search_mcp",
                     "official_page_reader_mcp",
                     "browser_mcp",
@@ -183,6 +214,7 @@ class ResponseContractCompiler:
                 "opening_hours": [
                     "baidu_place_search_mcp",
                     "baidu_place_detail_mcp",
+                    "baidu_geocode_mcp",
                     "official_page_reader_mcp",
                     "browser_mcp",
                     "search_mcp",
@@ -222,7 +254,13 @@ class ResponseContractCompiler:
                 requires_live_data=True,
                 freshness="today",
                 allowed_source_types=["weather_api", "map"],
-                preferred_tools=["baidu_weather_mcp", "openmeteo_mcp", "weather_mcp", "weather"],
+                preferred_tools=[
+                    "baidu_geocode_mcp",
+                    "baidu_weather_mcp",
+                    "openmeteo_mcp",
+                    "weather_mcp",
+                    "weather",
+                ],
                 forbidden_tools=["knowledge_prior"],
                 model_prior_allowed=False,
                 coverage_rule="must have live weather evidence",
@@ -271,6 +309,7 @@ class ResponseContractCompiler:
             preferred_tools=[
                 "baidu_place_search_mcp",
                 "baidu_place_detail_mcp",
+                "baidu_geocode_mcp",
                 "search_mcp",
                 "climate_mcp",
                 "openmeteo_mcp",
@@ -329,6 +368,8 @@ class ResponseContractCompiler:
         if needs_disambiguation:
             preferred = [
                 "baidu_place_search_mcp",
+                "baidu_geocode_mcp",
+                "baidu_reverse_geocode_mcp",
                 "wikidata_mcp",
                 "osm_mcp",
                 "search_mcp",
@@ -367,6 +408,22 @@ class ResponseContractCompiler:
                 reason=entity_policy.disambiguation_reason,
             )
         return ClarificationPolicy()
+
+    @staticmethod
+    def _append_provider_preferred_tools(claims: list[ClaimRequirement]) -> list[ClaimRequirement]:
+        updated: list[ClaimRequirement] = []
+        for claim in claims:
+            extra: list[str] = []
+            if claim.claim_type == "ticket_price":
+                extra = _TICKET_PRICE_PROVIDER_TOOLS
+            elif claim.claim_type in _REVIEW_CLAIM_TYPES:
+                extra = _REVIEW_PROVIDER_TOOLS
+            if not extra:
+                updated.append(claim)
+                continue
+            merged = list(dict.fromkeys([*claim.preferred_tools, *extra]))
+            updated.append(claim.model_copy(update={"preferred_tools": merged}))
+        return updated
 
     @staticmethod
     def _build_tool_strategy(claims: list[ClaimRequirement], max_steps: int) -> ToolStrategy:

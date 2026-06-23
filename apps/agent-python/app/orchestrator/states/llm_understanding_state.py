@@ -37,7 +37,7 @@ class LLMUnderstandingState:
         state.normalized_request = normalized
 
         using_llm = self.agent.llm._should_use_anthropic()
-        mode_label = "LLM" if using_llm else "规则回退（未配置 DEEPSEEK_API_KEY 或 LLM_MODE=mock）"
+        mode_label = "LLM"
 
         frame = NormalizedRequestToSemanticFrame.convert(normalized)
         task = NormalizedRequestToTravelTask.convert(normalized, user_ctx)

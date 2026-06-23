@@ -13,3 +13,7 @@ class ToolTrace(BaseModel):
     requested_by_state: str | None = None
     selected_by_llm: bool = False
     whitelist_checked: bool = False
+    provider: str | None = None
+    configured: bool | None = None
+    crawler_command: str | None = None
+    snapshot_saved_count: int | None = None

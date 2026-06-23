@@ -7,11 +7,23 @@ from app.schemas.evidence import Claim, ClaimType, DataFreshness, Evidence, Lice
 from tools.base import BaseTravelTool
 from tools.mcp.adapters.baidu_response_parser import (
     detail_claims,
+    directions_claims,
+    directions_matrix_claims,
+    geocode_claims,
+    ip_location_claims,
+    parse_directions,
+    parse_directions_matrix,
+    parse_geocode,
+    parse_ip_location,
     parse_place_details,
+    parse_reverse_geocode,
+    parse_road_traffic,
     parse_search_places,
     parse_weather,
     pick_baidu_uid_from_evidence,
+    reverse_geocode_claims,
     search_claims,
+    traffic_claims,
     weather_claims,
 )
 from tools.mcp.adapters.page_content_extractor import text_from_mcp_payload
@@ -26,16 +38,39 @@ _DETAIL_LIMITATIONS = [
 _WEATHER_LIMITATIONS = [
     "天气数据用于短期出行判断，不代表长期气候规律。",
 ]
+_GEOCODE_LIMITATIONS = [
+    "地理编码结果用于坐标补全和地点消歧，不等同于官方景区公告。",
+]
+_ROUTE_LIMITATIONS = [
+    "路线规划为地图引擎估算，实际路况、封路、景区管制需以现场与官方信息为准。",
+]
+_TRAFFIC_LIMITATIONS = [
+    "路况为实时或近实时估算，不能替代官方交通管制公告。",
+]
+_IP_LIMITATIONS = [
+    "IP 定位仅为粗略城市/坐标估计，精度有限且涉及隐私；仅应在用户授权或明确「我附近」场景使用。",
+]
 
 
 class BaiduMapMCPAdapter(BaseTravelTool):
-    """Baidu Map MCP — map_search_places, map_place_details, map_weather."""
+    """Baidu Map MCP — place search/detail/weather/geocode/route/traffic/ip."""
 
     def __init__(self, policy_name: str, client: MCPClientManager | None = None) -> None:
         self.policy_name = policy_name
         self.name = policy_name
         self.server_name = "baidu_map"
         self._client = client or get_mcp_client_manager()
+        self._handlers = {
+            "baidu_place_search_mcp": self._run_search,
+            "baidu_place_detail_mcp": self._run_detail,
+            "baidu_weather_mcp": self._run_weather,
+            "baidu_geocode_mcp": self._run_geocode,
+            "baidu_reverse_geocode_mcp": self._run_reverse_geocode,
+            "baidu_route_mcp": self._run_route,
+            "baidu_route_matrix_mcp": self._run_route_matrix,
+            "baidu_traffic_mcp": self._run_traffic,
+            "baidu_ip_location_mcp": self._run_ip_location,
+        }
 
     def is_available(self) -> bool:
         return self._client.is_server_configured("baidu_map")
@@ -44,13 +79,10 @@ class BaiduMapMCPAdapter(BaseTravelTool):
         if not self.is_available():
             raise RuntimeError(self._client.server_block_reason("baidu_map"))
 
-        if self.policy_name == "baidu_place_search_mcp":
-            return await self._run_search(kwargs)
-        if self.policy_name == "baidu_place_detail_mcp":
-            return await self._run_detail(kwargs)
-        if self.policy_name == "baidu_weather_mcp":
-            return await self._run_weather(kwargs)
-        raise ValueError(f"Unknown Baidu policy {self.policy_name!r}")
+        handler = self._handlers.get(self.policy_name)
+        if handler is None:
+            raise ValueError(f"Unknown Baidu policy {self.policy_name!r}")
+        return await handler(kwargs)
 
     async def _run_search(self, kwargs: dict[str, Any]) -> list[Evidence]:
         query = kwargs.get("query") or kwargs.get("place_name") or ""
@@ -157,6 +189,177 @@ class BaiduMapMCPAdapter(BaseTravelTool):
                 source_type=SourceType.WEATHER_API,
                 confidence=0.78,
                 limitations=_WEATHER_LIMITATIONS,
+            )
+        ]
+
+    async def _run_geocode(self, kwargs: dict[str, Any]) -> list[Evidence]:
+        address = kwargs.get("address") or kwargs.get("query") or kwargs.get("place_name")
+        if not address:
+            raise ValueError("baidu_geocode_mcp requires address, query, or place_name")
+        region = kwargs.get("region") or kwargs.get("city") or kwargs.get("province")
+        args: dict[str, Any] = {"address": str(address)}
+        if region:
+            args["region"] = str(region)
+
+        result = await self._client.invoke("baidu_map", "map_geocode", args)
+        if not result.ok:
+            raise RuntimeError(result.error or "map_geocode failed")
+
+        parsed = parse_geocode(result.data)
+        claims = geocode_claims(parsed)
+        if not claims:
+            raise RuntimeError("map_geocode returned no usable coordinates")
+
+        return [
+            self._evidence(
+                claims=claims,
+                kwargs=kwargs,
+                city=parsed.get("city") or kwargs.get("city"),
+                place_name=kwargs.get("place_name"),
+                confidence=0.7,
+                limitations=_GEOCODE_LIMITATIONS,
+            )
+        ]
+
+    async def _run_reverse_geocode(self, kwargs: dict[str, Any]) -> list[Evidence]:
+        lat = kwargs.get("latitude") or kwargs.get("lat")
+        lng = kwargs.get("longitude") or kwargs.get("lng") or kwargs.get("lon")
+        if lat is None or lng is None:
+            raise ValueError("baidu_reverse_geocode_mcp requires latitude and longitude")
+
+        result = await self._client.invoke(
+            "baidu_map",
+            "map_reverse_geocode",
+            {"location": f"{lat},{lng}"},
+        )
+        if not result.ok:
+            raise RuntimeError(result.error or "map_reverse_geocode failed")
+
+        parsed = parse_reverse_geocode(result.data)
+        claims = reverse_geocode_claims(parsed)
+        if not claims:
+            text = text_from_mcp_payload(result.data)
+            claims = [Claim(claim_type=ClaimType.TRAVEL_ADVICE, value=text[:600], confidence=0.55)]
+
+        return [
+            self._evidence(
+                claims=claims,
+                kwargs=kwargs,
+                city=parsed.get("city") or kwargs.get("city"),
+                confidence=0.68,
+                limitations=_GEOCODE_LIMITATIONS,
+            )
+        ]
+
+    async def _run_route(self, kwargs: dict[str, Any]) -> list[Evidence]:
+        origin = kwargs.get("origin") or kwargs.get("from")
+        destination = kwargs.get("destination") or kwargs.get("to") or kwargs.get("place_name")
+        if not origin or not destination:
+            raise ValueError("baidu_route_mcp requires origin and destination")
+
+        args: dict[str, Any] = {
+            "origin": str(origin),
+            "destination": str(destination),
+            "mode": kwargs.get("mode") or kwargs.get("transport_mode") or "driving",
+        }
+        result = await self._client.invoke("baidu_map", "map_directions", args)
+        if not result.ok:
+            raise RuntimeError(result.error or "map_directions failed")
+
+        parsed = parse_directions(result.data)
+        claims = directions_claims(parsed)
+        if not claims:
+            text = text_from_mcp_payload(result.data)
+            claims = [Claim(claim_type=ClaimType.TRAVEL_ADVICE, value=text[:600], confidence=0.55)]
+
+        return [
+            self._evidence(
+                claims=claims,
+                kwargs=kwargs,
+                confidence=0.72,
+                limitations=_ROUTE_LIMITATIONS,
+            )
+        ]
+
+    async def _run_route_matrix(self, kwargs: dict[str, Any]) -> list[Evidence]:
+        origins = kwargs.get("origins") or kwargs.get("origin")
+        destinations = kwargs.get("destinations") or kwargs.get("destination")
+        if not origins or not destinations:
+            raise ValueError("baidu_route_matrix_mcp requires origins and destinations")
+
+        args: dict[str, Any] = {
+            "origins": origins,
+            "destinations": destinations,
+            "mode": kwargs.get("mode") or "driving",
+        }
+        result = await self._client.invoke("baidu_map", "map_directions_matrix", args)
+        if not result.ok:
+            raise RuntimeError(result.error or "map_directions_matrix failed")
+
+        parsed = parse_directions_matrix(result.data)
+        claims = directions_matrix_claims(parsed)
+        if not claims:
+            text = text_from_mcp_payload(result.data)
+            claims = [Claim(claim_type=ClaimType.TRAVEL_ADVICE, value=text[:600], confidence=0.55)]
+
+        return [
+            self._evidence(
+                claims=claims,
+                kwargs=kwargs,
+                confidence=0.7,
+                limitations=_ROUTE_LIMITATIONS,
+            )
+        ]
+
+    async def _run_traffic(self, kwargs: dict[str, Any]) -> list[Evidence]:
+        road = kwargs.get("road_name") or kwargs.get("road") or kwargs.get("query")
+        if not road:
+            raise ValueError("baidu_traffic_mcp requires road_name or query")
+
+        args: dict[str, Any] = {"road_name": str(road)}
+        if kwargs.get("city"):
+            args["city"] = str(kwargs["city"])
+
+        result = await self._client.invoke("baidu_map", "map_road_traffic", args)
+        if not result.ok:
+            raise RuntimeError(result.error or "map_road_traffic failed")
+
+        parsed = parse_road_traffic(result.data)
+        claims = traffic_claims(parsed)
+        if not claims:
+            text = text_from_mcp_payload(result.data)
+            claims = [Claim(claim_type=ClaimType.TRAVEL_ADVICE, value=text[:600], confidence=0.55)]
+
+        return [
+            self._evidence(
+                claims=claims,
+                kwargs=kwargs,
+                confidence=0.72,
+                limitations=_TRAFFIC_LIMITATIONS,
+            )
+        ]
+
+    async def _run_ip_location(self, kwargs: dict[str, Any]) -> list[Evidence]:
+        args: dict[str, Any] = {}
+        if kwargs.get("ip"):
+            args["ip"] = str(kwargs["ip"])
+
+        result = await self._client.invoke("baidu_map", "map_ip_location", args)
+        if not result.ok:
+            raise RuntimeError(result.error or "map_ip_location failed")
+
+        parsed = parse_ip_location(result.data)
+        claims = ip_location_claims(parsed)
+        if not claims:
+            raise RuntimeError("map_ip_location returned no location estimate")
+
+        return [
+            self._evidence(
+                claims=claims,
+                kwargs=kwargs,
+                city=parsed.get("city"),
+                confidence=0.55,
+                limitations=_IP_LIMITATIONS,
             )
         ]
 

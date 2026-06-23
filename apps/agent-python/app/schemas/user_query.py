@@ -13,7 +13,10 @@ from app.schemas.rewritten_query import RewrittenQueryResult
 from app.schemas.tool_trace import ToolTrace
 from app.schemas.coverage_report import CoverageReport
 from app.schemas.response_contract import ResponseContract
+from app.schemas.s5_information_domain import S5DomainPlan
 from app.schemas.semantic_frame import AnswerModeDecision, SemanticFrame
+from app.schemas.evidence_brief import EvidenceBrief
+from app.schemas.user_need_residual import UserNeedResidual
 from app.schemas.travel_task import TravelTask
 from app.tools.tool_router import ToolExecutionPlan
 
@@ -68,6 +71,7 @@ class UserContext(BaseModel):
     preferences: list[str] = Field(default_factory=list)
     constraints: list[str] = Field(default_factory=list)
     start_location: str | None = None
+    location_usage_allowed: bool = False
 
 
 class UserGoal(BaseModel):
@@ -133,6 +137,7 @@ class TravelAgentState(BaseModel):
     semantic_frame: SemanticFrame | None = None
     answer_mode_decision: AnswerModeDecision | None = None
     response_contract: ResponseContract | None = None
+    s5_domain_plan: S5DomainPlan | None = None
     coverage_report: CoverageReport | None = None
     information_needs: list[InformationNeed] = Field(default_factory=list)
     tool_execution_plan: ToolExecutionPlan | None = None
@@ -149,6 +154,8 @@ class TravelAgentState(BaseModel):
     citation_check_result: CitationCheckResult | None = None
     tool_traces: list[ToolTrace] = Field(default_factory=list)
     evidence_planning_completed: bool = False
+    user_need_residual: UserNeedResidual | None = None
+    evidence_brief: EvidenceBrief | None = None
     planning_notes: list[str] = Field(default_factory=list)
     final_response: str | None = None
     structured_result: dict | None = None

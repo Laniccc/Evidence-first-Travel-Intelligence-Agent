@@ -51,8 +51,21 @@ class EvidencePlanningAndToolUseState:
         if state.travel_task and not state.information_needs:
             state.information_needs = InformationNeedPlanner.plan(state.travel_task)
 
-        tool_whitelist = self.whitelist_builder.build(state)
+        tool_whitelist = self.whitelist_builder.build(state, ctx)
         prompt_context = self._build_prompt_context(state, ctx, tool_whitelist)
+        if state.s5_domain_plan and state.s5_domain_plan.domains:
+            TraceRecorder.add(
+                state,
+                "✓ S5 信息域规划："
+                + ", ".join(d.value for d in state.s5_domain_plan.domains),
+            )
+            groups = state.s5_domain_plan.provider_groups()
+            if groups:
+                TraceRecorder.add(
+                    state,
+                    "✓ S5 provider groups："
+                    + ", ".join(g.value for g in groups),
+                )
         if ctx.get("reset_evidence", True):
             state.evidence = []
 
@@ -92,11 +105,17 @@ class EvidencePlanningAndToolUseState:
             "Do NOT generate final answer text in this state.",
             "If tools are insufficient, FINISH_STATE with limitations or use an allowed fallback tool.",
             "You may call multiple tools across steps until evidence is sufficient or max_steps reached.",
-            "For search_mcp: prefer CALL_SUBAGENT keyword_search_agent with anchor_keywords + search_query.",
-            "First CALL_SUBAGENT search_task_planner_agent once per session, then dispatch keyword_search_agent per task.",
+            "Max CALL_TOOL invocations per S5 loop: 10 (see max_tool_calls).",
+            "After every 2 keyword_search_agent calls, the controller runs an LLM review checkpoint "
+            "to plan the next 2 CALL_TOOL actions from allowed_tools.",
+            "Match tools to information_need: ticket_price → ticketlens/ctrip/fliggy/official_page_reader/baidu; "
+            "opening_hours → official_page_reader/baidu_place_detail; weather → openmeteo/baidu_weather.",
+            "Do NOT run keyword_search_agent more than 2 times in a row without passing the review checkpoint.",
+            "For search_mcp: use CALL_SUBAGENT keyword_search_agent with anchor_keywords + search_query.",
+            "CALL_SUBAGENT search_task_planner_agent once per round (or refine once after misses).",
             "anchor_keywords are strict; search_query may add associative terms but must include at least one anchor.",
-            "After failed searches, try refined shorter queries before knowledge_prior.",
         ]
+        prompt_context["tool_diversity_hints"] = self._tool_diversity_hints(state, tool_whitelist)
 
         if state.travel_task:
             candidate_needs = InformationNeedPlanner.plan(state.travel_task)
@@ -126,7 +145,6 @@ class EvidencePlanningAndToolUseState:
 
         if state.response_contract:
             prompt_context["response_contract"] = state.response_contract.model_dump()
-            prompt_context["claim_search_queries"] = ClaimSearchPlanner.build_queries(state)
             prompt_context["claim_search_max_attempts"] = ClaimSearchPlanner.max_search_attempts(state)
         if state.coverage_report:
             prompt_context["coverage_report"] = state.coverage_report.model_dump()
@@ -144,6 +162,28 @@ class EvidencePlanningAndToolUseState:
                 ctx.model_dump() if hasattr(ctx, "model_dump") else ctx
             )
         return prompt_context
+
+    @staticmethod
+    def _tool_diversity_hints(state: TravelAgentState, tool_whitelist: ToolWhitelist) -> list[str]:
+        hints: list[str] = []
+        allowed = set(tool_whitelist.allowed_tool_names())
+        frame = state.semantic_frame
+        needs = list(frame.information_needs) if frame else []
+        if "ticket_price" in needs:
+            for tool in (
+                "ticketlens_experience_mcp",
+                "ctrip_ticket_signal_crawler_mcp",
+                "fliggy_ticket_snapshot_crawler_mcp",
+                "official_page_reader_mcp",
+                "baidu_place_detail_mcp",
+            ):
+                if tool in allowed:
+                    hints.append(f"ticket_price: try CALL_TOOL {tool} before repeated search_mcp")
+        if "opening_hours" in needs:
+            for tool in ("official_page_reader_mcp", "baidu_place_detail_mcp", "official"):
+                if tool in allowed:
+                    hints.append(f"opening_hours: try CALL_TOOL {tool}")
+        return hints
 
     @staticmethod
     def _evidence_policy_summary(state: TravelAgentState) -> dict:

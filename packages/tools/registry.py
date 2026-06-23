@@ -9,6 +9,7 @@ from tools.hybrid_tool import HybridTravelTool
 from tools.knowledge_prior_tool import KnowledgePriorTool
 from tools.lodging_area_tool import MockLodgingAreaTool
 from tools.mcp.registry_setup import attach_mcp_tools
+from tools.ticketing.registry_setup import attach_ticket_providers
 from tools.official_site_tool import MockOfficialSiteTool
 from tools.places_tool import MockPlacesTool
 from tools.real.official_page_tool import RealOfficialPageTool
@@ -52,16 +53,15 @@ class TravelToolRegistry:
 
       self.settings = load_settings()
       if use_mock is True:
-          self.tool_mode = "mock"
-      else:
-          self.tool_mode = tool_mode or self.settings.tool_mode
+          raise ValueError("TOOL_MODE=mock is not supported; use real or hybrid with MCP tools.")
+      self.tool_mode = tool_mode or self.settings.tool_mode
+      if self.tool_mode == "mock":
+          raise ValueError("TOOL_MODE=mock is not supported; set TOOL_MODE=real or hybrid.")
       self.traces: list[ToolTrace] = []
 
       self.knowledge_prior = KnowledgePriorTool(llm_client=self.llm)
 
-      if self.tool_mode == "mock":
-          self._register_mock()
-      elif self.tool_mode == "real":
+      if self.tool_mode == "real":
           self._register_real()
       else:
           self._register_hybrid()
@@ -135,12 +135,15 @@ class TravelToolRegistry:
           knowledge_prior_tool=self.knowledge_prior,
       )
       self._mcp_tool_names = attach_mcp_tools(self)
+      self._ticket_provider_names = attach_ticket_providers(self)
 
   def _settings_for_mode(self, mode: str) -> Settings:
       return self.settings.model_copy(update={"tool_mode": mode})
 
   def registered_tool_names(self) -> list[str]:
-      return list(BASE_REGISTERED_TOOL_NAMES) + list(getattr(self, "_mcp_tool_names", []))
+      return list(BASE_REGISTERED_TOOL_NAMES) + list(getattr(self, "_mcp_tool_names", [])) + list(
+          getattr(self, "_ticket_provider_names", [])
+      )
 
   def clear_traces(self) -> None:
       self.traces.clear()
