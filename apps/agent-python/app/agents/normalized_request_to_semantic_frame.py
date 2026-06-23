@@ -109,4 +109,6 @@ class NormalizedRequestToSemanticFrame:
             requires_exact_fact=req.answer_policy.requires_exact_fact,
             can_answer_with_model_prior=req.answer_policy.can_answer_with_model_prior,
             needs_clarification=req.needs_clarification,
+            place_ambiguity=req.place_ambiguity,
+            labeled_entities=[e.model_dump() for e in req.entities],
         )

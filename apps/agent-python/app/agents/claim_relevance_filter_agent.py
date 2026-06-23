@@ -7,6 +7,7 @@ import logging
 
 from app.llm_client import LLMClient
 from app.orchestrator.claim_search_planner import is_search_miss_value
+from app.utils.llm_json import parse_llm_json
 from app.schemas.evidence import Evidence
 from app.schemas.evidence_brief import CuratedClaimRow
 from app.schemas.user_query import TravelAgentState
@@ -131,8 +132,13 @@ class ClaimRelevanceFilterAgent:
             "needs": needs,
             "candidates": [r.model_dump() for r in rows[:16]],
         }
-        raw = await self.llm.complete(system=system, user=json.dumps(payload, ensure_ascii=False), max_tokens=800)
-        data = json.loads(raw.strip())
+        raw = await self.llm.complete(
+            system=system,
+            user=json.dumps(payload, ensure_ascii=False),
+            max_tokens=1200,
+            json_only=True,
+        )
+        data = parse_llm_json(raw)
         bucket = data.get("curated_claims") if isinstance(data, dict) else None
         if not isinstance(bucket, list):
             return None

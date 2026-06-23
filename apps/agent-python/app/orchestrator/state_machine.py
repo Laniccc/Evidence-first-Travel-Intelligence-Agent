@@ -27,6 +27,7 @@ from app.agents.review_mining_agent import VerifierAgent
 from app.agents.travel_task_to_user_goal_adapter import SUPPORTED_REGIONS, TravelTaskToUserGoalAdapter
 from app.catalog.place_catalog import get_place_catalog
 from app.config import get_settings
+from app.orchestrator.states.evidence_accumulation_state import EvidenceAccumulationState
 from app.llm_client import LLMClient
 from app.orchestrator.answer_mode_router import AnswerModeRouter
 from app.orchestrator.response_contract_compiler import ResponseContractCompiler
@@ -39,6 +40,7 @@ from app.tools.capability_registry import CapabilityRegistry
 from app.orchestrator.trace import TraceRecorder
 from app.schemas.conversation_memory import ConversationMemory
 from app.schemas.evidence import Evidence
+from app.schemas.evidence_gap_request import EvidenceGapLoopState, EvidenceGapRequest
 from app.schemas.place_context import PlaceContext
 from app.schemas.place_factsheet import PlaceFactSheet
 from app.schemas.response import StructuredResult, TravelQueryResponse
@@ -69,12 +71,86 @@ class TravelAgentStateMachine:
             self.tools,
             self.tool_router,
         )
+        self.evidence_accumulation_state = EvidenceAccumulationState(self.tools)
 
     async def _run_evidence_planning(self, state: TravelAgentState, **kwargs) -> TravelAgentState:
         return await self.evidence_planning_state.run(state, **kwargs)
 
-    async def _run_evidence_curation(self, state: TravelAgentState, target_label: str) -> TravelAgentState:
+    async def _run_evidence_accumulation(self, state: TravelAgentState, *, append: bool = False) -> TravelAgentState:
+        return self.evidence_accumulation_state.run(state, append=append)
+
+    async def _run_evidence_evaluation(self, state: TravelAgentState, target_label: str) -> TravelAgentState:
         return await self.evidence_aggregation_state.run(state, target_label=target_label)
+
+    async def _run_evidence_curation(self, state: TravelAgentState, target_label: str) -> TravelAgentState:
+        return await self._run_evidence_evaluation(state, target_label)
+
+    @staticmethod
+    def _init_gap_loop_state(state: TravelAgentState) -> None:
+        if state.gap_loop_state is None:
+            state.gap_loop_state = EvidenceGapLoopState(
+                max_gap_rounds=get_settings().evidence_max_gap_rounds,
+            )
+
+    @staticmethod
+    def _select_highest_priority_gap(state: TravelAgentState) -> EvidenceGapRequest | None:
+        report = state.evidence_decision_report
+        if not report or not report.evidence_gap_requests:
+            return None
+        priority_order = {"high": 0, "medium": 1, "low": 2}
+        candidates = []
+        loop = state.gap_loop_state
+        for gap in report.evidence_gap_requests:
+            gap.ensure_signature()
+            if loop and gap.gap_signature in loop.gap_signatures:
+                continue
+            if loop and gap.gap_id in loop.failed_gap_ids:
+                continue
+            candidates.append(gap)
+        if not candidates:
+            return None
+        return sorted(candidates, key=lambda g: priority_order.get(g.priority, 9))[0]
+
+    def _should_run_gap_fill(self, state: TravelAgentState) -> bool:
+        loop = state.gap_loop_state
+        if not loop or loop.gap_round >= loop.max_gap_rounds:
+            return False
+        gap = self._select_highest_priority_gap(state)
+        return gap is not None
+
+    async def _run_evidence_loop(
+        self,
+        state: TravelAgentState,
+        *,
+        place_name: str,
+        place_context: PlaceContext,
+        reset_evidence: bool = True,
+    ) -> TravelAgentState:
+        self._init_gap_loop_state(state)
+        state = await self._run_evidence_planning(
+            state,
+            place_name=place_name,
+            place_context=place_context,
+            reset_evidence=reset_evidence,
+        )
+        state = await self._run_evidence_accumulation(state)
+        state = await self._run_evidence_evaluation(state, target_label=place_name)
+
+        while self._should_run_gap_fill(state):
+            gap = self._select_highest_priority_gap(state)
+            if gap is None:
+                break
+            assert state.gap_loop_state is not None
+            before = len(state.evidence)
+            state.gap_loop_state.evidence_count_before_gap = before
+            state.gap_loop_state.gap_round += 1
+            gap.ensure_signature()
+            state.gap_loop_state.gap_signatures.append(gap.gap_signature)
+            state = await self.evidence_planning_state.run_gap_filling(state, gap)
+            state = await self._run_evidence_accumulation(state, append=True)
+            state = await self._run_evidence_evaluation(state, target_label=place_name)
+
+        return state
 
     @staticmethod
     def _resolve_target_label(state: TravelAgentState) -> str:
@@ -227,12 +303,13 @@ class TravelAgentStateMachine:
         frame = state.semantic_frame
         goal = state.user_goal
 
-        state = await self._run_evidence_planning(state, reset_evidence=True, advisory_mode=True)
-        evidence = [ev for ev in state.evidence if isinstance(ev, Evidence)]
-        self._sync_tool_traces(state)
-
         target = self._resolve_target_label(state)
-        state = await self._run_evidence_curation(state, target_label=target)
+        state = await self._run_evidence_loop(
+            state,
+            place_name=target,
+            place_context=self._place_context_for(state, target, 0),
+            reset_evidence=True,
+        )
 
         state = await self._run_answer_composition(
             state,
@@ -314,8 +391,6 @@ class TravelAgentStateMachine:
 
     @staticmethod
     def _requires_full_evidence_pipeline(contract) -> bool:
-        if contract.entity_policy.requires_disambiguation:
-            return True
         return any(
             c.priority == "required" and not c.model_prior_allowed
             for c in contract.claim_requirements
@@ -325,11 +400,8 @@ class TravelAgentStateMachine:
     def _allows_prior_advisory(contract) -> bool:
         required = [c for c in contract.claim_requirements if c.priority == "required"]
         if not required:
-            return not contract.entity_policy.requires_disambiguation
-        return (
-            all(c.model_prior_allowed for c in required)
-            and not contract.entity_policy.requires_disambiguation
-        )
+            return True
+        return all(c.model_prior_allowed for c in required)
 
     @staticmethod
     def _has_required_hard_claims(contract) -> bool:
@@ -344,8 +416,6 @@ class TravelAgentStateMachine:
             return "legacy"
         if self._has_required_hard_claims(contract):
             return "evidence_pipeline"
-        if contract.clarification_policy.should_ask:
-            return "clarification"
         if self._requires_full_evidence_pipeline(contract):
             return "evidence_pipeline"
         if self._allows_prior_advisory(contract):
@@ -637,16 +707,12 @@ class TravelAgentStateMachine:
         self._apply_crowd_limitations(state)
 
         place_ctx = self._place_context_for(state, place, 0)
-        state = await self._run_evidence_planning(
+        state = await self._run_evidence_loop(
             state,
             place_name=canonical,
             place_context=place_ctx,
             reset_evidence=True,
         )
-        evidence = [ev for ev in state.evidence if isinstance(ev, Evidence)]
-        self._sync_tool_traces(state)
-
-        state = await self._run_evidence_curation(state, target_label=canonical)
 
         state = await self._run_answer_composition(
             state,
@@ -677,14 +743,13 @@ class TravelAgentStateMachine:
             state.limitations.append(f"{place} 暂无结构化 mock 数据，部分结论可能不完整。")
 
         place_ctx = self._place_context_for(state, place, 0)
-        state = await self._run_evidence_planning(
+        state = await self._run_evidence_loop(
             state,
             place_name=canonical,
             place_context=place_ctx,
             reset_evidence=True,
         )
         evidence = [ev for ev in state.evidence if isinstance(ev, Evidence)]
-        self._sync_tool_traces(state)
         TraceRecorder.add(state, "✓ 查询官方/地图/交通/评价/天气证据")
 
         issues = self.verifier.validate(evidence)
@@ -694,7 +759,6 @@ class TravelAgentStateMachine:
         if conflicts:
             TraceRecorder.add(state, "✓ 发现来源冲突，已优先采用官方信息")
 
-        state = await self._run_evidence_curation(state, target_label=canonical)
         brief = state.evidence_brief
         if brief:
             state.scores.confidence = brief.overall_confidence
@@ -721,29 +785,25 @@ class TravelAgentStateMachine:
 
         self._backfill_location_from_places(state)
         canonical_places: list[str] = []
-        all_evidence: list[Evidence] = []
 
         for idx, place in enumerate(places[:4]):
             canonical = self.catalog.normalize_place_name(place) or place
             canonical_places.append(canonical)
             place_ctx = self._place_context_for(state, place, idx)
-            before = len(state.evidence)
-            state = await self._run_evidence_planning(
+            state = await self._run_evidence_loop(
                 state,
                 place_name=canonical,
                 place_context=place_ctx,
                 reset_evidence=(idx == 0),
             )
-            ev = [e for e in state.evidence[before:] if isinstance(e, Evidence)]
-            all_evidence.extend(ev)
             TraceRecorder.add(state, f"✓ 已完成 {canonical} 情报检索")
 
-        state.evidence = all_evidence
-        self._sync_tool_traces(state)
-        state.conflicts = [ConflictRecord(**c) for c in self.verifier.detect_conflicts(all_evidence)]
+        state.conflicts = [
+            ConflictRecord(**c) for c in self.verifier.detect_conflicts(state.evidence)
+        ]
 
         compare_label = " vs ".join(canonical_places) if canonical_places else "比较"
-        state = await self._run_evidence_curation(state, target_label=compare_label)
+        state = await self._run_evidence_evaluation(state, target_label=compare_label)
 
         state.structured_result = StructuredResult(
             places=[{"name": n} for n in canonical_places],
@@ -765,27 +825,20 @@ class TravelAgentStateMachine:
         self._backfill_location_from_places(state)
         plan = ItineraryAgent.build(goal)
         places = [i.place_name for i in plan.items if i.place_name]
-        all_evidence: list[Evidence] = []
 
         for idx, place in enumerate(places):
             canonical = self.catalog.normalize_place_name(place) or place
             place_ctx = self._place_context_for(state, place, idx)
-            before = len(state.evidence)
-            state = await self._run_evidence_planning(
+            state = await self._run_evidence_loop(
                 state,
                 place_name=canonical,
                 place_context=place_ctx,
-                reset_evidence=False if idx else True,
-            )
-            all_evidence.extend(
-                [e for e in state.evidence[before:] if isinstance(e, Evidence)]
+                reset_evidence=(idx == 0),
             )
             TraceRecorder.add(state, f"✓ 检索 {canonical} 交通/开放信息")
 
-        state.evidence = all_evidence
-        self._sync_tool_traces(state)
         target = "、".join(places) if places else "行程"
-        state = await self._run_evidence_curation(state, target_label=target)
+        state = await self._run_evidence_evaluation(state, target_label=target)
         state.structured_result = StructuredResult(
             itinerary=plan.model_dump(),
             places=[{"name": p} for p in places],

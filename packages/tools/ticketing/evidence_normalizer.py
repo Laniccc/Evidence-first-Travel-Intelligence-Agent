@@ -11,7 +11,7 @@ TICKETLENS_LIMITATION = (
     "TicketLens 提供票务/体验候选信息，具体价格与库存以平台实时页面为准。"
 )
 CTrip_LIMITATION = "评论爬虫结果为游客反馈信号，不代表官方票价或公告。"
-FLIGGY_LIMITATION = "飞猪爬虫结果为平台候选票务信息，价格与库存以平台实时页面为准。"
+FLIGGY_LIMITATION = "飞猪 API 返回平台候选票务信息，价格与库存以平台实时页面为准。"
 DIANPING_LIMITATION = "大众点评爬虫结果为游客反馈信号，不代表官方票价或公告。"
 
 
@@ -273,7 +273,7 @@ def normalize_fliggy_ticket_payload(
             continue
         evidence_list.append(
             Evidence(
-                source_name="Fliggy Ticket Crawler",
+                source_name="Fliggy Open API",
                 source_type=SourceType.TICKET_PLATFORM,
                 source_url=url,
                 country=country,

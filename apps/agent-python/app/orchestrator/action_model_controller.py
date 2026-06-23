@@ -10,7 +10,7 @@ from app.schemas.semantic_frame import AnswerMode, DecisionType
 from app.schemas.user_query import TravelAgentState
 from app.tools.mcp.tool_specs import NEED_TOOL_PROFILES
 from app.tools.tool_name_resolver import resolve_tool_name
-from app.schemas.s5_information_domain import InformationDomain, S5ToolRole
+from app.schemas.s5_information_domain import InformationDomain, ProviderGroup, S5ToolRole
 from tools.ticketing.provider_config import is_ticket_provider_tool
 
 
@@ -51,23 +51,16 @@ class ActionModelController:
             prompt_context["_last_action_source"] = "deterministic"
             return self._deterministic_action(state, policy, prompt_context, step)
         if policy.state_name == "evidence_planning_and_tool_use":
-            batch_action = self._pop_tool_batch_action(state, prompt_context)
-            if batch_action is not None:
-                prompt_context["_last_action_source"] = "planned_batch"
-                return batch_action
-            if self._tool_review_checkpoint_due(state, prompt_context):
-                if self.llm and self.llm._should_use_anthropic():
-                    try:
-                        action = await self._llm_tool_review_action(state, prompt_context)
-                        prompt_context["_last_action_source"] = "llm_review"
-                        return action
-                    except Exception:
-                        pass
-                self._apply_deterministic_review_batch(state, prompt_context)
-                batch_action = self._pop_tool_batch_action(state, prompt_context)
-                if batch_action is not None:
-                    prompt_context["_last_action_source"] = "deterministic_review"
-                    return batch_action
+            if prompt_context.get("gap_filling"):
+                prompt_context["_last_action_source"] = "deterministic_gap"
+                return self._deterministic_action(state, policy, prompt_context, step)
+            if self._hard_fact_interleave_due(state, prompt_context):
+                prompt_context["_last_action_source"] = "hard_fact_interleave"
+                return self._hard_fact_interleave_action(state, prompt_context)
+            if self._search_strategy_review_due(state, prompt_context):
+                prompt_context["_last_action_source"] = "search_strategy_review"
+                return await self._search_strategy_review_action(state, prompt_context)
+            # S5 routing is deterministic; LLM is used only inside search_task_planner_agent.
             prompt_context["_last_action_source"] = "deterministic"
             return self._deterministic_action(state, policy, prompt_context, step)
         if self.llm and self.llm._should_use_anthropic():
@@ -104,11 +97,14 @@ class ActionModelController:
                 + "\n".join(f"- {rule}" for rule in rules)
                 + f"\nallowed_tools (CALL_TOOL targets): {[t.get('name') for t in allowed]}\n"
                 + f"allowed_subagents (CALL_SUBAGENT targets): {subagents}\n"
-                "ticket_price / opening_hours: use domain tools from allowed_tools; do not repeat search-only loops.\n"
-                "Every 2 keyword_search_agent calls trigger a review checkpoint to plan the next 2 CALL_TOOL actions.\n"
-                "search_task_planner_agent: plan at most 2-3 tasks per round.\n"
-                "anchor_keywords are strict; search_query may add associative terms but must include an anchor.\n"
-                "Never call tools/subagents outside allowed lists. Never output final answer text."
+                "Primary path: CALL_SUBAGENT search_task_planner_agent or keyword_search_agent.\n"
+                "keyword_search_agent arguments MUST include: anchor_keywords (from S4), search_query, "
+                "information_need (search purpose for this lookup). preferred_tool is optional hint only.\n"
+                "When evidence contains place_candidates (多地同名), refine search_query with region/city "
+                "in the next keyword_search tasks — do NOT ask the user in S5.\n"
+                "Every 2 keyword_search_agent completions trigger search_task_planner refine automatically.\n"
+                "CALL_TOOL only when subagents cannot cover (e.g. one-off geo); avoid bypassing subagents.\n"
+                "Never output final answer text."
             )
         else:
             system += f"\nallowed_tools={policy.allowed_tools}\n"
@@ -140,6 +136,9 @@ class ActionModelController:
                     "search_tasks": self._search_tasks_from_state(state),
                     "completed_search_task_ids": self._completed_search_task_ids(state),
                     "tool_diversity_hints": prompt_context.get("tool_diversity_hints", []),
+                    "planning_context": ClaimSearchPlanner.planning_context(state),
+                    "keyword_search_count": ClaimSearchPlanner.keyword_search_call_count(state),
+                    "max_keyword_searches": ClaimSearchPlanner.max_search_attempts(state),
                 }
             )
             if whitelist is not None:
@@ -161,6 +160,8 @@ class ActionModelController:
         if policy.state_name == "answer_composition":
             return self._plan_answer_composition(state, prompt_context, step)
         if policy.state_name == "evidence_planning_and_tool_use":
+            if prompt_context.get("gap_filling"):
+                return self._plan_gap_filling(state, prompt_context, step)
             return self._plan_evidence_planning_and_tool_use(state, prompt_context, step)
         if policy.state_name == "evidence_aggregation":
             return self._plan_evidence_aggregation(state, prompt_context, step)
@@ -193,7 +194,18 @@ class ActionModelController:
         prompt_context: dict,
         step: int,
     ) -> AgentAction:
+        from app.orchestrator.composition_preflight import should_compose_over_clarification
+
         draft_data = (state.structured_result or {}).get("final_answer_draft")
+        if draft_data is None and state.final_response:
+            if should_compose_over_clarification(state):
+                state.final_response = ""
+            else:
+                draft_data = {
+                    "answer_text": state.final_response,
+                    "conclusion": state.final_response[:200],
+                    "compose_mode": prompt_context.get("compose_mode", "advisory"),
+                }
         if draft_data is None and not state.final_response:
             args = {k: v for k, v in prompt_context.items() if k != "user_ctx"}
             return AgentAction(
@@ -204,12 +216,6 @@ class ActionModelController:
                 confidence=0.85,
                 expected_output_schema="FinalAnswerDraft",
             )
-        if draft_data is None and state.final_response:
-            draft_data = {
-                "answer_text": state.final_response,
-                "conclusion": state.final_response[:200],
-                "compose_mode": prompt_context.get("compose_mode", "advisory"),
-            }
         return AgentAction(
             action_type=AgentActionType.FINISH_STATE,
             arguments={"result": draft_data},
@@ -241,39 +247,10 @@ class ActionModelController:
         called = {resolve_tool_name(t.tool_name) for t in state.tool_traces}
         called |= {resolve_tool_name(t) for t in prompt_context.get("_called_policy_tools", [])}
 
-        non_search_queue = self._callable_non_search_queue(state, prompt_context, allowed_names)
-        min_non_search = self._min_non_search_before_planner(state, non_search_queue)
-        non_search_called = sum(1 for t in non_search_queue if resolve_tool_name(t) in called)
-        next_non_search = self._next_non_search_tool(non_search_queue, called)
-
-        if (
-            self._requires_diversified_tools_first(state)
-            and next_non_search
-            and non_search_called < min_non_search
-            and not self._search_tasks_from_state(state)
-        ):
-            return self._make_call_tool_action(
-                next_non_search,
-                state,
-                prompt_context,
-                reason_summary=f"S5 priority tool before search: {next_non_search}",
-            )
-
         pending_task = self._next_pending_search_task(state)
 
         if not self._search_tasks_from_state(state):
             if not prompt_context.get("_search_task_planner_called"):
-                if (
-                    self._requires_diversified_tools_first(state)
-                    and next_non_search
-                    and non_search_called < min_non_search
-                ):
-                    return self._make_call_tool_action(
-                        next_non_search,
-                        state,
-                        prompt_context,
-                        reason_summary=f"S5 priority tool before search planner: {next_non_search}",
-                    )
                 prompt_context["_search_task_planner_called"] = True
                 return AgentAction(
                     action_type=AgentActionType.CALL_SUBAGENT,
@@ -284,13 +261,18 @@ class ActionModelController:
                 )
 
         if pending_task:
-            return AgentAction(
-                action_type=AgentActionType.CALL_SUBAGENT,
-                target="keyword_search_agent",
-                arguments=pending_task,
-                reason_summary=f"A2A keyword search: {pending_task.get('search_query', '')[:56]}",
-                confidence=0.8,
-            )
+            kw_cap = self._max_keyword_searches_before_tools(state)
+            if ClaimSearchPlanner.keyword_search_call_count(state) < kw_cap:
+                return AgentAction(
+                    action_type=AgentActionType.CALL_SUBAGENT,
+                    target="keyword_search_agent",
+                    arguments=pending_task,
+                    reason_summary=f"A2A keyword search: {pending_task.get('search_query', '')[:56]}",
+                    confidence=0.8,
+                )
+
+        if self._hard_fact_interleave_due(state, prompt_context):
+            return self._hard_fact_interleave_action(state, prompt_context)
 
         if (
             self._search_tasks_from_state(state)
@@ -441,6 +423,99 @@ class ActionModelController:
         baseline = int(prompt_context.get("_last_review_search_count", 0))
         return ClaimSearchPlanner.search_call_count(state) - baseline
 
+    def _has_hard_fact_needs(self, state: TravelAgentState) -> bool:
+        return bool(self._HARD_FACT_NEEDS & set(self._merged_information_needs(state)))
+
+    def _max_keyword_searches_before_tools(self, state: TravelAgentState) -> int:
+        if self._has_hard_fact_needs(state):
+            return min(4, ClaimSearchPlanner.max_search_attempts(state))
+        return ClaimSearchPlanner.max_search_attempts(state)
+
+    def _pending_hard_fact_tools(
+        self,
+        state: TravelAgentState,
+        prompt_context: dict,
+    ) -> list[str]:
+        allowed = set(self._whitelist_names(prompt_context))
+        called = {resolve_tool_name(t.tool_name) for t in state.tool_traces}
+        called |= {resolve_tool_name(t) for t in prompt_context.get("_called_policy_tools", [])}
+        callable_set = set(
+            self._callable_non_search_queue(state, prompt_context, allowed)
+        )
+        ordered: list[str] = []
+        for need in self._merged_information_needs(state):
+            if need not in self._HARD_FACT_NEEDS:
+                continue
+            for tool in NEED_TOOL_PROFILES.get(need, []):
+                resolved = resolve_tool_name(tool)
+                if resolved in allowed and resolved in callable_set and resolved not in called:
+                    if resolved not in ordered:
+                        ordered.append(resolved)
+        return ordered
+
+    def _hard_fact_interleave_due(self, state: TravelAgentState, prompt_context: dict) -> bool:
+        if not self._has_hard_fact_needs(state):
+            return False
+        count = ClaimSearchPlanner.keyword_search_call_count(state)
+        if count < 2:
+            return False
+        baseline = int(prompt_context.get("_last_interleave_keyword_count", 0))
+        if count - baseline < 2:
+            return False
+        return bool(self._pending_hard_fact_tools(state, prompt_context))
+
+    def _hard_fact_interleave_action(
+        self,
+        state: TravelAgentState,
+        prompt_context: dict,
+    ) -> AgentAction:
+        prompt_context["_last_interleave_keyword_count"] = ClaimSearchPlanner.keyword_search_call_count(
+            state
+        )
+        next_tool = self._pending_hard_fact_tools(state, prompt_context)[0]
+        return self._make_call_tool_action(
+            next_tool,
+            state,
+            prompt_context,
+            reason_summary=f"S5 hard-fact interleave after keyword searches: {next_tool}",
+            confidence=0.82,
+        )
+
+    def _search_strategy_review_due(self, state: TravelAgentState, prompt_context: dict) -> bool:
+        count = ClaimSearchPlanner.keyword_search_call_count(state)
+        if count < 2:
+            return False
+        baseline = int(prompt_context.get("_last_review_keyword_count", 0))
+        if count - baseline < 2:
+            return False
+        if int(prompt_context.get("_review_round", 0)) >= 2:
+            return False
+        if count >= self._max_keyword_searches_before_tools(state):
+            return False
+        if count >= ClaimSearchPlanner.max_search_attempts(state):
+            return False
+        if self._has_hard_fact_needs(state) and self._pending_hard_fact_tools(state, prompt_context):
+            return False
+        return True
+
+    async def _search_strategy_review_action(
+        self,
+        state: TravelAgentState,
+        prompt_context: dict,
+    ) -> AgentAction:
+        prompt_context["_last_review_keyword_count"] = ClaimSearchPlanner.keyword_search_call_count(state)
+        prompt_context["_review_round"] = int(prompt_context.get("_review_round", 0)) + 1
+        return AgentAction(
+            action_type=AgentActionType.CALL_SUBAGENT,
+            target="search_task_planner_agent",
+            arguments={"refine": True},
+            reason_summary=(
+                "S5 每 2 次 keyword_search 后：结合 S4 关键词与子代理结果，"
+                "调整下一批 search_query / information_need"
+            ),
+            confidence=0.88,
+        )
+
     def _tool_review_checkpoint_due(self, state: TravelAgentState, prompt_context: dict) -> bool:
         if prompt_context.get("_tool_batch_queue"):
             return False
@@ -526,7 +601,8 @@ class ActionModelController:
         raw = await self.llm.complete(
             system=system,
             user=json.dumps(payload, ensure_ascii=False, default=str),
-            max_tokens=900,
+            max_tokens=1200,
+            json_only=True,
         )
         data = parse_llm_json(raw)
         if data.get("finish_recommended"):
@@ -617,35 +693,6 @@ class ActionModelController:
                 deduped.append(need)
         return deduped
 
-    def _requires_diversified_tools_first(self, state: TravelAgentState) -> bool:
-        needs = self._merged_information_needs(state)
-        if any(n in self._HARD_FACT_NEEDS for n in needs):
-            return True
-        frame = state.semantic_frame
-        return bool(frame and (frame.requires_exact_fact or frame.requires_live_data))
-
-    @staticmethod
-    def _min_non_search_before_planner(state: TravelAgentState, non_search_queue: list[str]) -> int:
-        if not non_search_queue:
-            return 0
-        needs = ActionModelController._merged_information_needs(state)
-        if "ticket_price" in needs or "opening_hours" in needs:
-            frame = state.semantic_frame
-            city_known = bool((frame.entities.city or "").strip()) if frame and frame.entities else False
-            if "ticket_price" in needs and city_known:
-                return min(3, len(non_search_queue))
-            return min(2, len(non_search_queue))
-        if any(n in ActionModelController._HARD_FACT_NEEDS for n in needs):
-            return min(1, len(non_search_queue))
-        return 0
-
-    @staticmethod
-    def _next_non_search_tool(queue: list[str], called: set[str]) -> str | None:
-        for tool in queue:
-            if resolve_tool_name(tool) not in called:
-                return tool
-        return None
-
     def _callable_non_search_queue(
         self,
         state: TravelAgentState,
@@ -658,6 +705,13 @@ class ActionModelController:
         has_url = any(getattr(ev, "source_url", None) for ev in state.evidence)
         search_done = ClaimSearchPlanner.search_call_count(state) > 0
         has_uid = bool(pick_baidu_uid_from_evidence(list(state.evidence)))
+        structured = state.structured_result or {}
+        pending_disambiguation = bool(structured.get("place_disambiguation_pending"))
+        if not has_uid and pending_disambiguation:
+            for candidate in structured.get("place_disambiguation_candidates") or []:
+                if isinstance(candidate, dict) and candidate.get("uid"):
+                    has_uid = True
+                    break
         filtered: list[str] = []
         for tool in queue:
             if tool in {"browser_mcp", "official_page_reader_mcp"} and not has_url and not search_done:
@@ -684,6 +738,10 @@ class ActionModelController:
         for tool in self._baidu_disambiguation_queue(state):
             _add(tool)
 
+        for need in self._merged_information_needs(state):
+            for tool in NEED_TOOL_PROFILES.get(need, []):
+                _add(tool)
+
         plan = state.s5_domain_plan
         if plan:
             role_rank = {
@@ -696,6 +754,9 @@ class ActionModelController:
                 plan.tool_bindings,
                 key=lambda b: (role_rank.get(b.role, 9), b.tool_name),
             )
+            official_bindings = [
+                b for b in bindings if b.provider_group == ProviderGroup.OFFICIAL_WEB_PROVIDER
+            ]
             ticket_bindings = [
                 b
                 for b in bindings
@@ -703,17 +764,73 @@ class ActionModelController:
             ]
             provider_first = [b for b in ticket_bindings if is_ticket_provider_tool(b.tool_name)]
             other_ticket = [b for b in ticket_bindings if b not in provider_first]
-            for binding in provider_first + other_ticket:
+            for binding in official_bindings + provider_first + other_ticket:
                 _add(binding.tool_name)
-
-        for need in self._merged_information_needs(state):
-            for tool in NEED_TOOL_PROFILES.get(need, []):
-                _add(tool)
 
         for tool in self._evidence_tool_queue(state, prompt_context):
             _add(tool)
 
         return ordered
+
+    def _plan_gap_filling(
+        self,
+        state: TravelAgentState,
+        prompt_context: dict,
+        step: int,
+    ) -> AgentAction:
+        from app.schemas.evidence_gap_request import EvidenceGapRequest
+
+        gap_raw = prompt_context.get("gap_request") or {}
+        gap = gap_raw if isinstance(gap_raw, EvidenceGapRequest) else EvidenceGapRequest.model_validate(gap_raw)
+        max_steps = int(prompt_context.get("gap_max_extra_steps", gap.max_extra_steps))
+        called: set[str] = set(prompt_context.get("_gap_called_tools", []))
+
+        tools = [
+            resolve_tool_name(t)
+            for t in gap.suggested_tools
+            if resolve_tool_name(t) not in set(gap.forbidden_tools)
+            and resolve_tool_name(t) not in set(gap.failed_tools)
+            and resolve_tool_name(t) not in set(gap.already_tried_tools)
+        ]
+        tools = [t for t in tools if t not in called]
+
+        if step < len(tools) and step < max_steps:
+            tool = tools[step]
+            called.add(tool)
+            prompt_context["_gap_called_tools"] = list(called)
+            return self._make_call_tool_action(
+                tool,
+                state,
+                prompt_context,
+                reason_summary=f"S5 gap-fill tool for {gap.claim_type}: {tool}",
+            )
+
+        templates = list(gap.query_templates or [])
+        search_idx = step - min(len(tools), max_steps)
+        if search_idx >= 0 and search_idx < len(templates) and step < max_steps + len(templates):
+            query = templates[search_idx]
+            task_id = f"gap-{gap.gap_id[:8]}-{search_idx}"
+            return AgentAction(
+                action_type=AgentActionType.CALL_SUBAGENT,
+                target="keyword_search_agent",
+                arguments={
+                    "search_query": query,
+                    "information_need": gap.claim_type,
+                    "task_id": task_id,
+                    "anchor_keywords": [state.semantic_frame.entities.places[0]]
+                    if state.semantic_frame and state.semantic_frame.entities.places
+                    else [],
+                },
+                reason_summary=f"S5 gap-fill search: {query[:48]}",
+                confidence=0.8,
+            )
+
+        return AgentAction(
+            action_type=AgentActionType.FINISH_STATE,
+            arguments={"limitations": [f"S5 gap-fill completed for {gap.claim_type}"]},
+            reason_summary="S5 gap-filling complete",
+            confidence=0.85,
+        )
 
     def _plan_evidence_aggregation(
         self,
@@ -808,6 +925,8 @@ class ActionModelController:
         return completed if isinstance(completed, list) else []
 
     def _next_pending_search_task(self, state: TravelAgentState) -> dict | None:
+        if ClaimSearchPlanner.keyword_search_call_count(state) >= ClaimSearchPlanner.max_search_attempts(state):
+            return None
         completed = set(self._completed_search_task_ids(state))
         for task in self._search_tasks_from_state(state):
             if not isinstance(task, dict):
@@ -972,6 +1091,27 @@ class ActionModelController:
     @staticmethod
     def _tool_arguments_for(tool: str, state: TravelAgentState, prompt_context: dict) -> dict:
         args: dict = {}
+        frame = state.semantic_frame
+        if frame:
+            if frame.entities.places:
+                args["place_name"] = frame.entities.places[0]
+            if frame.entities.city:
+                args["city"] = frame.entities.city
+            if frame.entities.country:
+                args["country"] = frame.entities.country
+        if tool in {"official_page_reader_mcp", "browser_mcp"}:
+            args["prior_evidence"] = list(state.evidence)
+            need = ClaimSearchPlanner.primary_information_need(state)
+            if need:
+                args["information_need"] = need
+            place = args.get("place_name") or ""
+            if place and not args.get("url"):
+                if need == "ticket_price":
+                    args["query"] = f"{place} 官网 门票"
+                elif need == "opening_hours":
+                    args["query"] = f"{place} 官网 开放时间"
+                else:
+                    args["query"] = f"{place} 官网"
         if tool == "knowledge_prior":
             contract = state.response_contract
             if contract and any(

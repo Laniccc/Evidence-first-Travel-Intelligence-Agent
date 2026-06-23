@@ -3,6 +3,8 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from app.schemas.place_ambiguity import PlaceAmbiguityInfo
+
 
 class QueryScope(str, Enum):
     PLACE = "place"
@@ -72,6 +74,11 @@ class SemanticFrame(BaseModel):
     requires_exact_fact: bool = False
     can_answer_with_model_prior: bool = False
     needs_clarification: bool = False
+    place_ambiguity: PlaceAmbiguityInfo | None = None
+    labeled_entities: list[dict] = Field(
+        default_factory=list,
+        description="S2 entities with labels — preserved for S3 gating",
+    )
 
 
 class AnswerMode(str, Enum):

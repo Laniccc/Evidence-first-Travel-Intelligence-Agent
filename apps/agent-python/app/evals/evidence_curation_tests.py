@@ -138,3 +138,35 @@ def test_evidence_brief_to_field_summary():
     rows = brief.to_field_evidence_summary()
     assert rows[0]["field"] == "ticket_price_candidate"
     assert rows[0]["confidence"] == 0.6
+
+
+def test_brief_derived_from_evidence_decision_report():
+    from app.orchestrator.evidence_brief_builder import build_evidence_brief_from_report
+    from app.schemas.evidence_decision_report import ClaimDecision, EvidenceDecisionReport
+
+    ev = _ticket_evidence()
+    report = EvidenceDecisionReport(
+        claim_decisions=[
+            ClaimDecision(
+                claim_type="ticket_price",
+                adoption="candidate_only",
+                coverage_quality="partial",
+                confidence=0.45,
+                adopted_evidence_ids=[ev.evidence_id],
+                reason="platform candidate",
+            )
+        ],
+        overall_confidence=0.45,
+    )
+    state = TravelAgentState(
+        session_id="s",
+        query_id="q",
+        raw_user_query="门票",
+        evidence=[ev],
+        evidence_decision_report=report,
+    )
+    brief = build_evidence_brief_from_report(state, report, target_label="巴音布鲁克景区")
+    assert brief.curated_claims
+    assert brief.curated_claims[0].claim_type == "ticket_price"
+    assert brief.overall_confidence == 0.45
+    assert any("ticket_price" in g for g in brief.coverage_gaps)

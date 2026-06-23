@@ -20,13 +20,68 @@ class ClaimSearchPlanner:
 
     @classmethod
     def max_search_attempts(cls, state: TravelAgentState) -> int:
+        from app.config import get_settings
+
+        cap = int(get_settings().mcp_max_tool_calls_per_state)
         contract = state.response_contract
         if contract and any(
             c.priority == "required" and not c.model_prior_allowed
             for c in contract.claim_requirements
         ):
-            return 6
-        return 3
+            return min(cap, 4)
+        return min(cap, 6)
+
+    @classmethod
+    def keyword_search_call_count(cls, state: TravelAgentState) -> int:
+        structured = state.structured_result or {}
+        completed = structured.get("completed_search_task_ids") or []
+        return len(completed) if isinstance(completed, list) else 0
+
+    @classmethod
+    def _anchor_keywords(cls, state: TravelAgentState) -> list[str]:
+        contract = state.response_contract
+        if contract and contract.gated_search_keywords:
+            return cls.dedupe(list(contract.gated_search_keywords))
+
+        frame = state.semantic_frame
+        keywords: list[str] = []
+        if frame and frame.entities:
+            keywords.extend(frame.entities.places or [])
+            if frame.entities.city:
+                keywords.append(frame.entities.city)
+            if frame.entities.region:
+                keywords.append(frame.entities.region)
+        residual = state.user_need_residual
+        if residual and residual.information_needs:
+            keywords.extend(n.need_type for n in residual.information_needs)
+        return cls.dedupe(keywords)
+
+    @classmethod
+    def evidence_highlights(cls, state: TravelAgentState) -> list[dict]:
+        from app.schemas.evidence import ClaimType, Evidence
+
+        rows: list[dict] = []
+        for ev in state.evidence:
+            if not isinstance(ev, Evidence):
+                continue
+            claims = []
+            for claim in ev.claims[:6]:
+                ct = claim.claim_type.value if hasattr(claim.claim_type, "value") else str(claim.claim_type)
+                claims.append({"type": ct, "value": str(claim.value)[:160]})
+            rows.append(
+                {
+                    "source_name": ev.source_name,
+                    "place_name": ev.place_name,
+                    "claims": claims,
+                }
+            )
+        return rows[:15]
+
+    @classmethod
+    def recent_keyword_search_results(cls, state: TravelAgentState) -> list[dict]:
+        structured = state.structured_result or {}
+        bucket = structured.get("keyword_search_results") or []
+        return bucket[-4:] if isinstance(bucket, list) else []
 
     @classmethod
     def primary_information_need(cls, state: TravelAgentState) -> str | None:
@@ -66,19 +121,51 @@ class ClaimSearchPlanner:
         structured = state.structured_result or {}
         completed_ids = structured.get("completed_search_task_ids") or []
 
+        from app.orchestrator.place_disambiguation_guard import extract_place_candidates
+
+        place_candidates = extract_place_candidates(list(state.evidence))
+
         return {
             "raw_query": state.raw_user_query,
             "normalized_request": frame.normalized_request if frame else None,
             "decision_type": frame.decision_type.value if frame and frame.decision_type else None,
             "task_family": frame.task_family.value if frame and frame.task_family else None,
             "entities": entities,
+            "anchor_keywords": cls._anchor_keywords(state),
             "claim_types": claim_types,
             "primary_information_need": cls.primary_information_need(state),
+            "search_purpose_hint": cls.primary_information_need(state),
             "tried_search_queries": tried,
             "completed_search_task_ids": completed_ids,
+            "keyword_search_count": cls.keyword_search_call_count(state),
+            "max_keyword_searches": cls.max_search_attempts(state),
             "failed_snippets": cls.failed_snippets(state),
-            "max_tasks": cls.max_search_attempts(state),
+            "place_candidates": place_candidates,
+            "evidence_highlights": cls.evidence_highlights(state),
+            "recent_keyword_search_results": cls.recent_keyword_search_results(state),
+            "user_need_residual": (
+                state.user_need_residual.model_dump() if state.user_need_residual else None
+            ),
             "response_contract_summary": contract.user_goal_summary if contract else None,
+            "gated_search_keywords": (
+                list(contract.gated_search_keywords)
+                if contract and contract.gated_search_keywords
+                else cls._anchor_keywords(state)
+            ),
+            "place_ambiguity": (
+                contract.place_ambiguity_context.model_dump()
+                if contract and contract.place_ambiguity_context
+                else (
+                    frame.place_ambiguity.model_dump()
+                    if frame and frame.place_ambiguity
+                    else None
+                )
+            ),
+            "labeled_entities": (
+                list(frame.labeled_entities)
+                if frame and frame.labeled_entities
+                else None
+            ),
         }
 
     @staticmethod
@@ -89,11 +176,13 @@ class ClaimSearchPlanner:
     def tried_from_traces(state: TravelAgentState) -> set[str]:
         tried: set[str] = set()
         for trace in state.tool_traces:
-            if trace.tool_name != "search_mcp":
-                continue
             q = (trace.input or {}).get("query")
             if q:
                 tried.add(str(q).strip())
+        structured = state.structured_result or {}
+        for item in structured.get("keyword_search_results") or []:
+            if isinstance(item, dict) and item.get("search_query"):
+                tried.add(str(item["search_query"]).strip())
         return tried
 
     @staticmethod

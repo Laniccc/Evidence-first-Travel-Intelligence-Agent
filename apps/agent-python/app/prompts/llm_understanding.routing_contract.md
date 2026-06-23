@@ -53,7 +53,15 @@
 
 **禁止** `query_scope=unknown` 当已识别具体景点或城市。
 
-## 3. answer_policy 简写
+## 3. 地名歧义（S2 保留、S3 门控、S5 证据消歧）
+
+- **禁止**因多地同名（衡山/白沙湖/五彩滩等）设置 `needs_clarification=true`
+- 填写 `entities[].labels`（如 `primary_subject`、`ambiguous_place_candidate`）
+- 有歧义时填写 `place_ambiguity`：`is_ambiguous=true` + `candidates[]`
+- S3 将根据 labels 与 `place_ambiguity` 生成检索关键词，**不删减** S2 实体文本
+- 最终地点确认由 S5 证据与工具完成，不在 S2/S3 提前追问用户
+
+## 4. answer_policy 简写
 
 填布尔字段（不要用嵌套对象）：
 
@@ -68,13 +76,13 @@
 }
 ```
 
-## 4. 其他字段
+## 5. 其他字段
 
 - `confidence`：**单个** 0~1 浮点数，禁止 `{"overall":0.9}` 对象
 - `information_needs`：对象数组 `[{"need_type":"...", "priority":"high|medium|required"}]`，禁止纯字符串数组
 - `time_scope`：对象 `{"scope":"seasonal|current|..."}`，禁止裸字符串
 
-## 5. 支持区域
+## 6. 支持区域
 
 `supported_regions` 通常为 Japan、China、South Korea。  
 识别到其他地区仍可输出实体，但 country 应如实填写以便 S3/RegionGate 判断。

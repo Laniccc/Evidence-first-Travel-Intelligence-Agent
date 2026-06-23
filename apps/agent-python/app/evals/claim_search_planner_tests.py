@@ -17,6 +17,7 @@ from app.schemas.semantic_frame import (
     TaskFamily,
     TimeScope,
 )
+from app.schemas.place_ambiguity import PlaceAmbiguityCandidate, PlaceAmbiguityInfo
 from app.schemas.user_query import TravelAgentState
 
 
@@ -46,6 +47,39 @@ def test_planning_context_includes_user_query_and_claims():
     assert any("seasonal" in c or "best_time" in c for c in ctx["claim_types"])
 
 
+def test_planning_context_includes_s2_place_ambiguity():
+    frame = _duku_frame(
+        raw_query="衡山景区票价如何？",
+        normalized_request="衡山景区门票价格",
+        task_family=TaskFamily.FACT_LOOKUP,
+        decision_type=DecisionType.FACT_LOOKUP,
+        entities=SemanticEntities(country="China", places=["衡山"]),
+        information_needs=["ticket_price"],
+        place_ambiguity=PlaceAmbiguityInfo(
+            is_ambiguous=True,
+            reason="衡山可能指南岳衡山或北岳恒山",
+            candidates=[
+                PlaceAmbiguityCandidate(name="南岳衡山", region="湖南", city="衡阳"),
+            ],
+        ),
+        labeled_entities=[
+            {
+                "text": "衡山",
+                "normalized_name": "衡山",
+                "labels": ["primary_subject"],
+            }
+        ],
+    )
+    state = TravelAgentState(session_id="s", query_id="q", raw_user_query="衡山景区票价如何？")
+    state.semantic_frame = frame
+    state.response_contract = ResponseContractCompiler().compile(frame)
+
+    ctx = ClaimSearchPlanner.planning_context(state)
+    assert ctx["place_ambiguity"]["is_ambiguous"] is True
+    assert "南岳衡山" in ctx["gated_search_keywords"]
+    assert ctx["labeled_entities"]
+
+
 @pytest.mark.asyncio
 async def test_search_task_planner_uses_llm_tasks():
     state = TravelAgentState(session_id="s", query_id="q", raw_user_query="新疆的独库公路每年几月份开放？")
@@ -63,7 +97,7 @@ def test_max_search_attempts_for_required_claims():
     state = TravelAgentState(session_id="s", query_id="q", raw_user_query="新疆的独库公路每年几月份开放？")
     state.semantic_frame = _duku_frame()
     state.response_contract = ResponseContractCompiler().compile(state.semantic_frame)
-    assert ClaimSearchPlanner.max_search_attempts(state) == 6
+    assert ClaimSearchPlanner.max_search_attempts(state) == 4
 
 
 def test_contract_whitelist_allows_knowledge_prior_for_optional_context():
@@ -76,7 +110,108 @@ def test_contract_whitelist_allows_knowledge_prior_for_optional_context():
 
 
 @pytest.mark.asyncio
-async def test_search_task_planner_falls_back_on_invalid_llm_json():
+async def test_search_task_planner_accepts_new_tasks_key_on_refine():
+    state = TravelAgentState(session_id="s", query_id="q", raw_user_query="南岳衡山门票多少钱")
+    state.semantic_frame = SemanticFrame(
+        raw_query="南岳衡山门票多少钱",
+        query_scope=QueryScope.PLACE,
+        task_family=TaskFamily.FACT_LOOKUP,
+        decision_type=DecisionType.FACT_LOOKUP,
+        entities=SemanticEntities(country="China", places=["南岳衡山", "衡山"]),
+        information_needs=["ticket_price"],
+        requires_exact_fact=True,
+    )
+    state.response_contract = ResponseContractCompiler().compile(state.semantic_frame)
+
+    payload = json.dumps(
+        {
+            "new_tasks": [
+                {
+                    "anchor_keywords": ["衡山", "门票", "观光车", "索道", "价格"],
+                    "search_query": "衡山门票 包含 观光车 索道 价格",
+                    "information_need": "ticket_price",
+                    "preferred_tool": "search_mcp",
+                }
+            ]
+        },
+        ensure_ascii=False,
+    )
+    tasks = await SearchTaskPlannerAgent(StubLLMClient(lambda _s, _u: payload)).run(
+        state, refine=True
+    )
+    assert tasks
+    assert "衡山" in tasks[0].search_query
+
+
+@pytest.mark.asyncio
+async def test_search_task_planner_coerces_missing_anchors_in_query():
+    state = TravelAgentState(session_id="s", query_id="q", raw_user_query="白沙湖的海拔多少？")
+    state.semantic_frame = SemanticFrame(
+        raw_query="白沙湖的海拔多少？",
+        query_scope=QueryScope.PLACE,
+        task_family=TaskFamily.FACT_LOOKUP,
+        decision_type=DecisionType.FACT_LOOKUP,
+        entities=SemanticEntities(country="China", places=["白沙湖"]),
+        information_needs=["general_information"],
+        requires_exact_fact=True,
+    )
+    state.response_contract = ResponseContractCompiler().compile(state.semantic_frame)
+
+    # LLM returns query without explicit anchor tokens in search_query text.
+    bad = json.dumps(
+        {
+            "tasks": [
+                {
+                    "anchor_keywords": ["白沙湖", "海拔"],
+                    "search_query": "高度是多少",
+                    "information_need": "general_travel_advice",
+                }
+            ]
+        },
+        ensure_ascii=False,
+    )
+    tasks = await SearchTaskPlannerAgent(StubLLMClient(lambda _s, _u: bad)).run(state)
+    assert tasks
+    assert tasks[0].search_query.startswith("白沙湖")
+    assert "海拔" in tasks[0].anchor_keywords
+
+
+@pytest.mark.asyncio
+async def test_search_task_planner_repairs_after_empty_task_list():
+    state = TravelAgentState(session_id="s", query_id="q", raw_user_query="白沙湖的海拔多少？")
+    state.semantic_frame = SemanticFrame(
+        raw_query="白沙湖的海拔多少？",
+        query_scope=QueryScope.PLACE,
+        task_family=TaskFamily.FACT_LOOKUP,
+        decision_type=DecisionType.FACT_LOOKUP,
+        entities=SemanticEntities(country="China", places=["白沙湖"]),
+        information_needs=["general_information"],
+        requires_exact_fact=True,
+    )
+    state.response_contract = ResponseContractCompiler().compile(state.semantic_frame)
+
+    repaired = json.dumps(
+        {
+            "tasks": [
+                {
+                    "anchor_keywords": ["白沙湖", "海拔"],
+                    "search_query": "白沙湖海拔",
+                    "information_need": "general_travel_advice",
+                    "preferred_tool": "search_mcp",
+                }
+            ]
+        },
+        ensure_ascii=False,
+    )
+    llm = StubLLMClient(responses=['{"tasks":[]}', repaired])
+    tasks = await SearchTaskPlannerAgent(llm).run(state)
+    assert tasks
+    assert any("白沙湖" in t.search_query for t in tasks)
+    assert llm._call_count == 2
+
+
+@pytest.mark.asyncio
+async def test_search_task_planner_repairs_truncated_json_locally():
     state = TravelAgentState(session_id="s", query_id="q", raw_user_query="南京博物院门票多少钱？")
     state.semantic_frame = SemanticFrame(
         raw_query="南京博物院门票多少钱？",
@@ -89,11 +224,44 @@ async def test_search_task_planner_falls_back_on_invalid_llm_json():
     state.response_contract = ResponseContractCompiler().compile(state.semantic_frame)
 
     broken = '{"tasks":[{"anchor_keywords":["南京博物院"],"search_query":"南京博物院门票'
-    llm = StubLLMClient(lambda _s, _u: broken)
+    repaired = json.dumps(
+        {
+            "tasks": [
+                {
+                    "anchor_keywords": ["南京博物院", "门票"],
+                    "search_query": "南京博物院门票",
+                    "information_need": "ticket_price",
+                }
+            ]
+        },
+        ensure_ascii=False,
+    )
+    llm = StubLLMClient(responses=[broken, repaired])
     tasks = await SearchTaskPlannerAgent(llm).run(state)
     assert tasks
     assert any("南京博物院" in t.search_query for t in tasks)
-    assert tasks[0].rationale.startswith("Rule-based fallback")
+    assert tasks[0].rationale == "LLM planned"
+    assert llm._call_count == 2
+
+
+@pytest.mark.asyncio
+async def test_search_task_planner_raises_when_repair_also_fails():
+    state = TravelAgentState(session_id="s", query_id="q", raw_user_query="白沙湖的海拔多少？")
+    state.semantic_frame = SemanticFrame(
+        raw_query="白沙湖的海拔多少？",
+        query_scope=QueryScope.PLACE,
+        task_family=TaskFamily.FACT_LOOKUP,
+        decision_type=DecisionType.FACT_LOOKUP,
+        entities=SemanticEntities(country="China", places=["白沙湖"]),
+        information_needs=["general_information"],
+        requires_exact_fact=True,
+    )
+    state.response_contract = ResponseContractCompiler().compile(state.semantic_frame)
+
+    with pytest.raises(ValueError, match="could not produce valid tasks"):
+        await SearchTaskPlannerAgent(
+            StubLLMClient(responses=['{"tasks":[]}', '{"tasks":[]}'])
+        ).run(state)
 
 
 @pytest.mark.asyncio

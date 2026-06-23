@@ -2,6 +2,8 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
+from app.schemas.place_ambiguity import EntityLabel, PlaceAmbiguityCandidate, PlaceAmbiguityInfo
+
 
 class NormalizedEntity(BaseModel):
     text: str
@@ -29,6 +31,10 @@ class NormalizedEntity(BaseModel):
     ] = "llm_understanding"
     confidence: float = 0.7
     needs_verification: bool = False
+    labels: list[EntityLabel] = Field(
+        default_factory=list,
+        description="Semantic tags for S3 gating (not hard filters on entity text)",
+    )
 
 
 class NormalizedTimeScope(BaseModel):
@@ -121,3 +127,4 @@ class NormalizedUserRequest(BaseModel):
     needs_clarification: bool = False
     clarification_question: str | None = None
     confidence: float = 0.7
+    place_ambiguity: PlaceAmbiguityInfo | None = None

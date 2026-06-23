@@ -210,42 +210,21 @@ async def test_platform_websearch_engine_error_message():
     assert svc.last_run_meta.get("partial_failures")
 
 
-def test_fliggy_flyai_configured_with_sk_key():
+def test_fliggy_top_api_tool_configured_with_app_credentials():
     from tools.crawlers.fliggy_crawler_tool import FliggyTicketSnapshotCrawlerTool
-    from tools.ticketing.provider_config import fliggy_crawler_configured, fliggy_flyai_configured
+    from tools.ticketing.provider_config import fliggy_api_configured, fliggy_top_api_configured
 
     settings = Settings(
         fliggy_ticket_crawler_enabled=True,
         enable_ticket_crawler_providers=True,
-        fliggy_flyai_enabled=True,
-        fliggy_flyai_api_key="sk-test-key",
-        fliggy_ticket_crawler_command="",
+        fliggy_top_api_enabled=True,
+        fliggy_app_key="12129701",
+        fliggy_app_secret="test-secret",
     )
-    assert fliggy_flyai_configured(settings) is True
-    assert fliggy_crawler_configured(settings) is True
+    assert fliggy_top_api_configured(settings) is True
+    assert fliggy_api_configured(settings) is True
     tool = FliggyTicketSnapshotCrawlerTool(settings)
     assert tool.is_configured() is True
-
-
-def test_fliggy_flyai_response_to_items():
-    from tools.ticketing.fliggy_flyai_service import flyai_response_to_items
-
-    sample = {
-        "data": {
-            "itemList": [
-                {
-                    "name": "西湖",
-                    "jumpUrl": "https://a.feizhu.com/abc",
-                    "freePoiStatus": "NOT_FREE",
-                    "ticketInfo": {"price": "¥128", "ticketName": "成人票"},
-                }
-            ]
-        }
-    }
-    items = flyai_response_to_items(sample, max_results=5)
-    assert len(items) == 1
-    assert items[0]["price_text"] == "¥128"
-    assert items[0]["platform_ticket_url"] == "https://a.feizhu.com/abc"
 
 
 def test_fliggy_top_api_configured_with_app_credentials():

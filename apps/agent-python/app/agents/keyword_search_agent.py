@@ -7,7 +7,9 @@ import re
 
 from app.orchestrator.claim_search_planner import ClaimSearchPlanner
 from app.schemas.search_task import SearchTask
+from app.schemas.tool_whitelist import ToolWhitelist
 from app.schemas.user_query import TravelAgentState
+from app.tools.mcp.tool_specs import NEED_TOOL_PROFILES
 from app.tools.tool_name_resolver import resolve_tool_name
 
 logger = logging.getLogger(__name__)
@@ -16,7 +18,7 @@ _MIN_ANCHOR_LEN = 2
 
 
 class KeywordSearchAgent:
-    """Run a single search task with strict anchor keyword validation."""
+    """Run a single search task; pick MCP from whitelist based on search purpose."""
 
     def __init__(self, tools_registry=None) -> None:
         self.tools = tools_registry
@@ -44,6 +46,34 @@ class KeywordSearchAgent:
                 f"search_query must retain at least one anchor keyword from {task.anchor_keywords!r}"
             )
 
+    @staticmethod
+    def pick_tool(task: SearchTask, whitelist: ToolWhitelist | None) -> str:
+        """Delegate MCP choice to sub-agent: honor hint, else match information_need profile."""
+        preferred = resolve_tool_name(task.preferred_tool or "search_mcp")
+        if whitelist is None or whitelist.is_allowed(preferred):
+            return preferred
+
+        need = task.information_need or ""
+        for tool in NEED_TOOL_PROFILES.get(need, []):
+            resolved = resolve_tool_name(tool)
+            if whitelist.is_allowed(resolved):
+                return resolved
+
+        for fallback in (
+            "search_mcp",
+            "official_page_reader_mcp",
+            "ctrip_ticket_signal_crawler_mcp",
+            "dianping_ticket_signal_crawler_mcp",
+            "baidu_place_search_mcp",
+        ):
+            if whitelist.is_allowed(fallback):
+                return fallback
+
+        allowed = whitelist.allowed_tool_names()
+        if allowed:
+            return allowed[0]
+        return preferred
+
     async def run(
         self,
         state: TravelAgentState,
@@ -67,8 +97,8 @@ class KeywordSearchAgent:
         )
         self.validate_task(task)
 
-        tool_name = resolve_tool_name(task.preferred_tool)
         whitelist = (prompt_context or {}).get("tool_whitelist")
+        tool_name = self.pick_tool(task, whitelist)
         if whitelist is not None and not whitelist.is_allowed(tool_name):
             raise ValueError(f"Tool {tool_name!r} not allowed for keyword_search_agent")
 
@@ -89,8 +119,11 @@ class KeywordSearchAgent:
             "task_id": task.task_id,
             "anchor_keywords": task.anchor_keywords,
             "search_query": task.search_query,
-            "preferred_tool": tool_name,
+            "search_purpose": task.information_need,
+            "preferred_tool": task.preferred_tool,
+            "selected_tool": tool_name,
             "information_need": task.information_need,
+            "rationale": task.rationale,
             "evidence": evidence,
             "tool_traces": [t.model_dump() for t in new_traces],
             "tool_call_count": 1,

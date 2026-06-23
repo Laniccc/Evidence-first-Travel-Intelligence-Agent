@@ -37,6 +37,9 @@
     "output_parse_status": {
       "type": ["string", "null"],
       "description": "ok | non_json | parse_error"
-    }
+    },
+    "gap_filling": { "type": "boolean", "default": false },
+    "gap_id": { "type": ["string", "null"] },
+    "gap_claim_type": { "type": ["string", "null"] }
   }
 }

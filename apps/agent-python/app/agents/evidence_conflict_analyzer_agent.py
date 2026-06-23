@@ -45,7 +45,12 @@ class EvidenceConflictAnalyzerAgent:
             "curated_claims": curated[:12],
             "user_need_residual": state.user_need_residual.model_dump() if state.user_need_residual else {},
         }
-        raw = await self.llm.complete(system=system, user=json.dumps(payload, ensure_ascii=False), max_tokens=400)
+        raw = await self.llm.complete(
+            system=system,
+            user=json.dumps(payload, ensure_ascii=False),
+            max_tokens=1200,
+            json_only=True,
+        )
         data = json.loads(raw.strip())
         if isinstance(data, dict) and isinstance(data.get("conflict_notes"), list):
             return [str(n) for n in data["conflict_notes"]]

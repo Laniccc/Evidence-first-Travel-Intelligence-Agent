@@ -92,69 +92,62 @@ class ClaudeStateRunner:
                         state.tool_traces,
                     )
                 if action.action_type == AgentActionType.CALL_TOOL:
-                    clarify_state = await self._maybe_baidu_disambiguation(
-                        state, action, policy, ctx
-                    )
-                    if clarify_state is not None:
-                        return clarify_state
+                    await self._handle_place_disambiguation(state, action, policy, ctx)
 
         state.limitations.append(f"{policy.state_name} reached max_steps")
         TraceRecorder.add(state, f"✓ [{policy.state_name}] 达到 max_steps={policy.max_steps}")
         return state
 
-    async def _maybe_baidu_disambiguation(
+    async def _handle_place_disambiguation(
         self,
         state: TravelAgentState,
         action: AgentAction,
         policy: StateNodePolicy,
         ctx: dict,
-    ) -> TravelAgentState | None:
+    ) -> None:
         if policy.state_name != "evidence_planning_and_tool_use":
-            return None
-        if action.action_type != AgentActionType.CALL_TOOL:
-            return None
-        if (action.target or "") != "baidu_place_search_mcp":
-            return None
+            return
+        target = action.target or ""
+        if target not in {
+            "baidu_place_search_mcp",
+            "baidu_geocode_mcp",
+            "baidu_place_detail_mcp",
+        }:
+            return
 
         from app.orchestrator.place_disambiguation_guard import (
             apply_unique_candidate,
-            build_clarification_question,
             detect_ambiguous_candidates,
             extract_place_candidates,
             should_apply_unique_resolution,
+            try_resolve_disambiguation,
         )
 
-        ambiguous = detect_ambiguous_candidates(state.evidence)
-        if ambiguous:
-            frame = state.semantic_frame
-            place = (
-                frame.entities.places[0]
-                if frame and frame.entities.places
-                else state.raw_user_query
-            )
-            question = build_clarification_question(place, ambiguous)
-            clarify = AgentAction(
-                action_type=AgentActionType.ASK_CLARIFICATION,
-                arguments={
-                    "question": question,
-                    "missing_critical_info": ["place_disambiguation"],
-                },
-                reason_summary="Baidu place search returned multiple candidates",
-            )
-            result = await self.action_executor.execute(clarify, state, ctx)
-            state = self.state_reducer.apply(state, clarify, result, policy)
-            TraceRecorder.add(state, "✓ [S5] place disambiguation clarification required")
-            return state
+        if target == "baidu_place_search_mcp":
+            ambiguous = detect_ambiguous_candidates(state.evidence)
+            if ambiguous:
+                labels = [
+                    (c.get("name") or c.get("city") or "?") for c in ambiguous[:4]
+                ]
+                TraceRecorder.add(
+                    state,
+                    "✓ [S5] place_candidates in evidence ("
+                    + " / ".join(labels)
+                    + ") — LLM will refine keyword searches",
+                )
+
+        if try_resolve_disambiguation(state):
+            TraceRecorder.add(state, "✓ [S5] place disambiguation resolved from evidence")
+            return
 
         candidates = extract_place_candidates(state.evidence)
         unique = should_apply_unique_resolution(candidates)
-        if unique:
+        if unique and target == "baidu_place_search_mcp":
             state = apply_unique_candidate(state, unique)
             TraceRecorder.add(
                 state,
                 f"✓ [S5] resolved place via Baidu: {unique.get('province', '')} {unique.get('city', '')}",
             )
-        return None
 
 
 def action_executor_result_fail(action):

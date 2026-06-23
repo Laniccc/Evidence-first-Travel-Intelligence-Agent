@@ -32,7 +32,7 @@ class AnswerModeRouter:
   ) -> AnswerModeDecision:
       caps = available_capabilities or set()
 
-      if frame.needs_clarification or self._needs_clarification(frame):
+      if frame.needs_clarification or "place_reference" in frame.missing_slots:
           return AnswerModeDecision(
               answer_mode=AnswerMode.CLARIFICATION_REQUIRED,
               reason="关键对象缺失或指代无法解析",
@@ -159,16 +159,6 @@ class AnswerModeRouter:
           reason="无法确定回答模式",
           limitations_to_add=["当前无法理解该问题类型，请补充更多细节。"],
       )
-
-  def _needs_clarification(self, frame: SemanticFrame) -> bool:
-      if "place_reference" in frame.missing_slots:
-          return True
-      if frame.decision_type == DecisionType.BEST_TIME_TO_VISIT and frame.can_answer_with_model_prior:
-          return False
-      if frame.query_scope == QueryScope.PLACE and not frame.entities.places:
-          if frame.decision_type in {DecisionType.FACT_LOOKUP, DecisionType.RISK_CHECK}:
-              return True
-      return False
 
   def _requires_exact_evidence(self, frame: SemanticFrame) -> bool:
       if frame.requires_exact_fact or frame.requires_live_data:

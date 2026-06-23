@@ -70,7 +70,12 @@ class EvidenceCurationPlannerAgent:
             "evidence_index": index,
             "needs_hint": needs,
         }
-        raw = await self.llm.complete(system=system, user=json.dumps(payload, ensure_ascii=False), max_tokens=400)
+        raw = await self.llm.complete(
+            system=system,
+            user=json.dumps(payload, ensure_ascii=False),
+            max_tokens=1200,
+            json_only=True,
+        )
         data = json.loads(raw.strip().removeprefix("```json").removesuffix("```").strip())
         if isinstance(data, dict) and data.get("needs_to_filter"):
             return data

@@ -22,7 +22,7 @@ from tools.mcp.http_autostart import ensure_http_mcp_services
 
 
 class EvidencePlanningAndToolUseState:
-    """S5+S6: controlled loop for information-need planning and tool/MCP execution."""
+    """S5: controlled loop for evidence retrieval / tool use (no cross-source judgement)."""
 
     def __init__(
         self,
@@ -88,6 +88,47 @@ class EvidencePlanningAndToolUseState:
             TraceRecorder.add(state, "✓ 已完成 EvidencePlanningAndToolUse")
         return state
 
+    async def run_gap_filling(self, state: TravelAgentState, gap) -> TravelAgentState:
+        from app.config import get_settings
+        from app.schemas.evidence_gap_request import EvidenceGapRequest
+
+        if not isinstance(gap, EvidenceGapRequest):
+            gap = EvidenceGapRequest.model_validate(gap)
+        gap.ensure_signature()
+        state.current_evidence_gap_request = gap
+        settings = get_settings()
+        tool_whitelist = self.whitelist_builder.build_gap_whitelist(gap)
+        prompt_context = {
+            "gap_filling": True,
+            "gap_request": gap.model_dump(),
+            "gap_max_extra_steps": min(gap.max_extra_steps, settings.evidence_gap_max_extra_steps),
+            "reset_evidence": False,
+            "place_name": (state.semantic_frame.entities.places[0] if state.semantic_frame and state.semantic_frame.entities.places else None),
+        }
+        prompt_context["tool_whitelist"] = tool_whitelist
+        prompt_context["allowed_tools"] = [t.model_dump() for t in tool_whitelist.allowed_tools]
+        TraceRecorder.add(
+            state,
+            f"✓ S5 gap-filling：{gap.claim_type} tools={tool_whitelist.allowed_tool_names()}",
+        )
+        before = len(state.evidence)
+        state = await self.runner.run(state, EVIDENCE_PLANNING_AND_TOOL_USE_POLICY, prompt_context)
+        if self.tools:
+            state.tool_traces = list(self.tools.traces)
+            for trace in state.tool_traces[-settings.evidence_gap_max_extra_steps :]:
+                trace.gap_filling = True
+                trace.gap_id = gap.gap_id
+                trace.gap_claim_type = gap.claim_type
+        state.current_evidence_gap_request = None
+        if len(state.evidence) > before:
+            if state.gap_loop_state:
+                state.gap_loop_state.resolved_gap_ids.append(gap.gap_id)
+        else:
+            if state.gap_loop_state:
+                state.gap_loop_state.failed_gap_ids.append(gap.gap_id)
+        TraceRecorder.add(state, f"✓ S5 gap-filling 完成：+{len(state.evidence) - before} evidence")
+        return state
+
     def _build_prompt_context(
         self,
         state: TravelAgentState,
@@ -101,19 +142,13 @@ class EvidencePlanningAndToolUseState:
         prompt_context.pop("candidate_tool_plan", None)
         prompt_context["s5_prompt_rules"] = [
             "Return ONLY one AgentAction JSON per step.",
-            "CALL_TOOL target MUST be one of allowed_tools[].name — no other tools.",
+            "Prefer CALL_SUBAGENT search_task_planner_agent / keyword_search_agent over CALL_TOOL.",
+            "keyword_search_agent args: anchor_keywords (S4), search_query, information_need (search purpose).",
+            "preferred_tool on tasks is optional; keyword_search_agent picks MCP from whitelist.",
+            "place_candidates in evidence are normal tool output — refine queries, do not ASK_CLARIFICATION in S5.",
+            "Every 2 keyword_search completions triggers search_task_planner refine (max 10 searches per S5).",
+            "CALL_TOOL only for one-off geo when subagents cannot cover.",
             "Do NOT generate final answer text in this state.",
-            "If tools are insufficient, FINISH_STATE with limitations or use an allowed fallback tool.",
-            "You may call multiple tools across steps until evidence is sufficient or max_steps reached.",
-            "Max CALL_TOOL invocations per S5 loop: 10 (see max_tool_calls).",
-            "After every 2 keyword_search_agent calls, the controller runs an LLM review checkpoint "
-            "to plan the next 2 CALL_TOOL actions from allowed_tools.",
-            "Match tools to information_need: ticket_price → ticketlens/ctrip/fliggy/official_page_reader/baidu; "
-            "opening_hours → official_page_reader/baidu_place_detail; weather → openmeteo/baidu_weather.",
-            "Do NOT run keyword_search_agent more than 2 times in a row without passing the review checkpoint.",
-            "For search_mcp: use CALL_SUBAGENT keyword_search_agent with anchor_keywords + search_query.",
-            "CALL_SUBAGENT search_task_planner_agent once per round (or refine once after misses).",
-            "anchor_keywords are strict; search_query may add associative terms but must include at least one anchor.",
         ]
         prompt_context["tool_diversity_hints"] = self._tool_diversity_hints(state, tool_whitelist)
 
@@ -171,11 +206,12 @@ class EvidencePlanningAndToolUseState:
         needs = list(frame.information_needs) if frame else []
         if "ticket_price" in needs:
             for tool in (
+                "official_page_reader_mcp",
+                "browser_mcp",
+                "baidu_place_detail_mcp",
                 "ticketlens_experience_mcp",
                 "ctrip_ticket_signal_crawler_mcp",
                 "fliggy_ticket_snapshot_crawler_mcp",
-                "official_page_reader_mcp",
-                "baidu_place_detail_mcp",
             ):
                 if tool in allowed:
                     hints.append(f"ticket_price: try CALL_TOOL {tool} before repeated search_mcp")

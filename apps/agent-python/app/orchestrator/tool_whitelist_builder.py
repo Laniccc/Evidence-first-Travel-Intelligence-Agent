@@ -382,9 +382,52 @@ class ToolWhitelistBuilder:
         self.tools_registry = tools_registry
 
     def build(self, state: TravelAgentState, prompt_context: dict | None = None) -> ToolWhitelist:
+        if prompt_context and prompt_context.get("gap_filling") and prompt_context.get("gap_request"):
+            return self.build_gap_whitelist(prompt_context["gap_request"])
         if state.response_contract:
             return self._build_from_contract(state, prompt_context)
         return self._build_legacy(state, prompt_context)
+
+    def build_gap_whitelist(self, gap) -> ToolWhitelist:
+        from app.schemas.evidence_gap_request import EvidenceGapRequest
+
+        if isinstance(gap, dict):
+            gap = EvidenceGapRequest.model_validate(gap)
+        forbidden = set(gap.forbidden_tools or [])
+        failed = set(gap.failed_tools or [])
+        tried = set(gap.already_tried_tools or [])
+        names = [
+            resolve_tool_name(t)
+            for t in gap.suggested_tools
+            if resolve_tool_name(t) not in forbidden
+            and resolve_tool_name(t) not in failed
+            and resolve_tool_name(t) not in tried
+        ]
+        names = [n for n in names if n in EVIDENCE_PLANNING_TOOL_NAMES]
+        profile = NEED_TOOL_PROFILES.get(gap.claim_type, [])
+
+        def _rank(name: str) -> int:
+            try:
+                return profile.index(name)
+            except ValueError:
+                return 999
+
+        configured: list[str] = []
+        for name in sorted(names, key=_rank):
+            ok, _ = self._is_configured(name)
+            if ok:
+                configured.append(name)
+        names = configured or ["search_mcp"]
+        allowed = [
+            ToolDescriptor(name=n, description=f"gap-fill for {gap.claim_type}", configured=True)
+            for n in dict.fromkeys(names)
+        ]
+        return ToolWhitelist(
+            state_name="evidence_planning_and_tool_use",
+            allowed_tools=allowed,
+            blocked_tools=[],
+            policy_notes=[f"S5 gap-filling whitelist for {gap.claim_type}"],
+        )
 
     def _build_from_contract(self, state: TravelAgentState, prompt_context: dict | None = None) -> ToolWhitelist:
         contract = state.response_contract
@@ -724,7 +767,6 @@ class ToolWhitelistBuilder:
                 "ctrip_review_crawler_mcp",
                 "ctrip_ticket_signal_crawler_mcp",
                 "fliggy_ticket_snapshot_crawler_mcp",
-                "fliggy_ticket_review_signal_mcp",
                 "dianping_review_crawler_mcp",
                 "dianping_ticket_signal_crawler_mcp",
             }:

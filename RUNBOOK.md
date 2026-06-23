@@ -122,6 +122,7 @@ pytest app/evals -q
 | :3210 已被占用 | 服务已在跑，勿重复启动 |
 | npx EPERM | `$env:npm_config_cache="$env:USERPROFILE\.npm-cache"` |
 | 无证据/回答差 | 看 `debug_last_session.md` |
+| S7 gap 回环未补证 | 查 trace 中 `S5 gap-filling`；默认 `EVIDENCE_MAX_GAP_ROUNDS=1`；重复 `gap_signature` 会跳过 |
 | 页面「请求失败」/ 无回答 | 检索类问题可等 1–3 分钟；确认 api-java :8082（`agent.read-timeout` 默认 300s）与 web `VITE_QUERY_TIMEOUT_MS=300000`；勿用旧版 8080/120s 配置 |
 | 改配置不生效 | 重启 uvicorn / 重启 api-java / 重启 `npm run dev` |
 

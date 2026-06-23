@@ -5,6 +5,8 @@ from uuid import uuid4
 
 from pydantic import BaseModel, Field
 
+from app.schemas.place_ambiguity import PlaceAmbiguityInfo
+
 
 class EntityPolicy(BaseModel):
     requires_disambiguation: bool = False
@@ -12,7 +14,7 @@ class EntityPolicy(BaseModel):
     preferred_tools: list[str] = Field(default_factory=list)
     if_multiple_candidates: Literal[
         "ask_clarification", "choose_highest_confidence", "answer_with_limitation"
-    ] = "ask_clarification"
+    ] = "answer_with_limitation"
     if_unresolved: Literal[
         "ask_clarification", "answer_with_limitation", "continue_with_low_confidence"
     ] = "answer_with_limitation"
@@ -20,6 +22,8 @@ class EntityPolicy(BaseModel):
 
 class ClaimRequirement(BaseModel):
     claim_type: str
+    claim_family: str | None = None
+    claim_description: str | None = None
     priority: Literal["required", "important", "optional"] = "important"
     requires_exact_fact: bool = False
     requires_live_data: bool = False
@@ -70,6 +74,14 @@ class CompositionPolicy(BaseModel):
 class ResponseContract(BaseModel):
     contract_id: str = Field(default_factory=lambda: str(uuid4()))
     user_goal_summary: str = ""
+    gated_search_keywords: list[str] = Field(
+        default_factory=list,
+        description="S3-gated anchor keywords from S2 semantics for S5 retrieval",
+    )
+    place_ambiguity_context: PlaceAmbiguityInfo | None = Field(
+        default=None,
+        description="Ambiguous place hypotheses from S2, forwarded for S5 resolution",
+    )
     entity_policy: EntityPolicy = Field(default_factory=EntityPolicy)
     claim_requirements: list[ClaimRequirement] = Field(default_factory=list)
     tool_strategy: ToolStrategy = Field(default_factory=ToolStrategy)

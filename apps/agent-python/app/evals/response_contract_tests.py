@@ -26,6 +26,7 @@ from app.schemas.semantic_frame import (
     TaskFamily,
     TimeScope,
 )
+from app.schemas.place_ambiguity import PlaceAmbiguityCandidate, PlaceAmbiguityInfo
 from app.schemas.tool_trace import ToolTrace
 from app.schemas.tool_whitelist import ToolDescriptor, ToolWhitelist
 from app.schemas.user_query import TravelAgentState
@@ -77,7 +78,9 @@ def test_response_contract_for_best_time():
     assert "baidu_place_search_mcp" in tools
     assert "search_mcp" in tools
     assert "seasonality" in tools
-    assert contract.entity_policy.requires_disambiguation is True
+    assert contract.entity_policy.requires_disambiguation is False
+    assert contract.clarification_policy.should_ask is False
+    assert "云峰山" in contract.gated_search_keywords
 
 
 def test_response_contract_for_duku_opening_month():
@@ -258,6 +261,73 @@ def test_region_on_poi_entity_flows_to_semantic_frame():
     frame = NormalizedRequestToSemanticFrame.convert(req)
     assert frame.entities.region == "新疆"
     assert frame.entities.places == ["独库公路"]
+
+
+def test_hengshan_ambiguity_preserves_keywords_without_clarification():
+    frame = _frame(
+        raw_query="衡山景区票价如何？",
+        normalized_request="衡山景区门票价格",
+        decision_type=DecisionType.FACT_LOOKUP,
+        task_family=TaskFamily.FACT_LOOKUP,
+        entities=SemanticEntities(country="China", places=["衡山"]),
+        information_needs=["ticket_price"],
+        requires_exact_fact=True,
+        can_answer_with_model_prior=False,
+        place_ambiguity=PlaceAmbiguityInfo(
+            is_ambiguous=True,
+            reason="衡山可能指南岳衡山或北岳恒山",
+            candidates=[
+                PlaceAmbiguityCandidate(name="南岳衡山", region="湖南", city="衡阳"),
+                PlaceAmbiguityCandidate(name="北岳恒山", region="山西", city="大同"),
+            ],
+        ),
+        labeled_entities=[
+            {
+                "text": "衡山",
+                "normalized_name": "衡山",
+                "entity_type": "natural_site",
+                "country": "China",
+                "labels": ["primary_subject", "ambiguous_place_candidate"],
+            }
+        ],
+    )
+    contract = ResponseContractCompiler().compile(frame)
+    assert contract.clarification_policy.should_ask is False
+    assert contract.entity_policy.requires_disambiguation is False
+    assert contract.place_ambiguity_context is not None
+    assert contract.place_ambiguity_context.is_ambiguous is True
+    keywords = contract.gated_search_keywords
+    assert "衡山" in keywords
+    assert "南岳衡山" in keywords
+    assert "衡阳" in keywords
+    assert "大同" in keywords
+    assert "门票" in keywords
+
+
+def test_baishahu_elevation_skips_s3_clarification_and_dispatches_evidence():
+    frame = _frame(
+        raw_query="白沙湖的海拔多少？",
+        normalized_request="白沙湖海拔",
+        decision_type=DecisionType.FACT_LOOKUP,
+        task_family=TaskFamily.FACT_LOOKUP,
+        entities=SemanticEntities(country="China", places=["白沙湖"]),
+        information_needs=["general_information"],
+        requires_exact_fact=True,
+        can_answer_with_model_prior=False,
+    )
+    contract = ResponseContractCompiler().compile(frame)
+    assert contract.entity_policy.requires_disambiguation is False
+    assert contract.clarification_policy.should_ask is False
+    assert "白沙湖" in contract.gated_search_keywords
+    assert "海拔" in contract.gated_search_keywords
+    general = next(c for c in contract.claim_requirements if c.claim_type == "general_travel_advice")
+    assert general.priority == "required"
+    assert general.requires_exact_fact is True
+
+    sm = TravelAgentStateMachine()
+    state = TravelAgentState(session_id="s", query_id="q", raw_user_query=frame.raw_query)
+    state.response_contract = contract
+    assert sm._dispatch_from_contract(state) == "evidence_pipeline"
 
 
 def test_duku_with_xinjiang_skips_disambiguation_and_dispatches_evidence():

@@ -1,4 +1,8 @@
 from app.agents.answer_composer_agent import AnswerComposerAgent
+from app.orchestrator.composition_preflight import (
+    clear_premature_clarification_for_composition,
+    should_compose_over_clarification,
+)
 from app.orchestrator.claude_state_runner import ClaudeStateRunner
 from app.orchestrator.state_policy import ANSWER_COMPOSITION_POLICY
 from app.orchestrator.state_reducer import StateReducer
@@ -15,6 +19,11 @@ class AnswerCompositionState:
 
     async def run(self, state: TravelAgentState, **compose_kwargs) -> TravelAgentState:
         prompt_context = dict(compose_kwargs)
+        if clear_premature_clarification_for_composition(state):
+            TraceRecorder.add(
+                state,
+                "✓ S8 清除 S5 过早地点澄清，改按 S7 claim_decisions 合成",
+            )
         state = await self.runner.run(state, ANSWER_COMPOSITION_POLICY, prompt_context)
         if not (state.final_response or "").strip():
             TraceRecorder.add(state, "⚠ AnswerComposition 受控循环未产出答案，触发兜底合成")

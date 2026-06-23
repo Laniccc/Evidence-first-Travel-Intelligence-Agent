@@ -19,6 +19,12 @@ class Settings(BaseSettings):
     deepseek_api_key: str | None = None
     deepseek_model: str = "deepseek-v4-flash"
     llm_mode: Literal["anthropic"] = "anthropic"
+    llm_request_timeout_seconds: float = 120.0
+    llm_empty_response_retries: int = 3
+    llm_max_output_tokens: int = 4096
+    llm_planner_max_tokens: int = 2048
+    llm_disable_thinking: bool = True
+    llm_json_min_tokens: int = 1536
 
     tool_mode: Literal["real", "hybrid"] = "real"
     place_resolution_use_mock: bool = False
@@ -91,6 +97,8 @@ class Settings(BaseSettings):
     mcp_browser_timeout_seconds: float = 45.0
     mcp_max_result_chars: int = 6000
     mcp_max_tool_calls_per_state: int = 10
+    evidence_max_gap_rounds: int = 1
+    evidence_gap_max_extra_steps: int = 3
     mcp_http_autostart: bool = True
     mcp_http_autostart_new_window: bool = True
     mcp_http_autostart_kill_stale: bool = True
@@ -143,12 +151,8 @@ class Settings(BaseSettings):
     ctrip_crawler_output_format: str = "json"
     ctrip_websearch_signal_enabled: bool = True
 
-    # Fliggy — FlyAI (sk- key) + optional Taobao TOP + subprocess crawler
+    # Fliggy — Taobao TOP Open API (open.fliggy.com App Key + App Secret)
     fliggy_ticket_crawler_enabled: bool = False
-    fliggy_flyai_enabled: bool = True
-    fliggy_flyai_api_key: str | None = None
-    fliggy_flyai_cli_command: str = "npx --yes @fly-ai/flyai-cli@1.0.16"
-    fliggy_flyai_timeout_seconds: float = 30.0
     fliggy_top_api_enabled: bool = False
     fliggy_app_key: str | None = None
     fliggy_app_secret: str | None = None
@@ -156,11 +160,7 @@ class Settings(BaseSettings):
     fliggy_api_gateway_url: str = "https://gw.api.taobao.com/router/rest"
     fliggy_api_sign_method: Literal["md5", "hmac"] = "md5"
     fliggy_api_timeout_seconds: float = 15.0
-    fliggy_ticket_crawler_command: str = ""
-    fliggy_ticket_crawler_workdir: str = ""
-    fliggy_ticket_crawler_timeout_seconds: float = 30.0
     fliggy_ticket_crawler_max_results: int = 20
-    fliggy_ticket_crawler_output_format: str = "json"
 
     # Dianping
     dianping_crawler_enabled: bool = False
@@ -190,7 +190,6 @@ class Settings(BaseSettings):
         "places_api_key",
         "baidu_map_ak",
         "ticketlens_api_key",
-        "fliggy_flyai_api_key",
         "fliggy_app_key",
         "fliggy_app_secret",
         "fliggy_session",

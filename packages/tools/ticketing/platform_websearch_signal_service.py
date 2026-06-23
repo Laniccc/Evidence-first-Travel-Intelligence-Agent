@@ -187,6 +187,20 @@ class PlatformWebSearchSignalService:
             if extra:
                 await _run_queries(extra)
 
+        if not items:
+            domain, brand = _PLATFORM_DOMAINS[platform]
+            anchor = self._place_keyword(place_name, query)
+            city_part = (city or "").strip()
+            location = f"{city_part} {anchor}".strip() if city_part else anchor
+            relaxed = [
+                f"{brand} {location} 门票 价格",
+                f"{location} 门票 {brand}",
+                f"{location} 门票 票价",
+            ]
+            if ticket_focus:
+                relaxed.append(f"{location} 门票")
+            await _run_queries([q for q in relaxed if q not in queries])
+
         unique_engines = list(dict.fromkeys(engines_tried))
         self.last_run_meta = {
             "transport": "platform_websearch",
@@ -267,6 +281,17 @@ class PlatformWebSearchSignalService:
             item["crowd_risk"] = crowd.group(0)
         if _VALUE_RE.search(blob):
             item["value_for_money"] = blob[:120]
+
+        brand = _PLATFORM_DOMAINS[platform][1]
+        if (
+            ticket_focus
+            and platform == "dianping"
+            and not on_poi_page
+            and (brand in blob or "点评" in blob)
+            and (_PRICE_RE.search(blob) or ticket_bits)
+        ):
+            item["confidence"] = min(float(item.get("confidence") or 0.52), 0.54)
+            return item
 
         if ticket_focus and not item.get("price_text") and not item.get("ticket_related_mentions"):
             return None

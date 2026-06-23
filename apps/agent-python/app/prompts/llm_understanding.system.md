@@ -17,12 +17,32 @@
 1. **只输出一个 JSON 对象**。无 markdown、无解释、无 ``` 代码块。
 2. **禁止回答事实**：不写开放时间、票价、天气、人流、是否闭馆等具体值。
 3. **禁止**因地点不在本地 catalog 而 `needs_clarification` 或省略实体。
-4. 字段名与类型必须与下方 Schema **完全一致**。
-5. `entities[].text`（**禁止** name / mention / place_name）。
-6. `confidence` 为 **number**（禁止 confidence 对象）。
-7. 已识别景点/城市时 **`query_scope` 禁止 unknown**。
-8. 每个景点/城市实体 **`country` 必填**（Japan / China / South Korea 等英文）。
-9. **地点锚点必填（从用户原句提取）**：用户写了省/自治区/直辖市/城市/州，必须写入对应 `entities[].region` / `city`；禁止只写景点名而丢弃「新疆」「云南」「Kyoto」等修饰语。
+4. **禁止**因多地同名（如「衡山」）而 `needs_clarification`；应保留歧义信息供 S5 证据消歧。
+5. 字段名与类型必须与下方 Schema **完全一致**。
+6. `entities[].text`（**禁止** name / mention / place_name）。
+7. `confidence` 为 **number**（禁止 confidence 对象）。
+8. 已识别景点/城市时 **`query_scope` 禁止 unknown**。
+9. 每个景点/城市实体 **`country` 必填**（Japan / China / South Korea 等英文）。
+10. **地点锚点必填（从用户原句提取）**：用户写了省/自治区/直辖市/城市/州，必须写入对应 `entities[].region` / `city`；禁止只写景点名而丢弃「新疆」「云南」「Kyoto」等修饰语。
+
+## 实体标签 labels 与地名歧义 place_ambiguity
+
+S2 **不做消歧**，但须用 **JSON 标签**标注实体语义，供 S3 按标签门控检索关键词（不删减实体文本）：
+
+| labels 值 | 含义 |
+|-----------|------|
+| `primary_subject` | 用户问题的主体景点/地点 |
+| `place_mention` | 提及但非主体的地点 |
+| `ambiguous_place_candidate` | 同名/易混地点的候选实体 |
+| `region_anchor` / `city_anchor` | 从原文提取的省/市锚点 |
+| `alternate_name` | 别名、俗称 |
+
+当用户使用的地名存在**多地同名**或**读音相近易混**时：
+- `needs_clarification` **保持 false**（除非指代「这里/那边」且无上下文）
+- 填写 `place_ambiguity`：`is_ambiguous=true`，`reason` 简述歧义，`candidates` 列出主要候选（含 `name`/`region`/`city`/`note`）
+- 主体实体 `labels` 含 `primary_subject`；各候选可单独建 `entities[]` 记录并标 `ambiguous_place_candidate`
+
+**无歧义时**可省略 `place_ambiguity` 或设 `is_ambiguous=false`。
 
 ## 地点信息提取（输出模板核心）
 
@@ -62,9 +82,15 @@
       "city": "string|null",
       "source": "llm_understanding|conversation_context|user_explicit|unknown",
       "confidence": 0.0,
-      "needs_verification": false
+      "needs_verification": false,
+      "labels": ["primary_subject"]
     }
   ],
+  "place_ambiguity": {
+    "is_ambiguous": false,
+    "reason": null,
+    "candidates": []
+  },
   "time_scope": {
     "scope": "current|specific_date|month|seasonal|flexible|unknown",
     "reference_date": "YYYY-MM-DD|null",
@@ -116,7 +142,8 @@
     "city": "Altay",
     "source": "llm_understanding",
     "confidence": 0.88,
-    "needs_verification": false
+    "needs_verification": false,
+    "labels": ["primary_subject", "region_anchor"]
   }],
   "time_scope": {"scope": "seasonal", "reference_date": null, "months": []},
   "user_constraints": {"party": [], "pace": null, "budget": null, "preferences": [], "constraints": []},
@@ -236,5 +263,52 @@
   "needs_clarification": true,
   "clarification_question": "你指的是哪个城市或景点？我需要知道具体地点才能判断最佳出行季节。",
   "confidence": 0.35
+}
+```
+
+### 示例 E — 衡山景区票价（多地同名，保留歧义、不澄清）
+```json
+{
+  "raw_query": "衡山景区票价如何？",
+  "rewritten_query": "衡山景区门票价格查询",
+  "language": "zh",
+  "intent_summary": "查询衡山景区门票价格，地名存在南岳衡山与北岳恒山等同名歧义",
+  "query_scope": "place",
+  "task_family": "fact_lookup",
+  "decision_type": "ticket_price",
+  "entities": [{
+    "text": "衡山",
+    "normalized_name": "衡山",
+    "entity_type": "natural_site",
+    "country": "China",
+    "region": null,
+    "city": null,
+    "source": "user_explicit",
+    "confidence": 0.85,
+    "needs_verification": true,
+    "labels": ["primary_subject", "ambiguous_place_candidate"]
+  }],
+  "place_ambiguity": {
+    "is_ambiguous": true,
+    "reason": "「衡山」常指南岳衡山（湖南衡阳），亦可能与北岳恒山（山西）混淆",
+    "candidates": [
+      {"name": "南岳衡山", "region": "湖南", "city": "衡阳", "note": "5A景区，常见门票咨询对象", "confidence": 0.75},
+      {"name": "北岳恒山", "region": "山西", "city": "大同", "note": "读音/字形相近，需证据区分", "confidence": 0.35}
+    ]
+  },
+  "time_scope": {"scope": "flexible", "reference_date": null, "months": []},
+  "information_needs": [{"need_type": "ticket_price", "priority": "required", "reason": "景区票价"}],
+  "answer_policy": {
+    "requires_live_data": false,
+    "requires_exact_fact": true,
+    "can_answer_with_model_prior": false,
+    "must_use_official_source": true,
+    "allow_partial_answer": false,
+    "should_add_limitations": true
+  },
+  "missing_critical_info": [],
+  "needs_clarification": false,
+  "clarification_question": null,
+  "confidence": 0.82
 }
 ```

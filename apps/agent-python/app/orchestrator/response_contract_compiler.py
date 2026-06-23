@@ -7,6 +7,7 @@ from typing import Any
 
 from app.config import get_settings
 from app.policies.evidence_policy import EvidencePolicy
+from app.orchestrator.claim_policy_registry import enrich_claim_requirement
 from app.schemas.normalized_user_request import NormalizedUserRequest
 from app.schemas.response_contract import (
     ClaimRequirement,
@@ -28,17 +29,16 @@ _ROAD_OR_SCENIC_HINTS = re.compile(
     r"公路|高速|国道|省道|景区|国家公园|森林公园|大峡谷|独库|天山|公路",
     re.I,
 )
-_AMBIGUOUS_PLACE_HINTS = re.compile(
-    r"山|峰|湖|河|谷|公路|高速|景区|公园|古镇|古城",
-    re.I,
-)
-_ADMIN_REGION_HINTS = re.compile(
-    r"新疆|西藏|内蒙古|广西|宁夏|香港|澳门|台湾"
-    r"|黑龙江|吉林|辽宁|河北|山西|陕西|甘肃|青海|山东|河南|江苏|浙江|安徽|福建|江西|湖北|湖南|广东|海南|四川|贵州|云南"
-    r"|北京|上海|天津|重庆"
-    r"|[^，,、\s]{2,8}(?:省|自治区|特别行政区|维吾尔|壮族|回族)",
-    re.I,
-)
+_KEYWORD_NEED_HINTS: dict[str, str] = {
+    "ticket_price": "门票",
+    "opening_hours": "开放时间",
+    "elevation": "海拔",
+    "altitude": "海拔",
+    "coordinates": "坐标",
+    "general_information": "",
+    "best_time_to_visit": "什么时候去",
+    "seasonality": "最佳季节",
+}
 
 _HARD_FACT_NEEDS = frozenset(
     {
@@ -55,6 +55,16 @@ _CROWD_NEEDS = frozenset({"current_crowd", "queue_time", "crowd_level"})
 
 _ADVISORY_NEEDS = frozenset({"best_time_to_visit", "seasonality"})
 
+_PLACE_ENTITY_LABELS = frozenset(
+    {
+        "primary_subject",
+        "place_mention",
+        "ambiguous_place_candidate",
+        "resolved_place",
+        "alternate_name",
+    }
+)
+
 _TICKET_PRICE_PROVIDER_TOOLS = [
     "ticketlens_experience_mcp",
     "fliggy_ticket_snapshot_crawler_mcp",
@@ -66,7 +76,6 @@ _TICKET_PRICE_PROVIDER_TOOLS = [
 _REVIEW_PROVIDER_TOOLS = [
     "ctrip_review_crawler_mcp",
     "dianping_review_crawler_mcp",
-    "fliggy_ticket_review_signal_mcp",
     "ticketlens_experience_mcp",
     "ticketlens_experience_review_signal_mcp",
 ]
@@ -123,7 +132,8 @@ class ResponseContractCompiler:
 
         claims = self._append_provider_preferred_tools(claims)
         entity_policy = self._build_entity_policy(frame, text)
-        clarification = self._build_clarification(frame, entity_policy, claims)
+        gated_keywords = self._gate_search_keywords(frame, text, claims)
+        clarification = self._build_clarification()
         tool_strategy = self._build_tool_strategy(claims, settings.mcp_max_tool_calls_per_state)
         fallback = self._build_fallback_policy(claims)
         composition = self._build_composition_policy(frame, claims)
@@ -136,14 +146,16 @@ class ResponseContractCompiler:
 
         return ResponseContract(
             user_goal_summary=summary[:200],
+            gated_search_keywords=gated_keywords,
+            place_ambiguity_context=frame.place_ambiguity,
             entity_policy=entity_policy,
-            claim_requirements=claims,
+            claim_requirements=[enrich_claim_requirement(c) for c in claims],
             tool_strategy=tool_strategy,
             fallback_policy=fallback,
             clarification_policy=clarification,
             composition_policy=composition,
             overall_risk_level=risk,
-            limitations_to_add=self._default_limitations(claims),
+            limitations_to_add=self._default_limitations(claims, frame),
         )
 
     @staticmethod
@@ -201,28 +213,16 @@ class ResponseContractCompiler:
         policy = EvidencePolicy.get(need)
 
         if need in _HARD_FACT_NEEDS:
-            city_known = bool((frame.entities.city or "").strip()) if frame.entities else False
-            ticket_price_preferred = (
-                [
-                    *_TICKET_PRICE_PROVIDER_TOOLS,
-                    "official_page_reader_mcp",
-                    "browser_mcp",
-                    "search_mcp",
-                    "official",
-                    "baidu_place_search_mcp",
-                    "baidu_place_detail_mcp",
-                ]
-                if city_known
-                else [
-                    "baidu_place_search_mcp",
-                    "baidu_place_detail_mcp",
-                    "baidu_geocode_mcp",
-                    "search_mcp",
-                    "official_page_reader_mcp",
-                    "browser_mcp",
-                    "official",
-                ]
-            )
+            ticket_price_preferred = [
+                "official_page_reader_mcp",
+                "browser_mcp",
+                "baidu_place_search_mcp",
+                "baidu_place_detail_mcp",
+                "baidu_geocode_mcp",
+                "search_mcp",
+                "official",
+                *_TICKET_PRICE_PROVIDER_TOOLS,
+            ]
             preferred = {
                 "ticket_price": ticket_price_preferred,
                 "opening_hours": [
@@ -338,24 +338,98 @@ class ResponseContractCompiler:
 
     @staticmethod
     def _general_advice_claim(frame: SemanticFrame) -> ClaimRequirement:
+        hard = bool(frame.requires_exact_fact or frame.requires_live_data)
         return ClaimRequirement(
             claim_type="general_travel_advice",
-            priority="important",
+            priority="required" if hard else "important",
+            requires_exact_fact=hard,
+            requires_live_data=bool(frame.requires_live_data),
             freshness="stable",
-            allowed_source_types=["public_web", "model_prior"],
-            preferred_tools=["search_mcp", "wikipedia_mcp", "knowledge_prior", "fallback"],
-            model_prior_allowed=frame.can_answer_with_model_prior,
-            estimation_allowed=True,
+            allowed_source_types=["public_web", "official", "map", "model_prior"],
+            preferred_tools=[
+                "baidu_place_search_mcp",
+                "baidu_place_detail_mcp",
+                "baidu_geocode_mcp",
+                "search_mcp",
+                "wikipedia_mcp",
+                "wikidata_mcp",
+                "osm_mcp",
+                "knowledge_prior",
+                "fallback",
+            ],
+            forbidden_tools=["knowledge_prior"] if hard else [],
+            model_prior_allowed=frame.can_answer_with_model_prior and not hard,
+            estimation_allowed=not hard,
             missing_behavior="answer_with_limitation",
         )
 
     @staticmethod
-    def _has_location_anchor(frame: SemanticFrame, text: str) -> bool:
-        city = (frame.entities.city or "").strip()
-        region = (frame.entities.region or "").strip()
-        if city or region:
-            return True
-        return bool(_ADMIN_REGION_HINTS.search(text))
+    def _gate_search_keywords(
+        frame: SemanticFrame,
+        text: str,
+        claims: list[ClaimRequirement],
+    ) -> list[str]:
+        """S3: gate S2 labeled entities/needs into retrieval keywords (preserve ambiguity)."""
+        keywords: list[str] = []
+
+        for ent in frame.labeled_entities or []:
+            if not isinstance(ent, dict):
+                continue
+            labels = set(ent.get("labels") or [])
+            if labels and not (labels & _PLACE_ENTITY_LABELS):
+                continue
+            name = str(ent.get("normalized_name") or ent.get("text") or "").strip()
+            if name:
+                keywords.append(name)
+            if ent.get("region"):
+                keywords.append(str(ent["region"]).strip())
+            if ent.get("city"):
+                keywords.append(str(ent["city"]).strip())
+
+        ambiguity = frame.place_ambiguity
+        if ambiguity and ambiguity.is_ambiguous:
+            for candidate in ambiguity.candidates:
+                if candidate.name:
+                    keywords.append(candidate.name)
+                if candidate.region:
+                    keywords.append(candidate.region)
+                if candidate.city:
+                    keywords.append(candidate.city)
+
+        entities = frame.entities
+        if entities and not keywords:
+            keywords.extend(entities.places or [])
+            if entities.city:
+                keywords.append(entities.city)
+            if entities.region:
+                keywords.append(entities.region)
+            if entities.country and entities.country not in {"China", "中国"}:
+                keywords.append(entities.country)
+
+        for need in frame.information_needs:
+            hint = _KEYWORD_NEED_HINTS.get(need)
+            if hint:
+                keywords.append(hint)
+            elif need not in {"unknown", "general_information"}:
+                keywords.append(need.replace("_", " "))
+
+        if re.search(r"海拔|高度", text, re.I):
+            keywords.append("海拔")
+
+        for claim in claims:
+            if claim.priority == "required" and claim.claim_type not in keywords:
+                hint = _KEYWORD_NEED_HINTS.get(claim.claim_type)
+                if hint:
+                    keywords.append(hint)
+
+        deduped: list[str] = []
+        for token in keywords:
+            token = str(token).strip()
+            if len(token) < 2:
+                continue
+            if token not in deduped:
+                deduped.append(token)
+        return deduped[:12]
 
     @staticmethod
     def _has_required_hard_claims(claims: list[ClaimRequirement]) -> bool:
@@ -363,65 +437,35 @@ class ResponseContractCompiler:
 
     @staticmethod
     def _build_entity_policy(frame: SemanticFrame, text: str) -> EntityPolicy:
-        country = (frame.entities.country or "").lower()
-        places = frame.entities.places or []
-        needs_disambiguation = False
-        reason: str | None = None
+        """Geo tool hints; preserve ambiguity metadata for S5 without S3 clarification."""
+        _ = text
+        preferred: list[str] = []
+        ambiguous = frame.place_ambiguity and frame.place_ambiguity.is_ambiguous
+        reason = frame.place_ambiguity.reason if ambiguous else None
 
-        if (
-            country in ("china", "中国")
-            and places
-            and not ResponseContractCompiler._has_location_anchor(frame, text)
-        ):
-            place_blob = " ".join(places) + text
-            if _AMBIGUOUS_PLACE_HINTS.search(place_blob):
-                needs_disambiguation = True
-                reason = "国内地点缺少省/市/行政区，可能存在同名地点"
-
-        preferred = []
-        if needs_disambiguation:
-            preferred = [
-                "baidu_place_search_mcp",
-                "baidu_geocode_mcp",
-                "baidu_reverse_geocode_mcp",
-                "wikidata_mcp",
-                "osm_mcp",
-                "search_mcp",
-            ]
+        if frame.entities and frame.entities.country in ("China", "中国", None, ""):
+            if frame.entities.places and (ambiguous or not (frame.entities.city or frame.entities.region)):
+                preferred = [
+                    "baidu_place_search_mcp",
+                    "baidu_geocode_mcp",
+                    "baidu_place_detail_mcp",
+                    "wikidata_mcp",
+                    "osm_mcp",
+                    "search_mcp",
+                ]
 
         return EntityPolicy(
-            requires_disambiguation=needs_disambiguation,
+            requires_disambiguation=False,
             disambiguation_reason=reason,
             preferred_tools=preferred,
-            if_multiple_candidates="ask_clarification",
+            if_multiple_candidates="answer_with_limitation",
             if_unresolved="answer_with_limitation",
         )
 
     @staticmethod
-    def _build_clarification(
-        frame: SemanticFrame,
-        entity_policy: EntityPolicy,
-        claims: list[ClaimRequirement],
-    ) -> ClarificationPolicy:
-        if frame.needs_clarification or "place_reference" in frame.missing_slots:
-            return ClarificationPolicy(
-                should_ask=True,
-                question="请补充具体地点或城市，以便继续查询。",
-                reason="关键地点信息缺失",
-            )
-        if entity_policy.requires_disambiguation:
-            if ResponseContractCompiler._has_required_hard_claims(claims):
-                return ClarificationPolicy(
-                    should_ask=False,
-                    reason="存在 required 强事实 claim，优先工具消歧",
-                )
-            place = frame.entities.places[0] if frame.entities.places else "该地点"
-            return ClarificationPolicy(
-                should_ask=True,
-                question=f"{place} 在多地有同名地点，您指的是哪个省市？",
-                reason=entity_policy.disambiguation_reason,
-            )
-        return ClarificationPolicy()
+    def _build_clarification() -> ClarificationPolicy:
+        """S3 does not ask users to disambiguate — S5 handles via evidence."""
+        return ClarificationPolicy(should_ask=False)
 
     @staticmethod
     def _append_provider_preferred_tools(claims: list[ClaimRequirement]) -> list[ClaimRequirement]:
@@ -497,13 +541,21 @@ class ResponseContractCompiler:
     ) -> str:
         if any(c.priority == "required" and c.requires_exact_fact for c in claims):
             return "high"
-        if entity_policy.requires_disambiguation:
-            return "medium"
         return "low"
 
     @staticmethod
-    def _default_limitations(claims: list[ClaimRequirement]) -> list[str]:
+    def _default_limitations(claims: list[ClaimRequirement], frame: SemanticFrame | None = None) -> list[str]:
         limits: list[str] = []
+        if frame and frame.place_ambiguity and frame.place_ambiguity.is_ambiguous:
+            names = [c.name for c in frame.place_ambiguity.candidates if c.name]
+            if names:
+                limits.append(
+                    "用户提及的地名可能存在多地同名："
+                    + "、".join(names[:4])
+                    + "；回答将基于检索证据消歧，而非提前假定唯一地点。"
+                )
+            elif frame.place_ambiguity.reason:
+                limits.append(frame.place_ambiguity.reason)
         if any(c.claim_type == "best_time_to_visit" for c in claims):
             limits.append(
                 "季节建议基于公开资料或一般规律；具体年份天气与节庆日期需进一步核实。"

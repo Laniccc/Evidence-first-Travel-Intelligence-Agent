@@ -97,6 +97,11 @@ def _normalize_entity(raw: Any) -> dict[str, Any] | None:
     if entity.get("needs_verification") is None and "needs_verification" not in entity:
         entity.setdefault("needs_verification", False)
 
+    raw_labels = entity.get("labels") or []
+    if isinstance(raw_labels, str):
+        raw_labels = [raw_labels]
+    entity["labels"] = [str(label).strip() for label in raw_labels if str(label).strip()]
+
     return entity
 
 
@@ -198,5 +203,25 @@ def normalize_llm_understanding_payload(data: dict[str, Any], raw_query: str) ->
 
     if isinstance(out.get("missing_critical_info"), str):
         out["missing_critical_info"] = [out["missing_critical_info"]]
+
+    ambiguity = out.get("place_ambiguity")
+    if isinstance(ambiguity, dict):
+        candidates = []
+        for raw in ambiguity.get("candidates") or []:
+            if isinstance(raw, dict) and raw.get("name"):
+                candidates.append(
+                    {
+                        "name": str(raw["name"]).strip(),
+                        "region": raw.get("region"),
+                        "city": raw.get("city"),
+                        "note": raw.get("note"),
+                        "confidence": _coerce_float(raw.get("confidence"), 0.5),
+                    }
+                )
+        out["place_ambiguity"] = {
+            "is_ambiguous": bool(ambiguity.get("is_ambiguous")),
+            "reason": ambiguity.get("reason"),
+            "candidates": candidates,
+        }
 
     return out

@@ -193,3 +193,14 @@ def test_realtime_weather_not_cover_long_term_seasonality():
     report = EvidenceCoverageChecker().check(contract, [weather_ev], [])
     item = report.items[0]
     assert item.covered is False
+
+
+def test_need_tool_profiles_prioritize_official_for_hard_facts():
+    from app.tools.mcp.tool_specs import NEED_TOOL_PROFILES
+
+    ticket = NEED_TOOL_PROFILES["ticket_price"]
+    assert ticket[0] == "official_page_reader_mcp"
+    assert ticket.index("official_page_reader_mcp") < ticket.index("ctrip_ticket_signal_crawler_mcp")
+
+    hours = NEED_TOOL_PROFILES["opening_hours"]
+    assert hours[0] == "official_page_reader_mcp"

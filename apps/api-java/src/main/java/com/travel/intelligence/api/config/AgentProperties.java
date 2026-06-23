@@ -9,7 +9,7 @@ public class AgentProperties {
 
     private String baseUrl = "http://localhost:8001";
     private Duration connectTimeout = Duration.ofSeconds(5);
-    private Duration readTimeout = Duration.ofMinutes(2);
+    private Duration readTimeout = Duration.ofMinutes(5);
 
     public String getBaseUrl() {
         return baseUrl;

@@ -123,7 +123,7 @@ def _ctx_with_searches(completed: int) -> dict:
 
 
 @pytest.mark.asyncio
-async def test_ticket_price_calls_priority_tool_before_search_planner():
+async def test_ticket_price_calls_search_planner_first():
     controller = ActionModelController(llm_client=_NoLLM())
     state = _ticket_state()
     ctx = {
@@ -134,12 +134,12 @@ async def test_ticket_price_calls_priority_tool_before_search_planner():
     action = await controller.next_action(
         state, EVIDENCE_PLANNING_AND_TOOL_USE_POLICY, ctx, step=1
     )
-    assert action.action_type == AgentActionType.CALL_TOOL
-    assert action.target != "search_mcp"
+    assert action.action_type == AgentActionType.CALL_SUBAGENT
+    assert action.target == "search_task_planner_agent"
 
 
 @pytest.mark.asyncio
-async def test_review_checkpoint_plans_two_tools_after_two_searches():
+async def test_review_checkpoint_interleaves_official_after_two_searches():
     controller = ActionModelController(llm_client=_ReviewLLM())
     state = _ticket_state()
     ctx, tasks, completed = _ctx_with_searches(2)
@@ -156,12 +156,10 @@ async def test_review_checkpoint_plans_two_tools_after_two_searches():
     )
     assert action.action_type == AgentActionType.CALL_TOOL
     assert action.target == "official_page_reader_mcp"
-    assert len(ctx.get("_tool_batch_queue") or []) == 1
-    assert ctx["_tool_batch_queue"][0]["target"] == "baidu_place_detail_mcp"
 
 
 @pytest.mark.asyncio
-async def test_deterministic_review_fallback_without_llm():
+async def test_deterministic_interleave_without_llm():
     controller = ActionModelController(llm_client=_NoLLM())
     state = _ticket_state()
     ctx, tasks, completed = _ctx_with_searches(2)
@@ -177,8 +175,7 @@ async def test_deterministic_review_fallback_without_llm():
         state, EVIDENCE_PLANNING_AND_TOOL_USE_POLICY, ctx, step=5
     )
     assert action.action_type == AgentActionType.CALL_TOOL
-    assert action.target != "search_mcp"
-    assert ctx.get("_tool_batch_queue")
+    assert action.target == "official_page_reader_mcp"
 
 
 def test_configured_ticket_providers_in_whitelist(monkeypatch):

@@ -19,3 +19,6 @@ class ToolTrace(BaseModel):
     crawler_workdir: str | None = None
     snapshot_saved_count: int | None = None
     output_parse_status: str | None = None
+    gap_filling: bool = False
+    gap_id: str | None = None
+    gap_claim_type: str | None = None

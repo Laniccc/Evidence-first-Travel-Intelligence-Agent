@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Manual smoke: Fliggy ticket snapshot (FlyAI API or subprocess crawler)."""
+"""Manual smoke: Fliggy ticket snapshot via TOP Open API."""
 
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ from app.config import get_settings
 _fliggy_mod = _bootstrap.import_tools_module("crawlers.fliggy_crawler_tool")
 FliggyTicketSnapshotCrawlerTool = _fliggy_mod.FliggyTicketSnapshotCrawlerTool
 _provider_config = _bootstrap.import_tools_module("ticketing.provider_config")
-fliggy_flyai_configured = _provider_config.fliggy_flyai_configured
+fliggy_top_api_configured = _provider_config.fliggy_top_api_configured
 
 
 def _summarize(evidence: list) -> str:
@@ -33,9 +33,8 @@ async def main() -> int:
     settings = get_settings()
     tool = FliggyTicketSnapshotCrawlerTool(settings)
     print(f"enabled={settings.fliggy_ticket_crawler_enabled and settings.enable_ticket_crawler_providers}")
-    print(f"flyai={fliggy_flyai_configured(settings)}")
+    print(f"top_api={fliggy_top_api_configured(settings)}")
     print(f"configured={tool.is_configured()}")
-    print(f"command={tool.command or '(empty)'}")
 
     evidence = await tool.run(
         place_name=args.place,

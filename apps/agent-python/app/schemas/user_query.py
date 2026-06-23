@@ -16,6 +16,8 @@ from app.schemas.response_contract import ResponseContract
 from app.schemas.s5_information_domain import S5DomainPlan
 from app.schemas.semantic_frame import AnswerModeDecision, SemanticFrame
 from app.schemas.evidence_brief import EvidenceBrief
+from app.schemas.evidence_decision_report import EvidenceDecisionReport
+from app.schemas.evidence_gap_request import EvidenceGapLoopState, EvidenceGapRequest
 from app.schemas.user_need_residual import UserNeedResidual
 from app.schemas.travel_task import TravelTask
 from app.tools.tool_router import ToolExecutionPlan
@@ -154,8 +156,13 @@ class TravelAgentState(BaseModel):
     citation_check_result: CitationCheckResult | None = None
     tool_traces: list[ToolTrace] = Field(default_factory=list)
     evidence_planning_completed: bool = False
+    evidence_accumulated: bool = False
     user_need_residual: UserNeedResidual | None = None
     evidence_brief: EvidenceBrief | None = None
+    evidence_decision_report: EvidenceDecisionReport | None = None
+    gap_loop_state: EvidenceGapLoopState | None = None
+    current_evidence_gap_request: EvidenceGapRequest | None = None
+    pending_evidence_gap_requests: list[EvidenceGapRequest] = Field(default_factory=list)
     planning_notes: list[str] = Field(default_factory=list)
     final_response: str | None = None
     structured_result: dict | None = None

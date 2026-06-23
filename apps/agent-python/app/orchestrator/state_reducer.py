@@ -138,6 +138,18 @@ class StateReducer:
             if task_id and task_id not in completed:
                 completed.append(task_id)
             structured["completed_search_task_ids"] = completed
+            history = list(structured.get("keyword_search_results") or [])
+            history.append(
+                {
+                    "task_id": task_id,
+                    "search_query": output.get("search_query"),
+                    "search_purpose": output.get("search_purpose") or output.get("information_need"),
+                    "selected_tool": output.get("selected_tool"),
+                    "anchor_keywords": output.get("anchor_keywords"),
+                    "evidence_count": len(evidence),
+                }
+            )
+            structured["keyword_search_results"] = history[-12:]
             state.structured_result = structured
             query_preview = str(output.get("search_query", ""))[:48]
             TraceRecorder.add(
@@ -188,7 +200,12 @@ class StateReducer:
             if rendered:
                 state = self._apply_composition_draft(state, draft)
             elif (state.final_response or "").strip():
-                TraceRecorder.add(state, "✓ [loop] AnswerComposition 完成（保留已有草稿）")
+                from app.orchestrator.composition_preflight import should_compose_over_clarification
+
+                if should_compose_over_clarification(state):
+                    state.limitations.append("Answer composition FINISH 未产生有效正文（已忽略 S5 澄清草稿）")
+                else:
+                    TraceRecorder.add(state, "✓ [loop] AnswerComposition 完成（保留已有草稿）")
             else:
                 state.limitations.append("Answer composition FINISH 未产生有效正文")
             TraceRecorder.add(

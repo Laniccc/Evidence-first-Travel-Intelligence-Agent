@@ -62,19 +62,28 @@ class EvidencePolicyGuard(PolicyGuard):
         if policy.state_name != "evidence_planning_and_tool_use" or state is None:
             return
 
+        gap_mode = state.current_evidence_gap_request is not None
+
         if action.action_type == AgentActionType.CALL_TOOL:
-            self._validate_max_tool_calls(tool_call_count)
+            self._validate_max_tool_calls(tool_call_count, gap_mode=gap_mode)
             self._validate_tool_call(action, state, tool_whitelist)
 
         if action.action_type == AgentActionType.CALL_SUBAGENT:
             self._validate_subagent_call(action, state, tool_whitelist)
 
         if action.action_type == AgentActionType.FINISH_STATE:
+            if state.current_evidence_gap_request is not None:
+                return
             self._validate_finish(action, state, tool_whitelist)
 
     @staticmethod
-    def _validate_max_tool_calls(tool_call_count: int) -> None:
-        limit = get_settings().mcp_max_tool_calls_per_state
+    def _validate_max_tool_calls(tool_call_count: int, *, gap_mode: bool = False) -> None:
+        settings = get_settings()
+        limit = (
+            settings.evidence_gap_max_extra_steps
+            if gap_mode
+            else settings.mcp_max_tool_calls_per_state
+        )
         if tool_call_count >= limit:
             raise ValueError(
                 f"S5 max tool calls ({limit}) reached; FINISH_STATE or UPDATE_STATE with limitations"

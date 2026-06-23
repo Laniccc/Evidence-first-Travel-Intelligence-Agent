@@ -194,7 +194,6 @@ _REVIEW_CLAIMS = [
 _REVIEW_BINDINGS: list[S5DomainToolBinding] = [
     _b(D.REVIEW_SIGNAL, P.REVIEW_PLATFORM_PROVIDER, "ctrip_review_crawler_mcp", R.PRIMARY, _REVIEW_CLAIMS),
     _b(D.REVIEW_SIGNAL, P.REVIEW_PLATFORM_PROVIDER, "dianping_review_crawler_mcp", R.PRIMARY, _REVIEW_CLAIMS),
-    _b(D.REVIEW_SIGNAL, P.TICKET_PLATFORM_PROVIDER, "fliggy_ticket_review_signal_mcp", R.CANDIDATE, _REVIEW_CLAIMS),
     _b(D.REVIEW_SIGNAL, P.TICKET_PLATFORM_PROVIDER, "ticketlens_experience_mcp", R.CANDIDATE, _REVIEW_CLAIMS),
     _b(D.REVIEW_SIGNAL, P.TICKET_PLATFORM_PROVIDER, "ticketlens_experience_review_signal_mcp", R.CANDIDATE, _REVIEW_CLAIMS),
     _b(D.REVIEW_SIGNAL, P.REVIEW_PLATFORM_PROVIDER, "review_signal_mcp", R.PRIMARY, _REVIEW_CLAIMS),

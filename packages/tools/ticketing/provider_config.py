@@ -11,7 +11,6 @@ TICKET_PROVIDER_TOOL_NAMES: frozenset[str] = frozenset(
         "ctrip_review_crawler_mcp",
         "ctrip_ticket_signal_crawler_mcp",
         "fliggy_ticket_snapshot_crawler_mcp",
-        "fliggy_ticket_review_signal_mcp",
         "dianping_review_crawler_mcp",
         "dianping_ticket_signal_crawler_mcp",
         "ticket_snapshot_store",
@@ -24,7 +23,6 @@ TICKET_CRAWLER_TOOLS: frozenset[str] = frozenset(
         "ctrip_review_crawler_mcp",
         "ctrip_ticket_signal_crawler_mcp",
         "fliggy_ticket_snapshot_crawler_mcp",
-        "fliggy_ticket_review_signal_mcp",
         "dianping_review_crawler_mcp",
         "dianping_ticket_signal_crawler_mcp",
     }
@@ -34,7 +32,6 @@ REVIEW_CRAWLER_TOOLS: frozenset[str] = frozenset(
     {
         "ctrip_review_crawler_mcp",
         "dianping_review_crawler_mcp",
-        "fliggy_ticket_review_signal_mcp",
         "ticketlens_experience_mcp",
         "ticketlens_experience_review_signal_mcp",
     }
@@ -72,58 +69,24 @@ def ctrip_crawler_configured(settings: Settings | None = None) -> bool:
     return ctrip_subprocess_configured(settings) or ctrip_websearch_signal_configured(settings)
 
 
-def effective_flyai_api_key(settings: Settings | None = None) -> str | None:
-    """API key from flyai.open.fliggy.com (sk-...)."""
-    s = settings or get_settings()
-    if s.fliggy_flyai_api_key:
-        return s.fliggy_flyai_api_key
-    legacy = s.fliggy_app_key or ""
-    if legacy.startswith("sk-"):
-        return legacy
-    return None
-
-
-def fliggy_flyai_configured(settings: Settings | None = None) -> bool:
-    s = settings or get_settings()
-    return bool(
-        s.fliggy_flyai_enabled
-        and s.fliggy_ticket_crawler_enabled
-        and s.enable_ticket_crawler_providers
-        and effective_flyai_api_key(s)
-    )
-
-
 def fliggy_top_api_configured(settings: Settings | None = None) -> bool:
     s = settings or get_settings()
-    key = s.fliggy_app_key or ""
-    if key.startswith("sk-"):
-        return False
     return bool(
         s.fliggy_top_api_enabled
         and s.fliggy_ticket_crawler_enabled
         and s.enable_ticket_crawler_providers
-        and key
+        and s.fliggy_app_key
         and s.fliggy_app_secret
     )
 
 
-def fliggy_open_api_configured(settings: Settings | None = None) -> bool:
-    """FlyAI (sk- key) or legacy Taobao TOP (app_key + app_secret)."""
-    return fliggy_flyai_configured(settings) or fliggy_top_api_configured(settings)
-
-
-def fliggy_crawler_subprocess_configured(settings: Settings | None = None) -> bool:
-    s = settings or get_settings()
-    return bool(
-        s.fliggy_ticket_crawler_enabled
-        and s.enable_ticket_crawler_providers
-        and (s.fliggy_ticket_crawler_command or "").strip()
-    )
+def fliggy_api_configured(settings: Settings | None = None) -> bool:
+    return fliggy_top_api_configured(settings)
 
 
 def fliggy_crawler_configured(settings: Settings | None = None) -> bool:
-    s = settings or get_settings()
-    return fliggy_open_api_configured(s) or fliggy_crawler_subprocess_configured(s)
+    """Backward-compatible alias for Fliggy TOP API availability."""
+    return fliggy_api_configured(settings)
 
 
 def dianping_subprocess_configured(settings: Settings | None = None) -> bool:
@@ -157,10 +120,8 @@ def provider_enabled_for_tool(tool_name: str, settings: Settings | None = None) 
         return s.ctrip_crawler_enabled and (
             s.enable_review_crawler_providers or s.enable_ticket_crawler_providers
         )
-    if tool_name in {"fliggy_ticket_snapshot_crawler_mcp", "fliggy_ticket_review_signal_mcp"}:
-        return s.fliggy_ticket_crawler_enabled and (
-            s.enable_ticket_crawler_providers or s.enable_review_crawler_providers
-        )
+    if tool_name == "fliggy_ticket_snapshot_crawler_mcp":
+        return s.fliggy_ticket_crawler_enabled and s.enable_ticket_crawler_providers
     if tool_name in {"dianping_review_crawler_mcp", "dianping_ticket_signal_crawler_mcp"}:
         return s.dianping_crawler_enabled and (
             s.enable_review_crawler_providers or s.enable_ticket_crawler_providers
@@ -179,9 +140,7 @@ def provider_configured_for_tool(tool_name: str, settings: Settings | None = Non
     if tool_name.startswith("ctrip_"):
         return ctrip_crawler_configured(s)
     if tool_name == "fliggy_ticket_snapshot_crawler_mcp":
-        return fliggy_crawler_configured(s)
-    if tool_name.startswith("fliggy_"):
-        return fliggy_crawler_subprocess_configured(s)
+        return fliggy_api_configured(s)
     if tool_name.startswith("dianping_"):
         return dianping_crawler_configured(s)
     if tool_name in {"ticket_snapshot_store", "ticket_price_history_query"}:

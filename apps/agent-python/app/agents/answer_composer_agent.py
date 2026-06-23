@@ -121,6 +121,22 @@ class AnswerComposerAgent:
                 float(r.get("confidence", 0.5)) for r in actionable_claims
             ) / len(actionable_claims)
 
+        report = state.evidence_decision_report
+        claim_decisions = []
+        if report:
+            claim_decisions = [
+                {
+                    "claim_type": d.claim_type,
+                    "adoption": d.adoption,
+                    "coverage_quality": d.coverage_quality,
+                    "confidence": d.confidence,
+                    "limitations": d.limitations,
+                    "adopted_evidence_ids": d.adopted_evidence_ids,
+                    "reason": d.reason,
+                }
+                for d in report.claim_decisions
+            ]
+
         return {
             "compose_mode": arguments.get("compose_mode", "advisory"),
             "target_label": arguments.get("target_label") or arguments.get("place_name") or "目的地",
@@ -151,6 +167,8 @@ class AnswerComposerAgent:
                 else arguments.get("plan")
             ),
             "compare_place_names": arguments.get("place_names"),
+            "evidence_decision_report": report.model_dump() if report else None,
+            "claim_decisions": claim_decisions,
         }
 
     def _composition_rules(
@@ -168,7 +186,16 @@ class AnswerComposerAgent:
             "You MUST surface valuable clues from evidence_brief.curated_claims with confidence levels.",
             "Never return a one-line stub or truncated sentence.",
             "cited_evidence_ids: copy full evidence_id from curated_claims — never shorten UUIDs.",
+            "S8 must follow claim_decisions.adoption from evidence_decision_report — do NOT re-judge evidence.",
         ]
+        rules.extend(self._adoption_rules(state))
+        from app.orchestrator.place_disambiguation_guard import extract_place_candidates
+
+        if extract_place_candidates(list(state.evidence or [])):
+            rules.append(
+                "Multiple同名 places detected: present ticket/price clues as 候选信息 per source, "
+                "note which region each clue may refer to, and ask which 五彩滩/place the user means."
+            )
         if overall_confidence < 0.55 or (brief and brief.coverage_gaps):
             rules.append(
                 "overall_confidence is low or required claims are uncovered — prominently state 证据不足/未核实 in the answer body."
@@ -209,6 +236,37 @@ class AnswerComposerAgent:
                     "cited_evidence_ids may be empty when there is no substantive evidence.",
                 ]
             )
+        return rules
+
+    @staticmethod
+    def _adoption_rules(state: TravelAgentState) -> list[str]:
+        report = state.evidence_decision_report
+        if not report:
+            return []
+        rules: list[str] = []
+        for decision in report.claim_decisions:
+            if decision.adoption == "candidate_only":
+                rules.append(
+                    f"For {decision.claim_type}: present platform/search clues only as 候选信息 — "
+                    "never state as official confirmed fact."
+                )
+            elif decision.adoption == "refuse_to_guess":
+                rules.append(
+                    f"For {decision.claim_type}: explicitly state you cannot confirm; do not guess."
+                )
+            elif decision.adoption == "ask_clarification":
+                rules.append(
+                    f"For {decision.claim_type}: ask the user for clarification instead of guessing."
+                )
+            elif decision.adoption == "omit":
+                rules.append(f"For {decision.claim_type}: omit this topic from the answer body.")
+            elif decision.adoption == "adopt_with_limitation":
+                rules.append(
+                    f"For {decision.claim_type}: answer with stated limitations: "
+                    + "; ".join(decision.limitations[:2])
+                    if decision.limitations
+                    else "evidence incomplete"
+                )
         return rules
 
     async def _llm_compose(self, bundle: dict) -> FinalAnswerDraft:

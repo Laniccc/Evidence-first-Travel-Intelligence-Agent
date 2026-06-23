@@ -3,30 +3,57 @@
 from __future__ import annotations
 
 import json
-from typing import Any, Callable
+from typing import Callable
 
 
 class StubLLMClient:
     """Minimal LLM client for tests — never calls the network."""
 
-    def __init__(self, responder: Callable[[str, str], str] | None = None) -> None:
+    def __init__(
+        self,
+        responder: Callable[[str, str], str] | None = None,
+        *,
+        responses: list[str | BaseException] | None = None,
+    ) -> None:
         self._responder = responder or self._default_responder
+        self._responses = list(responses) if responses is not None else None
+        self._call_count = 0
 
     def _should_use_anthropic(self) -> bool:
         return True
 
-    async def complete(self, system: str, user: str, max_tokens: int = 1200) -> str:
+    async def complete(
+        self,
+        system: str,
+        user: str,
+        max_tokens: int = 1200,
+        *,
+        json_only: bool = False,
+    ) -> str:
+        _ = (max_tokens, json_only)
+        if self._responses is not None:
+            idx = min(self._call_count, len(self._responses) - 1)
+            self._call_count += 1
+            item = self._responses[idx]
+            if isinstance(item, BaseException):
+                raise item
+            return str(item)
         return self._responder(system, user)
 
     @staticmethod
     def _default_responder(system: str, user: str) -> str:
-        if "search tasks" in system.lower() or "keyword search" in system.lower():
+        if "search tasks" in system.lower() or "keyword search" in system.lower() or "refine" in system.lower():
             try:
                 payload = json.loads(user)
             except json.JSONDecodeError:
                 payload = {}
+            planner_input = payload.get("planner_input")
+            if isinstance(planner_input, dict):
+                payload = planner_input
             raw = payload.get("raw_query") or "查询"
-            place = (payload.get("entities") or {}).get("places", [""])[0] or "目的地"
+            entities = payload.get("entities") or {}
+            places = entities.get("places") or []
+            place = places[0] if places else "目的地"
             return json.dumps(
                 {
                     "tasks": [

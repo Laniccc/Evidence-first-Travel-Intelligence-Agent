@@ -34,6 +34,35 @@ class OfficialPageFetchAdapter(BaseTravelTool):
             if isinstance(prior, list):
                 url = pick_url_from_evidence(prior) or ""
         if not url:
+            query = (
+                kwargs.get("query")
+                or kwargs.get("place_name")
+                or ""
+            ).strip()
+            need = kwargs.get("information_need") or kwargs.get("need_type") or ""
+            if query and need == "ticket_price" and "门票" not in query:
+                query = f"{query} 官网 门票"
+            elif query and "官网" not in query:
+                query = f"{query} 官网"
+            if query:
+                search = await self._client.open_websearch_search(str(query), limit=5)
+                if search.ok:
+                    prior_hits = kwargs.get("prior_evidence") or []
+                    if isinstance(prior_hits, list):
+                        url = pick_url_from_evidence(prior_hits) or ""
+                    if not url and isinstance(search.data, dict):
+                        results = search.data.get("data", search.data)
+                        if isinstance(results, dict):
+                            results = results.get("results", results.get("hits", []))
+                        if isinstance(results, list):
+                            for hit in results:
+                                if not isinstance(hit, dict):
+                                    continue
+                                candidate = str(hit.get("url") or hit.get("link") or "").strip()
+                                if candidate:
+                                    url = candidate
+                                    break
+        if not url:
             raise ValueError("official_page_reader_mcp requires url (from search_mcp or kwargs)")
 
         result = await self._client.open_websearch_fetch(url, server_name="search")
