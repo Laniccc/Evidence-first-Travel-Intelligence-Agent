@@ -1,5 +1,7 @@
+from app.agents.answer_composer_agent import AnswerComposerAgent
 from app.orchestrator.claude_state_runner import ClaudeStateRunner
 from app.orchestrator.state_policy import ANSWER_COMPOSITION_POLICY
+from app.orchestrator.state_reducer import StateReducer
 from app.orchestrator.trace import TraceRecorder
 from app.schemas.user_query import TravelAgentState
 
@@ -14,6 +16,10 @@ class AnswerCompositionState:
     async def run(self, state: TravelAgentState, **compose_kwargs) -> TravelAgentState:
         prompt_context = dict(compose_kwargs)
         state = await self.runner.run(state, ANSWER_COMPOSITION_POLICY, prompt_context)
+        if not (state.final_response or "").strip():
+            TraceRecorder.add(state, "⚠ AnswerComposition 受控循环未产出答案，触发兜底合成")
+            draft = await AnswerComposerAgent(self.llm_client).compose(state, prompt_context)
+            state = StateReducer()._apply_composition_draft(state, draft)
         if state.final_response:
             TraceRecorder.add(state, "✓ 已完成 AnswerComposition")
         return state

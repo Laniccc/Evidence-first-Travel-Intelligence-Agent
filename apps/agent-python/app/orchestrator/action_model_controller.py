@@ -241,13 +241,10 @@ class ActionModelController:
         called = {resolve_tool_name(t.tool_name) for t in state.tool_traces}
         called |= {resolve_tool_name(t) for t in prompt_context.get("_called_policy_tools", [])}
 
-        non_search_queue = self._non_search_priority_queue(state, prompt_context, allowed_names)
+        non_search_queue = self._callable_non_search_queue(state, prompt_context, allowed_names)
         min_non_search = self._min_non_search_before_planner(state, non_search_queue)
         non_search_called = sum(1 for t in non_search_queue if resolve_tool_name(t) in called)
-        next_non_search = next(
-            (t for t in non_search_queue if resolve_tool_name(t) not in called),
-            None,
-        )
+        next_non_search = self._next_non_search_tool(non_search_queue, called)
 
         if (
             self._requires_diversified_tools_first(state)
@@ -481,7 +478,7 @@ class ActionModelController:
     ) -> list[dict]:
         called = {resolve_tool_name(t.tool_name) for t in state.tool_traces}
         called |= {resolve_tool_name(t) for t in prompt_context.get("_called_policy_tools", [])}
-        queue = self._non_search_priority_queue(state, prompt_context, allowed_names)
+        queue = self._callable_non_search_queue(state, prompt_context, allowed_names)
         picks = [t for t in queue if resolve_tool_name(t) not in called][:count]
         return [
             {
@@ -633,10 +630,42 @@ class ActionModelController:
             return 0
         needs = ActionModelController._merged_information_needs(state)
         if "ticket_price" in needs or "opening_hours" in needs:
+            frame = state.semantic_frame
+            city_known = bool((frame.entities.city or "").strip()) if frame and frame.entities else False
+            if "ticket_price" in needs and city_known:
+                return min(3, len(non_search_queue))
             return min(2, len(non_search_queue))
         if any(n in ActionModelController._HARD_FACT_NEEDS for n in needs):
             return min(1, len(non_search_queue))
         return 0
+
+    @staticmethod
+    def _next_non_search_tool(queue: list[str], called: set[str]) -> str | None:
+        for tool in queue:
+            if resolve_tool_name(tool) not in called:
+                return tool
+        return None
+
+    def _callable_non_search_queue(
+        self,
+        state: TravelAgentState,
+        prompt_context: dict,
+        allowed_names: set[str],
+    ) -> list[str]:
+        from tools.mcp.adapters.baidu_response_parser import pick_baidu_uid_from_evidence
+
+        queue = self._non_search_priority_queue(state, prompt_context, allowed_names)
+        has_url = any(getattr(ev, "source_url", None) for ev in state.evidence)
+        search_done = ClaimSearchPlanner.search_call_count(state) > 0
+        has_uid = bool(pick_baidu_uid_from_evidence(list(state.evidence)))
+        filtered: list[str] = []
+        for tool in queue:
+            if tool in {"browser_mcp", "official_page_reader_mcp"} and not has_url and not search_done:
+                continue
+            if tool == "baidu_place_detail_mcp" and not has_uid:
+                continue
+            filtered.append(tool)
+        return filtered
 
     def _non_search_priority_queue(
         self,
@@ -667,11 +696,15 @@ class ActionModelController:
                 plan.tool_bindings,
                 key=lambda b: (role_rank.get(b.role, 9), b.tool_name),
             )
-            for binding in bindings:
-                if binding.domain == InformationDomain.TICKET_BOOKING or is_ticket_provider_tool(
-                    binding.tool_name
-                ):
-                    _add(binding.tool_name)
+            ticket_bindings = [
+                b
+                for b in bindings
+                if b.domain == InformationDomain.TICKET_BOOKING or is_ticket_provider_tool(b.tool_name)
+            ]
+            provider_first = [b for b in ticket_bindings if is_ticket_provider_tool(b.tool_name)]
+            other_ticket = [b for b in ticket_bindings if b not in provider_first]
+            for binding in provider_first + other_ticket:
+                _add(binding.tool_name)
 
         for need in self._merged_information_needs(state):
             for tool in NEED_TOOL_PROFILES.get(need, []):
@@ -817,6 +850,9 @@ class ActionModelController:
             return []
         country = (frame.entities.country or "").strip().lower()
         if country not in ("china", "中国"):
+            return []
+        needs = ActionModelController._merged_information_needs(state)
+        if "ticket_price" in needs and (frame.entities.city or "").strip():
             return []
         if (frame.entities.city or "").strip() and not ActionModelController._needs_coordinate_resolution(
             state

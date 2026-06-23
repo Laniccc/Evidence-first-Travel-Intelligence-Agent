@@ -1,5 +1,9 @@
 from contextlib import asynccontextmanager
 
+# Ensure uvicorn --reload picks up shared packages/tools changes (subprocess argv, crawlers).
+import tools.crawlers.fliggy_crawler_tool  # noqa: F401
+import tools.subprocess_argv  # noqa: F401
+
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 

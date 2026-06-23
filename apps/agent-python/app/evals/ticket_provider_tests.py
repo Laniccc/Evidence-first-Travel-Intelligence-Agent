@@ -71,14 +71,143 @@ def test_ticket_providers_disabled_by_default(monkeypatch):
         assert wl.reason_by_tool.get(tool) in {"disabled_by_config", "not_configured", "missing_api_key"}
 
 
+def test_ticket_review_providers_disabled_by_default(monkeypatch):
+    """Spec alias for test_ticket_providers_disabled_by_default."""
+    test_ticket_providers_disabled_by_default(monkeypatch)
+
+
+def test_review_signal_schema_fields():
+    from app.schemas.review_signal import ReviewSignalClaim, TicketSignalClaim
+
+    review = ReviewSignalClaim(
+        place_name="南京博物院",
+        provider="Dianping",
+        captured_at="2026-01-01T00:00:00Z",
+        star_distribution={"5": 12, "4": 8},
+        commercialization_risk="low",
+        family_friendly="yes",
+    )
+    assert review.star_distribution["5"] == 12
+    assert review.commercialization_risk == "low"
+
+    ticket_signal = TicketSignalClaim(
+        place_name="可可托海景区",
+        provider="Ctrip",
+        captured_at="2026-01-01T00:00:00Z",
+        ticket_price_candidate_text="¥128起",
+        ticket_related_mentions=["门票需预约"],
+    )
+    assert ticket_signal.ticket_price_candidate_text == "¥128起"
+
+
 def test_crawler_provider_not_configured_without_command():
     settings = Settings(
         ctrip_crawler_enabled=True,
         enable_review_crawler_providers=True,
         ctrip_crawler_command="",
+        ctrip_websearch_signal_enabled=False,
+        mcp_search_enabled=True,
     )
     tool = CtripReviewCrawlerTool(settings)
     assert tool.is_configured() is False
+
+
+def test_crawler_provider_configured_with_websearch_only():
+    from tools.ticketing.provider_config import ctrip_crawler_configured, dianping_crawler_configured
+
+    settings = Settings(
+        ctrip_crawler_enabled=True,
+        enable_review_crawler_providers=True,
+        ctrip_crawler_command="",
+        ctrip_websearch_signal_enabled=True,
+        mcp_search_enabled=True,
+        dianping_crawler_enabled=True,
+        enable_ticket_crawler_providers=True,
+        dianping_crawler_command="",
+        dianping_websearch_signal_enabled=True,
+    )
+    assert ctrip_crawler_configured(settings) is True
+    assert dianping_crawler_configured(settings) is True
+    assert CtripReviewCrawlerTool(settings).is_configured() is True
+
+
+def test_platform_websearch_hit_to_item_extracts_price():
+    from tools.ticketing.platform_websearch_signal_service import PlatformWebSearchSignalService
+
+    item = PlatformWebSearchSignalService._hit_to_item(
+        {
+            "title": "西湖游船-携程旅行",
+            "url": "https://you.ctrip.com/sight/hangzhou/西湖游船.html",
+            "snippet": "成人票¥69起，需提前预约",
+        },
+        platform="ctrip",
+        ticket_focus=True,
+    )
+    assert item is not None
+    assert "69" in str(item.get("price_text"))
+
+
+def test_ticket_focus_accepts_goupiao():
+    from tools.ticketing.platform_websearch_signal_service import PlatformWebSearchSignalService
+
+    item = PlatformWebSearchSignalService._hit_to_item(
+        {
+            "title": "泰山风景区旅游攻略",
+            "url": "https://you.ctrip.com/sight/taian/泰山.html",
+            "snippet": "泰山是中国五岳之首，登山需购票",
+        },
+        platform="ctrip",
+        ticket_focus=True,
+    )
+    assert item is not None
+    assert "购票" in str(item.get("ticket_related_mentions"))
+
+
+def test_ticket_focus_keeps_ctrip_sight_url():
+    from tools.ticketing.platform_websearch_signal_service import PlatformWebSearchSignalService
+
+    item = PlatformWebSearchSignalService._hit_to_item(
+        {
+            "title": "泰山风景区",
+            "url": "https://you.ctrip.com/sight/taian/taishan.html",
+            "snippet": "泰山景区介绍",
+        },
+        platform="ctrip",
+        ticket_focus=True,
+    )
+    assert item is not None
+    assert item.get("ticket_related_mentions") == ["platform_poi_page"]
+    assert item.get("confidence") == 0.48
+
+
+@pytest.mark.asyncio
+async def test_platform_websearch_engine_error_message():
+    from unittest.mock import AsyncMock, MagicMock
+
+    from tools.mcp.client_manager import MCPInvokeResult
+    from tools.ticketing.platform_websearch_signal_service import PlatformWebSearchSignalService
+
+    client = MagicMock()
+    client.is_server_configured.return_value = True
+    client.open_websearch_search = AsyncMock(
+        return_value=MCPInvokeResult(
+            ok=True,
+            data={"results": [], "totalResults": 0},
+            meta={
+                "engines_tried": ["baidu"],
+                "partial_failures": [
+                    {"engine": "baidu", "code": "engine_error", "message": "status 302"}
+                ],
+                "partial_failure_messages": ["baidu: engine_error (status 302)"],
+            },
+        )
+    )
+    svc = PlatformWebSearchSignalService(client=client)
+    items, err = await svc.fetch_signal_items("ctrip", "泰山", "泰安", ticket_focus=True)
+    assert items == []
+    assert err is not None
+    assert "failed" in err.lower() or "engine" in err.lower()
+    assert svc.last_run_meta.get("partial_failures")
 
 
 def test_fliggy_flyai_configured_with_sk_key():
@@ -284,6 +413,8 @@ def test_policy_guard_blocks_unconfigured_crawler_tool(monkeypatch):
     monkeypatch.setenv("CTRIP_CRAWLER_ENABLED", "true")
     monkeypatch.setenv("ENABLE_REVIEW_CRAWLER_PROVIDERS", "true")
     monkeypatch.setenv("CTRIP_CRAWLER_COMMAND", "")
+    monkeypatch.setenv("CTRIP_WEBSEARCH_SIGNAL_ENABLED", "false")
+    monkeypatch.setenv("MCP_SEARCH_ENABLED", "false")
     get_settings.cache_clear()
 
     guard = EvidencePolicyGuard()
@@ -295,3 +426,56 @@ def test_policy_guard_blocks_unconfigured_crawler_tool(monkeypatch):
     state = TravelAgentState(session_id="s", query_id="q", raw_user_query="评论怎么样")
     with pytest.raises(ValueError, match="not_configured"):
         guard.validate(action, EVIDENCE_PLANNING_AND_TOOL_USE_POLICY, state)
+
+
+@pytest.mark.asyncio
+async def test_tool_trace_includes_provider_meta():
+    from tools.registry import TravelToolRegistry
+
+    class _StubCtripTool:
+        last_run_meta = {
+            "provider": "Ctrip",
+            "configured": True,
+            "crawler_command": "python ctrip.py",
+            "crawler_workdir": "/tmp/ctrip",
+            "snapshot_saved_count": 2,
+            "output_parse_status": "ok",
+        }
+
+        async def run(self, **kwargs):
+            return [
+                Evidence(
+                    source_name="Ctrip Crawler",
+                    source_type=SourceType.REVIEW_PLATFORM,
+                    country="China",
+                    place_name=kwargs.get("place_name", "景区"),
+                    claims=[
+                        Claim(
+                            claim_type=ClaimType.REVIEW_SUMMARY,
+                            value="stub",
+                            confidence=0.5,
+                        )
+                    ],
+                )
+            ]
+
+    registry = TravelToolRegistry(tool_mode="real")
+    registry.ctrip_review_crawler_mcp = _StubCtripTool()
+    await registry.run_tool("ctrip_review_crawler_mcp", place_name="景区")
+    trace = registry.traces[-1]
+    assert trace.provider == "Ctrip"
+    assert trace.configured is True
+    assert trace.crawler_command == "python ctrip.py"
+    assert trace.crawler_workdir == "/tmp/ctrip"
+    assert trace.snapshot_saved_count == 2
+    assert trace.output_parse_status == "ok"
+
+
+def test_base_crawler_parse_output_non_json():
+    from tools.crawlers.base_crawler_tool import BaseCrawlerTool
+
+    tool = BaseCrawlerTool()
+    data, status = tool.parse_output("not json at all")
+    assert status == "non_json"
+    assert data is not None
+    assert "items" in data

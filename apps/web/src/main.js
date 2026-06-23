@@ -1,5 +1,5 @@
 import "./styles.css";
-import { buildTravelQueryRequest, getApiBaseUrl, postTravelQuery } from "./api/travel.js";
+import { buildTravelQueryRequest, buildErrorTrace, describeTravelQueryError, getApiBaseUrl, postTravelQuery } from "./api/travel.js";
 
 const THINKING_STEPS = [
   "构建会话上下文…",
@@ -121,7 +121,7 @@ function startThinking() {
   thinkingTimer = window.setInterval(() => {
     if (thinkingIndex >= THINKING_STEPS.length) return;
     advanceThinking();
-  }, 1800);
+  }, 2800);
 }
 
 function stopThinking() {
@@ -239,8 +239,8 @@ async function submitQuery() {
     renderResponse(data);
   } catch (err) {
     stopThinking();
-    renderTrace(["请求失败，请确认 api-java (8080) 与 agent-python (8001) 已启动。"]);
-    showError(err.message || String(err));
+    renderTrace(buildErrorTrace(err));
+    showError(describeTravelQueryError(err));
   } finally {
     setLoading(false);
   }

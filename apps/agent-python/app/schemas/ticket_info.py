@@ -1,8 +1,13 @@
-"""Structured ticket / review provider payloads before Evidence normalization."""
+"""Structured ticket provider payloads before Evidence normalization."""
 
 from __future__ import annotations
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
+
+from app.schemas.review_signal import ReviewSignalClaim
+
+# Backward-compatible alias; prefer ReviewSignalClaim from review_signal.py.
+TicketReviewSignal = ReviewSignalClaim
 
 
 class TicketInfoClaim(BaseModel):
@@ -22,22 +27,6 @@ class TicketInfoClaim(BaseModel):
     confidence: float = 0.6
     captured_at: str
     is_historical_snapshot: bool = False
-
-
-class TicketReviewSignal(BaseModel):
-    place_name: str
-    provider: str
-    source_url: str | None = None
-    rating: float | None = None
-    review_count: int | None = None
-    positive_aspects: list[str] = Field(default_factory=list)
-    negative_aspects: list[str] = Field(default_factory=list)
-    ticket_related_mentions: list[str] = Field(default_factory=list)
-    queue_risk: str | None = None
-    crowd_risk: str | None = None
-    value_for_money: str | None = None
-    captured_at: str
-    confidence: float = 0.5
 
 
 class TicketSnapshot(BaseModel):

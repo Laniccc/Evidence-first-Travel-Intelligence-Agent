@@ -174,6 +174,17 @@ class TravelToolRegistry:
       """Backward-compatible alias for record_error."""
       self.record_error(tool_name, input=dict(kwargs), error=error)
 
+  def _trace_fields_from_meta(self, meta: dict[str, Any]) -> dict[str, Any]:
+      return {
+          "provider": meta.get("provider"),
+          "configured": meta.get("configured"),
+          "crawler_command": meta.get("crawler_command"),
+          "crawler_workdir": meta.get("crawler_workdir"),
+          "snapshot_saved_count": meta.get("snapshot_saved_count"),
+          "output_parse_status": meta.get("output_parse_status"),
+          "error": meta.get("error"),
+      }
+
   async def run_tool(self, tool_name: str, **kwargs: Any) -> list:
       tool = getattr(self, tool_name, None)
       if tool is None:
@@ -197,6 +208,9 @@ class TravelToolRegistry:
           trace_input = dict(kwargs)
           if meta.get("fallback_used"):
               trace_input["fallback_used"] = True
+          trace_updates = self._trace_fields_from_meta(meta)
+          if trace_updates.get("error"):
+              trace_input.setdefault("provider_error", trace_updates["error"])
           self._append_trace(
               ToolTrace(
                   tool_name=tool_name,
@@ -206,6 +220,7 @@ class TravelToolRegistry:
                   status="ok",
                   fallback_used=bool(meta.get("fallback_used")),
                   cache_hit=bool(meta.get("cache_hit")),
+                  **{k: v for k, v in trace_updates.items() if v is not None},
               )
           )
           return result

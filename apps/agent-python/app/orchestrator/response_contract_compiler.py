@@ -201,8 +201,19 @@ class ResponseContractCompiler:
         policy = EvidencePolicy.get(need)
 
         if need in _HARD_FACT_NEEDS:
-            preferred = {
-                "ticket_price": [
+            city_known = bool((frame.entities.city or "").strip()) if frame.entities else False
+            ticket_price_preferred = (
+                [
+                    *_TICKET_PRICE_PROVIDER_TOOLS,
+                    "official_page_reader_mcp",
+                    "browser_mcp",
+                    "search_mcp",
+                    "official",
+                    "baidu_place_search_mcp",
+                    "baidu_place_detail_mcp",
+                ]
+                if city_known
+                else [
                     "baidu_place_search_mcp",
                     "baidu_place_detail_mcp",
                     "baidu_geocode_mcp",
@@ -210,7 +221,10 @@ class ResponseContractCompiler:
                     "official_page_reader_mcp",
                     "browser_mcp",
                     "official",
-                ],
+                ]
+            )
+            preferred = {
+                "ticket_price": ticket_price_preferred,
                 "opening_hours": [
                     "baidu_place_search_mcp",
                     "baidu_place_detail_mcp",
@@ -421,7 +435,12 @@ class ResponseContractCompiler:
             if not extra:
                 updated.append(claim)
                 continue
-            merged = list(dict.fromkeys([*claim.preferred_tools, *extra]))
+            # Providers already inlined for ticket_price when city anchor exists.
+            missing = [t for t in extra if t not in claim.preferred_tools]
+            if not missing:
+                updated.append(claim)
+                continue
+            merged = list(dict.fromkeys([*claim.preferred_tools, *missing]))
             updated.append(claim.model_copy(update={"preferred_tools": merged}))
         return updated
 

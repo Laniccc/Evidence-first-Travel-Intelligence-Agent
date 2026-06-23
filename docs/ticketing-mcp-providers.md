@@ -26,25 +26,29 @@
 仅 `TICKET_SNAPSHOT_STORE_ENABLED=true` 默认开启。在本地 `.env` 按需打开：
 
 ```env
+ENABLE_TICKET_PLATFORM_PROVIDERS=false
+ENABLE_TICKET_SIGNAL_CRAWLER_PROVIDERS=false
+ENABLE_REVIEW_CRAWLER_PROVIDERS=false
+
 TICKETLENS_ENABLED=true
 TICKETLENS_API_BASE_URL=https://api.ticketlens.com/v1
 TICKETLENS_API_KEY=your-key
 
 ENABLE_TICKET_CRAWLER_PROVIDERS=true
-ENABLE_REVIEW_CRAWLER_PROVIDERS=true
 
 CTRIP_CRAWLER_ENABLED=true
+CTRIP_CRAWLER_REPO=aglorice/CtripSpider
 CTRIP_CRAWLER_COMMAND=python path/to/ctrip_cli.py --place "{place}" --city "{city}"
 
 FLIGGY_TICKET_CRAWLER_ENABLED=true
-ENABLE_TICKET_CRAWLER_PROVIDERS=true
 FLIGGY_FLYAI_API_KEY=sk-你的密钥
 
 DIANPING_CRAWLER_ENABLED=true
+DIANPING_CRAWLER_REPO=crazyboycjr/dianping-crawler
 DIANPING_CRAWLER_COMMAND=...
 ```
 
-粗粒度 `ENABLE_TICKET_PLATFORM_CRAWLERS` 仍作用于**未实现**的旧 placeholder（`ctrip_ticket_crawler_mcp` 等）；新 provider 走 per-provider 开关。
+`ENABLE_TICKET_SIGNAL_CRAWLER_PROVIDERS` 为 `ENABLE_TICKET_CRAWLER_PROVIDERS` 的规格别名（任一为 true 即启用票务爬虫）。爬虫 CLI 细节见 [crawler-provider-wrappers.md](crawler-provider-wrappers.md)。
 
 ## 4. 价格层级（Coverage）
 
@@ -74,28 +78,36 @@ DIANPING_CRAWLER_COMMAND=...
 
 命令行支持占位符：`{place}` `{city}` `{country}` `{query}` `{claim_type}`。
 
-## 6. 快照积累
+## 6. 快照积累与 ToolTrace
 
 TicketLens / 飞猪解析到价格时自动 `save_snapshot`（`snapshot_saved_count` 写入 `ToolTrace`）。历史查询走 `ticket_price_history_query`。
 
-## 7. S5 信息域绑定
+Provider 调用还会在 `ToolTrace` 记录：`provider`、`configured`、`crawler_command`、`crawler_workdir`、`output_parse_status`（`ok` / `non_json` / `parse_error`）。
+
+## 7. 评论信号 vs 票价强事实
+
+- 评论信号（`review_summary`、`crowd_risk` 等）**不能**覆盖 required `ticket_price`
+- 历史快照仅回答历史票价，不能替代当前实时价
+- required `ticket_price` 禁止 `knowledge_prior`
+
+## 8. S5 信息域绑定
 
 - **ticket_booking**：primary 含 `ticketlens_experience_mcp`；platform 含飞猪/携程/点评信号爬虫；enrichment 含快照读写。
 - **review_signal**：`ctrip_review_crawler_mcp`、`dianping_review_crawler_mcp`、`fliggy_ticket_review_signal_mcp`、TicketLens 评论工具。
 
-## 8. 手动 Smoke
+## 9. 手动 Smoke
 
 ```bash
-cd apps/agent-python
-python ../../scripts/smoke/check_ticketlens.py --place "可可托海景区" --city "阿勒泰"
-python ../../scripts/smoke/check_ctrip_crawler.py --place "南京博物院" --city "南京"
-python ../../scripts/smoke/check_fliggy_crawler.py --place "西湖" --city "杭州"
-python ../../scripts/smoke/check_dianping_crawler.py --place "外滩" --city "上海"
+cd scripts/smoke
+python check_ticketlens.py --place "可可托海景区" --city "阿勒泰"
+python check_ctrip_crawler.py --place "南京博物院" --city "南京"
+python check_fliggy_crawler.py --place "西湖" --city "杭州"
+python check_dianping_crawler.py --place "外滩" --city "上海"
 ```
 
 输出：`enabled` / `configured` / `success` / evidence 条数 / 首条 claim 摘要。
 
-## 9. 单元测试
+## 10. 单元测试
 
 ```bash
 cd apps/agent-python
@@ -103,7 +115,7 @@ python -m compileall app
 pytest app/evals/ticket_provider_tests.py app/evals/s5_information_domain_tests.py -q
 ```
 
-## 10. 飞猪AI开放平台（推荐）
+## 11. 飞猪AI开放平台（推荐）
 
 凭证来自 [飞猪AI开放平台](https://flyai.open.fliggy.com/console) → **接口密钥**（`sk-` 开头，**仅此一个**，没有 Secret）。
 
@@ -122,6 +134,6 @@ FLIGGY_FLYAI_API_KEY=sk-你的密钥
 
 若你是 ISV/商家，走 [open.fliggy.com](https://open.fliggy.com) 应用管理的 **App Key + App Secret**，设置 `FLIGGY_TOP_API_ENABLED=true`。
 
-## 11. 旧 placeholder
+## 12. 旧 placeholder
 
 `ctrip_ticket_crawler_mcp`、`fliggy_ticket_crawler_mcp`、`dianping_ticket_crawler_mcp` 仍注册为 deprecated placeholder，避免破坏历史 trace；请迁移到新工具名。

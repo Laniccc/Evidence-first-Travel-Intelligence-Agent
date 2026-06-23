@@ -54,13 +54,22 @@ def ticketlens_configured(settings: Settings | None = None) -> bool:
     )
 
 
-def ctrip_crawler_configured(settings: Settings | None = None) -> bool:
+def ctrip_subprocess_configured(settings: Settings | None = None) -> bool:
+    s = settings or get_settings()
+    return bool(s.ctrip_crawler_enabled and (s.ctrip_crawler_command or "").strip())
+
+
+def ctrip_websearch_signal_configured(settings: Settings | None = None) -> bool:
     s = settings or get_settings()
     return bool(
         s.ctrip_crawler_enabled
-        and s.enable_ticket_crawler_providers
-        and (s.ctrip_crawler_command or "").strip()
+        and s.ctrip_websearch_signal_enabled
+        and s.mcp_search_enabled
     )
+
+
+def ctrip_crawler_configured(settings: Settings | None = None) -> bool:
+    return ctrip_subprocess_configured(settings) or ctrip_websearch_signal_configured(settings)
 
 
 def effective_flyai_api_key(settings: Settings | None = None) -> str | None:
@@ -117,13 +126,22 @@ def fliggy_crawler_configured(settings: Settings | None = None) -> bool:
     return fliggy_open_api_configured(s) or fliggy_crawler_subprocess_configured(s)
 
 
-def dianping_crawler_configured(settings: Settings | None = None) -> bool:
+def dianping_subprocess_configured(settings: Settings | None = None) -> bool:
+    s = settings or get_settings()
+    return bool(s.dianping_crawler_enabled and (s.dianping_crawler_command or "").strip())
+
+
+def dianping_websearch_signal_configured(settings: Settings | None = None) -> bool:
     s = settings or get_settings()
     return bool(
         s.dianping_crawler_enabled
-        and s.enable_review_crawler_providers
-        and (s.dianping_crawler_command or "").strip()
+        and s.dianping_websearch_signal_enabled
+        and s.mcp_search_enabled
     )
+
+
+def dianping_crawler_configured(settings: Settings | None = None) -> bool:
+    return dianping_subprocess_configured(settings) or dianping_websearch_signal_configured(settings)
 
 
 def ticket_snapshot_store_enabled(settings: Settings | None = None) -> bool:
@@ -144,7 +162,9 @@ def provider_enabled_for_tool(tool_name: str, settings: Settings | None = None) 
             s.enable_ticket_crawler_providers or s.enable_review_crawler_providers
         )
     if tool_name in {"dianping_review_crawler_mcp", "dianping_ticket_signal_crawler_mcp"}:
-        return s.dianping_crawler_enabled and s.enable_review_crawler_providers
+        return s.dianping_crawler_enabled and (
+            s.enable_review_crawler_providers or s.enable_ticket_crawler_providers
+        )
     if tool_name in {"ticket_snapshot_store", "ticket_price_history_query"}:
         return s.ticket_snapshot_store_enabled
     return False

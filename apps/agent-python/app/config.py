@@ -41,6 +41,8 @@ class Settings(BaseSettings):
     mcp_search_args: str = ""
     # open-webSearch: baidu/sogou work better in CN than duckduckgo
     mcp_search_default_engine: str = "baidu"
+    # Comma-separated fallback engines when primary returns empty / engine_error (e.g. baidu 302)
+    mcp_search_fallback_engines: str = "sogou,bing"
     mcp_search_timeout_seconds: float = 30.0
     mcp_search_use_proxy: bool = False
     mcp_search_proxy_url: str = "http://127.0.0.1:7890"
@@ -112,6 +114,7 @@ class Settings(BaseSettings):
 
     # S5 information domain — platform provider placeholders (framework only)
     enable_ticket_platform_crawlers: bool = False
+    enable_ticket_platform_providers: bool = False
     enable_review_platform_crawlers: bool = False
     enable_travel_note_crawlers: bool = False
     enable_nearby_platform_crawlers: bool = False
@@ -127,14 +130,18 @@ class Settings(BaseSettings):
 
     # Local crawler wrappers
     enable_ticket_crawler_providers: bool = False
+    enable_ticket_signal_crawler_providers: bool = False
     enable_review_crawler_providers: bool = False
 
     # Ctrip
     ctrip_crawler_enabled: bool = False
+    ctrip_crawler_repo: str = "aglorice/CtripSpider"
     ctrip_crawler_command: str = ""
     ctrip_crawler_workdir: str = ""
     ctrip_crawler_timeout_seconds: float = 30.0
     ctrip_crawler_max_results: int = 20
+    ctrip_crawler_output_format: str = "json"
+    ctrip_websearch_signal_enabled: bool = True
 
     # Fliggy — FlyAI (sk- key) + optional Taobao TOP + subprocess crawler
     fliggy_ticket_crawler_enabled: bool = False
@@ -153,13 +160,17 @@ class Settings(BaseSettings):
     fliggy_ticket_crawler_workdir: str = ""
     fliggy_ticket_crawler_timeout_seconds: float = 30.0
     fliggy_ticket_crawler_max_results: int = 20
+    fliggy_ticket_crawler_output_format: str = "json"
 
     # Dianping
     dianping_crawler_enabled: bool = False
+    dianping_crawler_repo: str = "crazyboycjr/dianping-crawler"
     dianping_crawler_command: str = ""
     dianping_crawler_workdir: str = ""
     dianping_crawler_timeout_seconds: float = 30.0
     dianping_crawler_max_results: int = 20
+    dianping_crawler_output_format: str = "json"
+    dianping_websearch_signal_enabled: bool = True
 
     # Ticket snapshot store
     ticket_snapshot_store_enabled: bool = True
@@ -190,6 +201,14 @@ class Settings(BaseSettings):
         if value is None or (isinstance(value, str) and not value.strip()):
             return None
         return value
+
+    @model_validator(mode="after")
+    def _merge_provider_switch_aliases(self) -> Self:
+        if self.enable_ticket_platform_providers:
+            self.enable_ticket_platform_crawlers = True
+        if self.enable_ticket_signal_crawler_providers:
+            self.enable_ticket_crawler_providers = True
+        return self
 
     @model_validator(mode="after")
     def _apply_mcp_profile(self) -> Self:

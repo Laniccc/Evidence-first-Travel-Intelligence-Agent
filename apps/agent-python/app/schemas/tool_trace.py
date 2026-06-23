@@ -16,4 +16,6 @@ class ToolTrace(BaseModel):
     provider: str | None = None
     configured: bool | None = None
     crawler_command: str | None = None
+    crawler_workdir: str | None = None
     snapshot_saved_count: int | None = None
+    output_parse_status: str | None = None

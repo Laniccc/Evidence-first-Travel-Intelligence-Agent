@@ -725,6 +725,56 @@ async def test_open_websearch_adapter_returns_evidence(monkeypatch):
     assert any(c.claim_type == ClaimType.TICKET_PRICE for c in evidence[0].claims)
 
 
+def test_open_websearch_parse_partial_failures():
+    from tools.mcp.client_manager import MCPClientManager
+
+    hits, failures, total = MCPClientManager._parse_open_websearch_search_inner(
+        {
+            "totalResults": 0,
+            "results": [],
+            "partialFailures": [
+                {"engine": "baidu", "code": "engine_error", "message": "status 302"}
+            ],
+        }
+    )
+    assert hits == []
+    assert total == 0
+    assert len(failures) == 1
+    msg = MCPClientManager.format_partial_failure(failures[0])
+    assert "baidu" in msg
+    assert "302" in msg
+
+
+def test_search_mcp_empty_includes_engine_error_limitation():
+    from tools.mcp.adapters.search_mcp_adapter import SearchMCPAdapter
+
+    adapter = SearchMCPAdapter()
+    evidence = adapter._hits_to_evidence(
+        {"results": [], "totalResults": 0},
+        query="泰山门票",
+        country="China",
+        city="泰安",
+        place_name="泰山",
+        information_need="ticket_price",
+        search_meta={
+            "partial_failure_messages": ["baidu: engine_error (status 302)"],
+        },
+    )
+    assert evidence
+    assert any("Search engine error" in lim for lim in evidence[0].limitations)
+
+
+def test_mcp_client_search_fallback_engines_excludes_primary():
+    from tools.mcp.client_manager import MCPClientManager
+
+    settings = Settings(
+        mcp_search_default_engine="baidu",
+        mcp_search_fallback_engines="sogou,bing,baidu",
+    )
+    mgr = MCPClientManager(settings)
+    assert mgr._search_fallback_engines() == ["sogou", "bing"]
+
+
 def test_evidence_required_ticket_price_cannot_finish_before_search_attempt(mcp_env):
     _, registry = mcp_env
     state = TravelAgentState(session_id="s", query_id="q", raw_user_query="禾木景区票价如何？")

@@ -117,10 +117,13 @@ pytest app/evals -q
 |------|-----------|
 | 找不到 app 模块 | `cd apps/agent-python`，`$env:PYTHONPATH=(Get-Location).Path` |
 | search_mcp 失败 | `.\scripts\start-mcp-stack.ps1`，`curl http://127.0.0.1:3210/health` |
+| baidu 搜索 302 / 全空 | `.env` 设 `MCP_SEARCH_USE_PROXY=true` 并重启 open-webSearch；或 `MCP_SEARCH_DEFAULT_ENGINE=sogou`；client 会自动回退 `MCP_SEARCH_FALLBACK_ENGINES` |
+| 携程/点评 0 命中 | 先看 search 是否空；trace 中 `partial_failures` / `output_parse_status=search_engine_error` |
 | :3210 已被占用 | 服务已在跑，勿重复启动 |
 | npx EPERM | `$env:npm_config_cache="$env:USERPROFILE\.npm-cache"` |
 | 无证据/回答差 | 看 `debug_last_session.md` |
-| 改配置不生效 | 重启 uvicorn |
+| 页面「请求失败」/ 无回答 | 检索类问题可等 1–3 分钟；确认 api-java :8082（`agent.read-timeout` 默认 300s）与 web `VITE_QUERY_TIMEOUT_MS=300000`；勿用旧版 8080/120s 配置 |
+| 改配置不生效 | 重启 uvicorn / 重启 api-java / 重启 `npm run dev` |
 
 MCP 细节见 [docs/mcp-setup.md](docs/mcp-setup.md)
 

@@ -3,17 +3,19 @@
 静态 SPA，通过 **Java API Gateway** 调用旅行问答 API。
 
 ```
-浏览器 → VITE_API_BASE_URL (默认 http://localhost:8080)
+浏览器 → Vite :5173 或 VITE_API_BASE_URL（默认 http://localhost:8082）
            POST /api/travel/query
                 → api-java → agent-python /agent/query
 ```
 
 **前端绝不请求** `/agent/query` 或 Python `:8001`。
 
+复杂检索类问题可能需要 **1–3 分钟**；`api-java` 默认 `agent.read-timeout=300s`，前端 `VITE_QUERY_TIMEOUT_MS=300000` 与之对齐。
+
 ## 前置条件
 
 1. **agent-python**（:8001）
-2. **api-java**（:8080）
+2. **api-java**（:8082）
 
 ## 开发启动
 
@@ -26,7 +28,7 @@ npm run dev
 
 打开 http://127.0.0.1:5173
 
-开发模式下 Vite 将 `/api/*` 代理到 `VITE_API_BASE_URL`（默认 8080），因此浏览器网络面板中应只看到：
+开发模式下 Vite 将 `/api/*` 代理到 `VITE_API_BASE_URL`（默认 8082），因此浏览器网络面板中应只看到：
 
 - `POST http://127.0.0.1:5173/api/travel/query`（由 dev server 转发到 api-java）
 
@@ -88,7 +90,7 @@ npm run dev
 
 ### 4. 恢复正式链路
 
-把 `vite.config.js` 改回 `target: apiBase`（删除 `rewrite`），并启动 `api-java`（:8080）后再 `npm run dev`。
+把 `vite.config.js` 改回 `target: apiBase`（删除 `rewrite`），并启动 `api-java`（:8082）后再 `npm run dev`。
 
 ## 生产构建
 

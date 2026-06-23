@@ -21,6 +21,7 @@ class MCPInvokeResult(BaseModel):
     ok: bool = True
     data: Any = None
     error: str | None = None
+    meta: dict[str, Any] | None = None
     latency_ms: float = 0.0
     server_name: str = ""
     tool_name: str = ""
@@ -416,6 +417,152 @@ class MCPClientManager:
             return inner, None
         return data, None
 
+    @staticmethod
+    def _extract_search_hits(raw: Any) -> list[dict[str, Any]]:
+        if isinstance(raw, list):
+            return [h for h in raw if isinstance(h, dict)]
+        if not isinstance(raw, dict):
+            return []
+        for key in ("results", "items", "hits"):
+            bucket = raw.get(key)
+            if isinstance(bucket, list):
+                return [h for h in bucket if isinstance(h, dict)]
+        nested = raw.get("data")
+        if isinstance(nested, dict):
+            for key in ("results", "items", "hits"):
+                bucket = nested.get(key)
+                if isinstance(bucket, list):
+                    return [h for h in bucket if isinstance(h, dict)]
+        if isinstance(nested, list):
+            return [h for h in nested if isinstance(h, dict)]
+        return []
+
+    @staticmethod
+    def _parse_open_websearch_search_inner(
+        data: Any,
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], int]:
+        if not isinstance(data, dict):
+            return [], [], 0
+        partial_failures = data.get("partialFailures") or []
+        if not isinstance(partial_failures, list):
+            partial_failures = []
+        failures = [f for f in partial_failures if isinstance(f, dict)]
+        total = int(data.get("totalResults") or 0)
+        hits = MCPClientManager._extract_search_hits(data)
+        return hits, failures, total
+
+    @staticmethod
+    def format_partial_failure(failure: dict[str, Any]) -> str:
+        engine = str(failure.get("engine") or "?")
+        code = str(failure.get("code") or "error")
+        message = str(failure.get("message") or "").strip()
+        if message:
+            return f"{engine}: {code} ({message})"
+        return f"{engine}: {code}"
+
+    def _search_fallback_engines(self) -> list[str]:
+        primary = (getattr(self.settings, "mcp_search_default_engine", None) or "baidu").strip()
+        raw = (getattr(self.settings, "mcp_search_fallback_engines", None) or "sogou,bing").strip()
+        engines: list[str] = []
+        for part in raw.split(","):
+            engine = part.strip()
+            if engine and engine != primary and engine not in engines:
+                engines.append(engine)
+        return engines
+
+    async def _post_open_websearch_search(
+        self,
+        client: httpx.AsyncClient,
+        base: str,
+        query: str,
+        limit: int,
+        engines: list[str],
+    ) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "query": query,
+            "limit": limit,
+        }
+        if engines:
+            payload["engines"] = engines
+        response = await client.post(f"{base}/search", json=payload)
+        response.raise_for_status()
+        raw = response.json()
+        data, api_error = self._unwrap_open_websearch_payload(raw)
+        if api_error:
+            raise RuntimeError(api_error)
+        hits, partial_failures, total_results = self._parse_open_websearch_search_inner(data)
+        return {
+            "data": data,
+            "hits": hits,
+            "partial_failures": partial_failures,
+            "total_results": total_results,
+            "engines": engines,
+        }
+
+    async def _open_websearch_search_with_fallback(
+        self,
+        client: httpx.AsyncClient,
+        base: str,
+        query: str,
+        limit: int,
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
+        primary = (getattr(self.settings, "mcp_search_default_engine", None) or "baidu").strip()
+        engines_tried: list[str] = []
+        all_partial_failures: list[dict[str, Any]] = []
+        merged_hits: list[dict[str, Any]] = []
+        seen_keys: set[str] = set()
+        last_data: dict[str, Any] = {}
+
+        def _merge_hits(hits: list[dict[str, Any]]) -> None:
+            for hit in hits:
+                url = str(hit.get("url") or hit.get("link") or "").strip()
+                key = url or str(hit.get("title") or hit.get("name") or "")
+                if key and key in seen_keys:
+                    continue
+                if key:
+                    seen_keys.add(key)
+                merged_hits.append(hit)
+
+        engines_tried.append(primary)
+        primary_result = await self._post_open_websearch_search(
+            client, base, query, limit, [primary]
+        )
+        last_data = primary_result["data"] if isinstance(primary_result["data"], dict) else {}
+        all_partial_failures.extend(primary_result["partial_failures"])
+        _merge_hits(primary_result["hits"])
+
+        need_fallback = not merged_hits and (
+            primary_result["partial_failures"] or primary_result["total_results"] == 0
+        )
+        if need_fallback:
+            for fallback in self._search_fallback_engines():
+                if merged_hits:
+                    break
+                engines_tried.append(fallback)
+                fb_result = await self._post_open_websearch_search(
+                    client, base, query, limit, [fallback]
+                )
+                if isinstance(fb_result["data"], dict):
+                    last_data = fb_result["data"]
+                all_partial_failures.extend(fb_result["partial_failures"])
+                _merge_hits(fb_result["hits"])
+
+        response_data = dict(last_data) if isinstance(last_data, dict) else {}
+        response_data["results"] = merged_hits[:limit]
+        response_data["totalResults"] = len(merged_hits[:limit])
+        if all_partial_failures:
+            response_data["partialFailures"] = all_partial_failures
+
+        failure_messages = [
+            self.format_partial_failure(f) for f in all_partial_failures
+        ]
+        meta = {
+            "engines_tried": engines_tried,
+            "partial_failures": all_partial_failures,
+            "partial_failure_messages": failure_messages,
+        }
+        return response_data, meta
+
     async def _invoke_open_websearch(
         self,
         server_name: str,
@@ -425,7 +572,6 @@ class MCPClientManager:
     ) -> MCPInvokeResult:
         base = self.server_url(server_name).rstrip("/")
         timeout = self._open_websearch_timeout()
-        engine = (getattr(self.settings, "mcp_search_default_engine", None) or "baidu").strip()
         try:
             async with httpx.AsyncClient(timeout=timeout, trust_env=False) as client:
                 if tool_name in {"fetch", "fetch-web", "fetch_web"}:
@@ -434,29 +580,36 @@ class MCPClientManager:
                         "maxChars": arguments.get("maxChars") or self.settings.mcp_max_result_chars,
                     }
                     response = await client.post(f"{base}/fetch-web", json=payload)
-                else:
-                    payload = {
-                        "query": arguments.get("query") or arguments.get("q") or "",
-                        "limit": int(arguments.get("limit") or 5),
-                    }
-                    if engine:
-                        payload["engines"] = [engine]
-                    response = await client.post(f"{base}/search", json=payload)
-                response.raise_for_status()
-                raw = response.json()
-                data, api_error = self._unwrap_open_websearch_payload(raw)
-                if api_error:
+                    response.raise_for_status()
+                    raw = response.json()
+                    data, api_error = self._unwrap_open_websearch_payload(raw)
+                    if api_error:
+                        return MCPInvokeResult(
+                            ok=False,
+                            error=api_error,
+                            latency_ms=(time.perf_counter() - start) * 1000,
+                            server_name=server_name,
+                            tool_name=tool_name,
+                        )
+                    data = self._truncate_payload(data)
                     return MCPInvokeResult(
-                        ok=False,
-                        error=api_error,
+                        ok=True,
+                        data=data,
                         latency_ms=(time.perf_counter() - start) * 1000,
                         server_name=server_name,
                         tool_name=tool_name,
                     )
+
+                query = str(arguments.get("query") or arguments.get("q") or "")
+                limit = int(arguments.get("limit") or 5)
+                data, meta = await self._open_websearch_search_with_fallback(
+                    client, base, query, limit
+                )
                 data = self._truncate_payload(data)
                 return MCPInvokeResult(
                     ok=True,
                     data=data,
+                    meta=meta,
                     latency_ms=(time.perf_counter() - start) * 1000,
                     server_name=server_name,
                     tool_name=tool_name,

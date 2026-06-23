@@ -8,7 +8,7 @@ spring:
 agent:
   base-url: ${AGENT_BASE_URL:http://localhost:8001}
   connect-timeout: 5s
-  read-timeout: 120s
+  read-timeout: ${AGENT_READ_TIMEOUT:300s}
 
 tool-gateway:
   enabled: ${TOOL_GATEWAY_ENABLED:true}

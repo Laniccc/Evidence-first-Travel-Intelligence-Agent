@@ -71,6 +71,7 @@ class SearchMCPAdapter(BaseTravelTool):
             city=kwargs.get("city"),
             place_name=kwargs.get("place_name"),
             information_need=kwargs.get("information_need") or kwargs.get("need_type"),
+            search_meta=result.meta,
         )
 
     def _hits_to_evidence(
@@ -82,9 +83,31 @@ class SearchMCPAdapter(BaseTravelTool):
         city: str | None,
         place_name: str | None,
         information_need: str | None,
+        search_meta: dict[str, Any] | None = None,
     ) -> list[Evidence]:
         hits = self._extract_hits(raw)
         if not hits:
+            limitations = [
+                "open-webSearch returned no results.",
+                "Search summary only; official page read not performed.",
+            ]
+            failure_messages = (search_meta or {}).get("partial_failure_messages") or []
+            if failure_messages:
+                limitations.insert(
+                    0,
+                    "Search engine error: " + "; ".join(str(m) for m in failure_messages[:3]),
+                )
+            elif (search_meta or {}).get("partial_failures"):
+                from tools.mcp.client_manager import MCPClientManager
+
+                partial = search_meta.get("partial_failures") or []
+                formatted = [
+                    MCPClientManager.format_partial_failure(f)
+                    for f in partial[:3]
+                    if isinstance(f, dict)
+                ]
+                if formatted:
+                    limitations.insert(0, "Search engine error: " + "; ".join(formatted))
             return [
                 Evidence(
                     source_name="open-webSearch",
@@ -105,10 +128,7 @@ class SearchMCPAdapter(BaseTravelTool):
                             confidence=0.35,
                         )
                     ],
-                    limitations=[
-                        "open-webSearch returned no results.",
-                        "Search summary only; official page read not performed.",
-                    ],
+                    limitations=limitations,
                 )
             ]
 

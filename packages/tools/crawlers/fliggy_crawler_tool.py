@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 from app.config import Settings, get_settings
@@ -75,7 +76,8 @@ class FliggyTicketSnapshotCrawlerTool(BaseCrawlerTool):
         claim_type: str | None = None,
     ) -> tuple[dict[str, Any] | list | None, str | None]:
         if fliggy_flyai_configured(self.settings):
-            items, err = self._flyai.fetch_ticket_items(
+            items, err = await asyncio.to_thread(
+                self._flyai.fetch_ticket_items,
                 place_name,
                 city=city,
                 country=country,
@@ -86,6 +88,7 @@ class FliggyTicketSnapshotCrawlerTool(BaseCrawlerTool):
                 "provider": self.provider_name,
                 "configured": self.is_configured(),
                 "transport": "fliggy_flyai",
+                "output_parse_status": "ok" if items and not err else "parse_error",
                 "error": err,
                 **self._flyai.last_run_meta,
             }
@@ -94,7 +97,8 @@ class FliggyTicketSnapshotCrawlerTool(BaseCrawlerTool):
             return {"items": items}, None
 
         if fliggy_top_api_configured(self.settings):
-            items, err = self._top_api.fetch_ticket_items(
+            items, err = await asyncio.to_thread(
+                self._top_api.fetch_ticket_items,
                 place_name,
                 city=city,
                 country=country,

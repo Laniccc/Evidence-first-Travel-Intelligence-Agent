@@ -38,7 +38,14 @@ class CitationPolicy(BaseModel):
             "Include limitations from the input; do not contradict them.",
         ]
         if self.require_evidence_citations:
-            rules.append("cited_evidence_ids must be a non-empty subset of input evidence_ids when making claims.")
+            rules.append(
+                "cited_evidence_ids must copy evidence_id values exactly from curated_claims "
+                "(full UUID strings — do not shorten or invent ids)."
+            )
+            rules.append(
+                "When making factual claims, cited_evidence_ids must be non-empty and "
+                "each id must appear in input evidence_ids."
+            )
         return rules
 
     @classmethod

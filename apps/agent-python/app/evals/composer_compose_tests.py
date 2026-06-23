@@ -225,3 +225,186 @@ def test_infrastructure_error_when_llm_unavailable():
     )
     assert "合成服务不可用" in draft.answer_text
     assert "No search hits" not in draft.answer_text
+
+
+def test_normalize_truncated_uuid_prefix():
+    full_id = "7a3a8fc7-1234-5678-9abc-def012345678"
+    resolved, unresolved = AnswerComposerAgent._normalize_cited_evidence_ids(
+        ["7a3a8fc7"],
+        [full_id],
+    )
+    assert resolved == [full_id]
+    assert unresolved == []
+
+
+def test_postprocess_resolves_truncated_citations_in_draft():
+    full_id = "7a3a8fc7-1234-5678-9abc-def012345678"
+    bundle = {
+        "evidence_ids": [full_id],
+        "has_actionable_evidence": True,
+        "actionable_evidence_claims": [
+            {
+                "evidence_id": full_id,
+                "value": "门票约75元",
+                "confidence": 0.6,
+            }
+        ],
+    }
+    draft = FinalAnswerDraft(
+        conclusion="检索显示门票约75元，建议核实官方渠道。",
+        cited_evidence_ids=["7a3a8fc7"],
+    )
+    agent = AnswerComposerAgent()
+    draft, note = agent._postprocess_draft(draft, bundle)
+    assert draft.cited_evidence_ids == [full_id]
+    assert note is not None
+    assert agent._validate_draft(draft, bundle) is True
+
+
+def test_infer_citations_when_llm_omits_ids():
+    full_id = "ev-ticket-full-uuid-0001"
+    bundle = {
+        "evidence_ids": [full_id],
+        "has_actionable_evidence": True,
+        "actionable_evidence_claims": [
+            {
+                "evidence_id": full_id,
+                "value": "成人票约65元（检索摘要）",
+                "confidence": 0.5,
+            }
+        ],
+    }
+    draft = FinalAnswerDraft(
+        conclusion="成人票约65元（检索摘要），建议出发前核实。",
+        cited_evidence_ids=[],
+    )
+    agent = AnswerComposerAgent()
+    draft, note = agent._postprocess_draft(draft, bundle)
+    assert full_id in draft.cited_evidence_ids
+    assert agent._validate_draft(draft, bundle) is True
+
+
+def test_llm_truncated_uuid_compose_succeeds():
+    full_id = "7a3a8fc7-abcd-ef01-2345-6789abcdef01"
+    state = TravelAgentState(
+        session_id="s",
+        query_id="q",
+        raw_user_query="五彩滩门票多少钱",
+        evidence=[
+            Evidence(
+                evidence_id=full_id,
+                source_name="ctrip",
+                source_type=SourceType.WEB,
+                country="China",
+                place_name="五彩滩",
+                confidence=0.6,
+                claims=[
+                    Claim(
+                        claim_type=ClaimType.TICKET_PRICE_CANDIDATE,
+                        value="门票约75元",
+                        confidence=0.6,
+                    )
+                ],
+            )
+        ],
+        evidence_brief=EvidenceBrief(
+            target_label="五彩滩",
+            curated_claims=[
+                CuratedClaimRow(
+                    claim_type="ticket_price_candidate",
+                    value="门票约75元",
+                    evidence_id=full_id,
+                    source_name="ctrip",
+                    confidence=0.6,
+                    relevance_score=0.9,
+                    place_name="五彩滩",
+                )
+            ],
+            overall_confidence=0.6,
+        ),
+    )
+
+    def responder(system: str, user: str) -> str:
+        return json.dumps(
+            {
+                "headline": "关于 五彩滩",
+                "conclusion": "检索显示五彩滩门票约75元，建议核实官方渠道后出行。",
+                "sections": [{"title": "门票", "bullets": ["门票约75元（置信度 60%）"]}],
+                "limitations": [],
+                "cited_evidence_ids": ["7a3a8fc7"],
+                "answer_text": "检索显示五彩滩门票约75元，建议核实官方渠道后出行。",
+                "compose_mode": "fact_lookup",
+            },
+            ensure_ascii=False,
+        )
+
+    agent = AnswerComposerAgent(StubLLMClient(responder))
+    draft = asyncio.get_event_loop().run_until_complete(
+        agent.compose(state, {"compose_mode": "fact_lookup", "target_label": "五彩滩"})
+    )
+    assert "75元" in draft.answer_text
+    assert draft.cited_evidence_ids == [full_id]
+    assert "合成服务不可用" not in draft.answer_text
+
+
+def test_evidence_fallback_when_llm_repeatedly_invalid():
+    full_id = "ticket-ev-uuid-9999"
+    state = TravelAgentState(
+        session_id="s",
+        query_id="q",
+        raw_user_query="门票",
+        evidence=[
+            Evidence(
+                evidence_id=full_id,
+                source_name="ctrip",
+                source_type=SourceType.WEB,
+                country="China",
+                place_name="五彩滩",
+                confidence=0.6,
+                claims=[
+                    Claim(
+                        claim_type=ClaimType.TICKET_PRICE_CANDIDATE,
+                        value="门票约50元",
+                        confidence=0.6,
+                    )
+                ],
+            )
+        ],
+        evidence_brief=EvidenceBrief(
+            target_label="五彩滩",
+            curated_claims=[
+                CuratedClaimRow(
+                    claim_type="ticket_price_candidate",
+                    value="门票约50元",
+                    evidence_id=full_id,
+                    source_name="ctrip",
+                    confidence=0.6,
+                    relevance_score=0.9,
+                    place_name="五彩滩",
+                )
+            ],
+            overall_confidence=0.6,
+        ),
+    )
+
+    def bad_responder(system: str, user: str) -> str:
+        return json.dumps(
+            {
+                "headline": "x",
+                "conclusion": "关于五彩滩是否需要门票的问题，目前没有找到确切的官方",
+                "sections": [],
+                "limitations": [],
+                "cited_evidence_ids": ["bogus-id"],
+                "answer_text": "关于五彩滩是否需要门票的问题，目前没有找到确切的官方",
+                "compose_mode": "fact_lookup",
+            },
+            ensure_ascii=False,
+        )
+
+    agent = AnswerComposerAgent(StubLLMClient(bad_responder))
+    draft = asyncio.get_event_loop().run_until_complete(
+        agent.compose(state, {"compose_mode": "fact_lookup", "target_label": "五彩滩"})
+    )
+    assert "50元" in draft.answer_text
+    assert full_id in draft.cited_evidence_ids
+    assert "合成服务不可用" not in draft.answer_text

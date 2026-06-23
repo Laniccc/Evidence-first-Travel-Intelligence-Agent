@@ -106,9 +106,21 @@ class BaiduMapMCPAdapter(BaseTravelTool):
                 {"address": f"{query}, {kwargs.get('city')}, {kwargs.get('country') or 'China'}"},
             )
             if geo.ok:
-                candidates = parse_search_places(geo.data) or [
-                    {"name": query, "address": text_from_mcp_payload(geo.data)[:200]}
-                ]
+                parsed = parse_geocode(geo.data)
+                if parsed.get("latitude") is not None and parsed.get("longitude") is not None:
+                    candidates = [
+                        {
+                            "name": str(kwargs.get("place_name") or query),
+                            "address": parsed.get("address"),
+                            "city": kwargs.get("city"),
+                            "latitude": parsed["latitude"],
+                            "longitude": parsed["longitude"],
+                        }
+                    ]
+                else:
+                    candidates = parse_search_places(geo.data) or [
+                        {"name": query, "address": text_from_mcp_payload(geo.data)[:200]}
+                    ]
 
         if not candidates:
             text = text_from_mcp_payload(result.data)

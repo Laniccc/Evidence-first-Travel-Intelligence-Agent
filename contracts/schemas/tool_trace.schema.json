@@ -28,6 +28,15 @@
       "default": {}
     },
     "fallback_used": { "type": "boolean", "default": false },
-    "cache_hit": { "type": "boolean", "default": false }
+    "cache_hit": { "type": "boolean", "default": false },
+    "provider": { "type": ["string", "null"] },
+    "configured": { "type": ["boolean", "null"] },
+    "crawler_command": { "type": ["string", "null"] },
+    "crawler_workdir": { "type": ["string", "null"] },
+    "snapshot_saved_count": { "type": ["integer", "null"] },
+    "output_parse_status": {
+      "type": ["string", "null"],
+      "description": "ok | non_json | parse_error"
+    }
   }
 }

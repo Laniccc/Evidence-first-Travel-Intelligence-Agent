@@ -1,17 +1,19 @@
 #!/usr/bin/env python3
-"""Manual smoke: Fliggy ticket snapshot (Open API or subprocess crawler)."""
+"""Manual smoke: Fliggy ticket snapshot (FlyAI API or subprocess crawler)."""
 
 from __future__ import annotations
 
 import argparse
 import asyncio
 
-from _bootstrap import AGENT  # noqa: F401
+import _bootstrap  # noqa: F401 — sys.path
 
 from app.config import get_settings
-from tools.crawlers.fliggy_crawler_tool import FliggyTicketSnapshotCrawlerTool
-from tools.ticketing.provider_config import fliggy_flyai_configured
-from tools.ticketing.ticket_snapshot_store import TicketSnapshotStore
+
+_fliggy_mod = _bootstrap.import_tools_module("crawlers.fliggy_crawler_tool")
+FliggyTicketSnapshotCrawlerTool = _fliggy_mod.FliggyTicketSnapshotCrawlerTool
+_provider_config = _bootstrap.import_tools_module("ticketing.provider_config")
+fliggy_flyai_configured = _provider_config.fliggy_flyai_configured
 
 
 def _summarize(evidence: list) -> str:
@@ -29,8 +31,7 @@ async def main() -> int:
     args = parser.parse_args()
 
     settings = get_settings()
-    store = TicketSnapshotStore(settings.ticket_snapshot_db_path) if settings.ticket_snapshot_store_enabled else None
-    tool = FliggyTicketSnapshotCrawlerTool(settings, store)
+    tool = FliggyTicketSnapshotCrawlerTool(settings)
     print(f"enabled={settings.fliggy_ticket_crawler_enabled and settings.enable_ticket_crawler_providers}")
     print(f"flyai={fliggy_flyai_configured(settings)}")
     print(f"configured={tool.is_configured()}")
@@ -46,6 +47,7 @@ async def main() -> int:
     meta = tool.last_run_meta
     print(f"transport={meta.get('transport', 'unknown')}")
     print(f"success={meta.get('error') is None}")
+    print(f"output_parse_status={meta.get('output_parse_status')}")
     print(f"count={len(evidence)}")
     print(f"summary={_summarize(evidence)}")
     if meta.get("snapshot_saved_count") is not None:

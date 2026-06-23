@@ -46,6 +46,26 @@ function Start-DaemonWindow {
 
 Write-Host "=== MCP HTTP stack ===" -ForegroundColor Cyan
 
+function Read-AgentEnvValue {
+    param([string]$Key, [string]$Default = "")
+    if ($env:$Key) { return $env:$Key }
+    $envFile = Join-Path $PSScriptRoot "..\apps\agent-python\.env"
+    if (-not (Test-Path $envFile)) { return $Default }
+    $line = Get-Content $envFile | Where-Object { $_ -match "^\s*$Key\s*=" } | Select-Object -First 1
+    if (-not $line) { return $Default }
+    $value = ($line -split "=", 2)[1].Trim().Trim('"').Trim("'")
+    return $value
+}
+
+$searchEngine = Read-AgentEnvValue "MCP_SEARCH_DEFAULT_ENGINE" "baidu"
+$searchUseProxy = (Read-AgentEnvValue "MCP_SEARCH_USE_PROXY" "false").ToLower() -in @("true", "1", "yes")
+$searchProxyUrl = Read-AgentEnvValue "MCP_SEARCH_PROXY_URL" "http://127.0.0.1:7890"
+$proxyEnv = if ($searchUseProxy) {
+    "`$env:USE_PROXY='true'; `$env:PROXY_URL='$searchProxyUrl'; "
+} else {
+    "`$env:USE_PROXY='false'; "
+}
+
 # --- open-webSearch :3210 ---
 $searchHealth = Test-McpHealth "http://127.0.0.1:3210/health"
 if ($searchHealth.ok) {
@@ -60,7 +80,7 @@ if ($searchHealth.ok) {
         Start-Sleep -Seconds 1
     }
     Start-DaemonWindow "open-webSearch" @"
-`$env:DEFAULT_SEARCH_ENGINE='baidu'; `$env:ENABLE_CORS='true'; `$env:USE_PROXY='false'; npx -y open-websearch@latest serve
+`$env:DEFAULT_SEARCH_ENGINE='$searchEngine'; `$env:ENABLE_CORS='true'; $proxyEnv npx -y open-websearch@latest serve
 "@
         Start-Sleep -Seconds 8
         $searchHealth = Test-McpHealth "http://127.0.0.1:3210/health"

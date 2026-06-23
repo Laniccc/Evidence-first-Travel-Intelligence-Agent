@@ -6,10 +6,11 @@ from __future__ import annotations
 import argparse
 import asyncio
 
-from _bootstrap import AGENT  # noqa: F401
+import _bootstrap  # noqa: F401 — sys.path
 
 from app.config import get_settings
-from tools.crawlers.dianping_crawler_tool import DianpingReviewCrawlerTool
+
+DianpingReviewCrawlerTool = _bootstrap.import_tools_module("crawlers.dianping_crawler_tool").DianpingReviewCrawlerTool
 
 
 def _summarize(evidence: list) -> str:
@@ -29,14 +30,22 @@ async def main() -> int:
     settings = get_settings()
     tool = DianpingReviewCrawlerTool(settings)
     print(f"enabled={settings.dianping_crawler_enabled and settings.enable_review_crawler_providers}")
+    print(f"websearch={settings.dianping_websearch_signal_enabled and settings.mcp_search_enabled}")
     print(f"configured={tool.is_configured()}")
     print(f"command={tool.command or '(empty)'}")
+    print(f"workdir={tool.workdir or '(empty)'}")
 
-    evidence = await tool.run_query(
-        args.place, args.city, args.country, query=args.place, claim_type="review_summary"
+    evidence = await tool.run(
+        place_name=args.place,
+        city=args.city,
+        country=args.country,
+        query=args.place,
+        claim_type="review_summary",
     )
     meta = tool.last_run_meta
-    print(f"success={meta.get('status') == 'ok'}")
+    print(f"transport={meta.get('transport', 'unknown')}")
+    print(f"success={meta.get('error') is None}")
+    print(f"output_parse_status={meta.get('output_parse_status')}")
     print(f"count={len(evidence)}")
     print(f"summary={_summarize(evidence)}")
     if meta.get("error"):

@@ -103,6 +103,7 @@ class TicketLensExperienceTool:
             "provider": self.provider_name,
             "configured": self.is_configured(),
             "error": err,
+            "output_parse_status": "ok" if items and not err else "parse_error",
         }
         if err:
             return []

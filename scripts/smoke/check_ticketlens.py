@@ -6,10 +6,11 @@ from __future__ import annotations
 import argparse
 import asyncio
 
-from _bootstrap import AGENT  # noqa: F401 — side effect: sys.path
+import _bootstrap  # noqa: F401 — sys.path
 
 from app.config import get_settings
-from tools.ticketing.ticketlens_tool import TicketLensExperienceTool
+
+TicketLensExperienceTool = _bootstrap.import_tools_module("ticketing.ticketlens_tool").TicketLensExperienceTool
 
 
 def _summarize_evidence(evidence: list) -> str:

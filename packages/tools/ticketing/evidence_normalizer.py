@@ -23,6 +23,15 @@ def _clamp(conf: float, lo: float, hi: float) -> float:
     return max(lo, min(hi, conf))
 
 
+def _truncate_snippets(values: list[Any], *, max_items: int = 3, max_len: int = 200) -> list[str]:
+    out: list[str] = []
+    for raw in values[:max_items]:
+        text = str(raw).strip()
+        if text:
+            out.append(text[:max_len])
+    return out
+
+
 def normalize_ticketlens_items(
     items: list[dict[str, Any]],
     *,
@@ -144,19 +153,19 @@ def normalize_review_crawler_payload(
                     confidence=_clamp(float(item.get("confidence", 0.55)), 0.45, 0.65),
                 )
             )
-        for aspect in item.get("positive_aspects") or []:
+        for aspect in _truncate_snippets(item.get("positive_aspects") or []):
             claims.append(
                 Claim(claim_type=ClaimType.REVIEW_ASPECT, value=f"+ {aspect}", confidence=0.5)
             )
-        for aspect in item.get("negative_aspects") or []:
+        for aspect in _truncate_snippets(item.get("negative_aspects") or []):
             claims.append(
                 Claim(claim_type=ClaimType.REVIEW_ASPECT, value=f"- {aspect}", confidence=0.5)
             )
-        for mention in item.get("ticket_related_mentions") or []:
+        for mention in _truncate_snippets(item.get("ticket_related_mentions") or []):
             claims.append(
                 Claim(
                     claim_type=ClaimType.TICKET_RELATED_MENTIONS,
-                    value=str(mention)[:200],
+                    value=mention,
                     confidence=0.5,
                 )
             )

@@ -4,16 +4,40 @@ from __future__ import annotations
 
 import json
 import logging
+import multiprocessing
 import os
 import subprocess
+import sys
 from typing import Any
 
 from app.config import Settings, get_settings
+from tools.subprocess_argv import resolve_executable_argv
 from tools.ticketing.provider_config import effective_flyai_api_key, fliggy_flyai_configured
 
 logger = logging.getLogger(__name__)
 
 _DEFAULT_CLI = "npx --yes @fly-ai/flyai-cli@1.0.16"
+
+
+def _flyai_cli_subprocess_worker(
+    argv: list[str],
+    api_key: str,
+    timeout: float,
+    env_items: list[tuple[str, str]],
+) -> tuple[int, str, str]:
+    """Run flyai-cli in an isolated process (Windows libuv safety)."""
+    env = dict(env_items)
+    env["FLYAI_API_KEY"] = api_key
+    proc = subprocess.run(
+        resolve_executable_argv(argv),
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        timeout=timeout,
+        env=env,
+    )
+    return proc.returncode, proc.stdout or "", proc.stderr or ""
 
 
 class FliggyFlyAiService:
@@ -34,25 +58,39 @@ class FliggyFlyAiService:
         api_key = effective_flyai_api_key(self.settings)
         if not api_key:
             return None, "Fliggy FlyAI API key not configured"
-        env = os.environ.copy()
-        env["FLYAI_API_KEY"] = api_key
         timeout = float(self.settings.fliggy_flyai_timeout_seconds)
+        env_items = list(os.environ.items())
         try:
-            proc = subprocess.run(
-                argv,
-                capture_output=True,
-                text=True,
-                timeout=timeout,
-                env=env,
-            )
+            if sys.platform == "win32":
+                ctx = multiprocessing.get_context("spawn")
+                with ctx.Pool(1) as pool:
+                    returncode, stdout, stderr = pool.apply(
+                        _flyai_cli_subprocess_worker,
+                        (argv, api_key, timeout, env_items),
+                    )
+            else:
+                env = os.environ.copy()
+                env["FLYAI_API_KEY"] = api_key
+                proc = subprocess.run(
+                    resolve_executable_argv(argv),
+                    capture_output=True,
+                    text=True,
+                    encoding="utf-8",
+                    errors="replace",
+                    timeout=timeout,
+                    env=env,
+                )
+                returncode, stdout, stderr = proc.returncode, proc.stdout or "", proc.stderr or ""
         except subprocess.TimeoutExpired:
             return None, f"flyai-cli timeout after {timeout}s"
         except OSError as exc:
             return None, str(exc)
-        raw = (proc.stdout or "").strip()
-        if proc.returncode != 0:
-            err = (proc.stderr or raw or "").strip()[:500]
-            return None, err or f"flyai-cli exit {proc.returncode}"
+        except multiprocessing.TimeoutError:
+            return None, f"flyai-cli timeout after {timeout}s"
+        raw = stdout.strip()
+        if returncode != 0:
+            err = (stderr or raw or "").strip()[:500]
+            return None, err or f"flyai-cli exit {returncode}"
         if not raw:
             return None, "flyai-cli returned empty stdout"
         try:
@@ -71,19 +109,21 @@ class FliggyFlyAiService:
         if not self.is_configured():
             return [], "Fliggy FlyAI not configured"
         limit = max_results or self.settings.fliggy_ticket_crawler_max_results
-        keyword = (query or place_name or "").strip()
+        keyword = (place_name or query or "").strip()
         if not keyword:
             return [], "place_name is required"
 
         if city:
+            poi_keyword = (place_name or keyword).strip()
             argv = self._cli_argv(
                 "search-poi",
                 "--city-name",
                 city,
                 "--keyword",
-                keyword,
+                poi_keyword,
             )
             method = "search-poi"
+            keyword = poi_keyword
         else:
             search_q = keyword if "门票" in keyword or "票" in keyword else f"{keyword} 门票"
             argv = self._cli_argv("keyword-search", "--query", search_q)

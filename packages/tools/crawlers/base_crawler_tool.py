@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import subprocess
 from typing import Any
 
 from app.config import Settings, get_settings
+from tools.subprocess_argv import resolve_executable_argv
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +32,16 @@ class BaseCrawlerTool:
     def is_configured(self) -> bool:
         return bool(self.enabled and (self.command or "").strip())
 
+    def build_command(
+        self,
+        place_name: str,
+        city: str | None = None,
+        country: str | None = None,
+        query: str | None = None,
+        claim_type: str | None = None,
+    ) -> list[str]:
+        return self._format_command(place_name, city, country, query, claim_type)
+
     def _format_command(
         self,
         place_name: str,
@@ -50,6 +62,25 @@ class BaseCrawlerTool:
             cmd = cmd.replace(key, val)
         return cmd.split()
 
+    def parse_output(self, raw: str) -> tuple[dict[str, Any] | list | None, str]:
+        text = (raw or "").strip()
+        if not text:
+            return None, "parse_error"
+        try:
+            return json.loads(text), "ok"
+        except json.JSONDecodeError:
+            return {"items": [{"review_summary": text[:500], "confidence": 0.4}]}, "non_json"
+
+    def run_subprocess(
+        self,
+        place_name: str,
+        city: str | None = None,
+        country: str | None = None,
+        query: str | None = None,
+        claim_type: str | None = None,
+    ) -> tuple[dict[str, Any] | list | None, str | None]:
+        return self._run_subprocess(place_name, city, country, query, claim_type)
+
     def _run_subprocess(
         self,
         place_name: str,
@@ -69,29 +100,33 @@ class BaseCrawlerTool:
             "claim_type": claim_type,
             "max_results": self.max_results,
         }
+        parse_status = "parse_error"
         try:
             proc = subprocess.run(
-                argv,
+                resolve_executable_argv(argv),
                 input=json.dumps(payload, ensure_ascii=False),
                 capture_output=True,
                 text=True,
+                encoding="utf-8",
+                errors="replace",
                 timeout=self.timeout_seconds,
                 cwd=self.workdir or None,
             )
         except subprocess.TimeoutExpired:
+            self.last_run_meta["output_parse_status"] = "parse_error"
             return None, f"crawler timeout after {self.timeout_seconds}s"
         except OSError as exc:
+            self.last_run_meta["output_parse_status"] = "parse_error"
             return None, str(exc)
         if proc.returncode != 0:
             err = (proc.stderr or proc.stdout or "").strip()[:500]
+            self.last_run_meta["output_parse_status"] = "parse_error"
             return None, err or f"crawler exit {proc.returncode}"
-        raw = (proc.stdout or "").strip()
-        if not raw:
+        data, parse_status = self.parse_output(proc.stdout or "")
+        self.last_run_meta["output_parse_status"] = parse_status
+        if data is None:
             return None, "crawler returned empty stdout"
-        try:
-            return json.loads(raw), None
-        except json.JSONDecodeError:
-            return {"items": [{"review_summary": raw[:500], "confidence": 0.4}]}, None
+        return data, None
 
     async def run_query(
         self,
@@ -101,11 +136,20 @@ class BaseCrawlerTool:
         query: str | None = None,
         claim_type: str | None = None,
     ) -> tuple[dict[str, Any] | list | None, str | None]:
-        data, err = self._run_subprocess(place_name, city, country, query, claim_type)
+        data, err = await asyncio.to_thread(
+            self._run_subprocess,
+            place_name,
+            city,
+            country,
+            query,
+            claim_type,
+        )
         self.last_run_meta = {
             "provider": self.provider_name,
             "configured": self.is_configured(),
             "crawler_command": self.command,
+            "crawler_workdir": self.workdir,
+            "output_parse_status": self.last_run_meta.get("output_parse_status", "ok" if data else "parse_error"),
             "error": err,
         }
         return data, err
@@ -119,8 +163,6 @@ class BaseCrawlerTool:
         claim_type: str | None = None,
         **kwargs: Any,
     ) -> list:
-        from app.schemas.evidence import Evidence
-
         data, err = await self.run_query(
             place_name or "",
             city=city,
