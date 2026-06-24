@@ -7,9 +7,12 @@ from app.orchestrator.s5_information_domain_registry import (
     bindings_for_domain,
 )
 from app.schemas.evidence import ClaimType, Evidence
+from app.schemas.intent_profile import IntentProfile, PrimaryIntent
 from app.schemas.response_contract import ResponseContract
 from app.schemas.s5_information_domain import InformationDomain, S5DomainPlan, S5DomainToolBinding, S5ToolRole
 from app.schemas.semantic_frame import SemanticFrame
+
+from app.orchestrator.intent_strategy_registry import IntentStrategy, resolve_intent_strategy
 
 D = InformationDomain
 
@@ -83,8 +86,10 @@ _GEO_CLAIM_TYPES = frozenset(
 )
 
 _ROUTE_CONTEXT_DECISIONS = frozenset(
-    {"route_plan", "transport_planning", "how_to_choose", "nearby_search"}
+    {"route_plan", "transport_planning", "how_to_choose", "nearby_search", "whether_to_go"}
 )
+
+_DAY_TRIP_ROUTE_CLAIMS = ("itinerary_feasibility", "distance", "duration", "transit")
 
 
 class S5DomainPlanner:
@@ -96,8 +101,12 @@ class S5DomainPlanner:
         frame: SemanticFrame | None,
         *,
         evidence: list | None = None,
+        intent_profile: IntentProfile | None = None,
+        intent_strategy: IntentStrategy | None = None,
     ) -> S5DomainPlan:
+        strategy = intent_strategy or (resolve_intent_strategy(intent_profile) if intent_profile else None)
         claim_types = self._collect_claim_types(contract, frame)
+        claim_types = self._inject_day_trip_claims(frame, claim_types)
         claim_to_domains: dict[str, list[InformationDomain]] = {}
         domain_set: set[InformationDomain] = set()
 
@@ -115,19 +124,44 @@ class S5DomainPlanner:
                 if D.GEO_RESOLUTION not in claim_to_domains.get(claim, []):
                     claim_to_domains.setdefault(claim, []).append(D.GEO_RESOLUTION)
 
-        ordered_domains = self._order_domains(domain_set)
+        ordered_domains = self._order_domains(domain_set, strategy)
         bindings = self._collect_bindings(ordered_domains)
 
         notes: list[str] = []
         if D.GEO_RESOLUTION in domain_set and self._needs_geo_prerequisite(frame, evidence):
             notes.append("geo_resolution prerequisite: city/coordinates not yet resolved")
 
+        retrieval_mode: str = "single_place"
+        if intent_profile and intent_profile.primary_intent == PrimaryIntent.COMPARISON:
+            retrieval_mode = "multi_place_parallel"
+            places = list(frame.entities.places) if frame and frame.entities else []
+            if len(places) >= 2:
+                notes.append(
+                    "comparison parallel retrieval: "
+                    + "; ".join(f"place={p}" for p in places[:6])
+                )
+
         return S5DomainPlan(
             domains=ordered_domains,
             claim_to_domains=claim_to_domains,
             tool_bindings=bindings,
             notes=notes,
+            intent_primary=intent_profile.primary_intent if intent_profile else None,
+            domain_priority=list(strategy.domain_priority) if strategy else [],
+            retrieval_mode=retrieval_mode,  # type: ignore[arg-type]
         )
+
+    @staticmethod
+    def _inject_day_trip_claims(frame: SemanticFrame | None, claim_types: list[str]) -> list[str]:
+        from app.orchestrator.evidence_signal_utils import is_day_trip_query
+
+        if not is_day_trip_query(frame):
+            return claim_types
+        out = list(claim_types)
+        for claim in _DAY_TRIP_ROUTE_CLAIMS:
+            if claim not in out:
+                out.append(claim)
+        return out
 
     @staticmethod
     def _collect_claim_types(contract: ResponseContract | None, frame: SemanticFrame | None) -> list[str]:
@@ -160,6 +194,10 @@ class S5DomainPlanner:
     def _has_route_context(frame: SemanticFrame | None) -> bool:
         if not frame:
             return False
+        from app.orchestrator.evidence_signal_utils import is_day_trip_query
+
+        if is_day_trip_query(frame):
+            return True
         dt = frame.decision_type.value if frame.decision_type else ""
         if dt in _ROUTE_CONTEXT_DECISIONS:
             return True
@@ -167,9 +205,20 @@ class S5DomainPlanner:
         return bool(needs & {"route_plan", "transport_planning", "itinerary_feasibility"})
 
     @staticmethod
-    def _order_domains(domains: set[InformationDomain]) -> list[InformationDomain]:
-        order = list(S5_INFORMATION_DOMAIN_REGISTRY.keys())
-        return [d for d in order if d in domains]
+    def _order_domains(
+        domains: set[InformationDomain],
+        strategy: IntentStrategy | None = None,
+    ) -> list[InformationDomain]:
+        registry_order = list(S5_INFORMATION_DOMAIN_REGISTRY.keys())
+        if not strategy or not strategy.domain_priority:
+            return [d for d in registry_order if d in domains]
+        priority = [d for d in strategy.domain_priority if d in domains]
+        if D.GEO_RESOLUTION in domains and D.GEO_RESOLUTION not in priority:
+            priority.insert(0, D.GEO_RESOLUTION)
+        elif priority and priority[0] != D.GEO_RESOLUTION and D.GEO_RESOLUTION in domains:
+            priority = [D.GEO_RESOLUTION] + [d for d in priority if d != D.GEO_RESOLUTION]
+        tail = [d for d in registry_order if d in domains and d not in priority]
+        return priority + tail
 
     @staticmethod
     def _collect_bindings(domains: list[InformationDomain]) -> list[S5DomainToolBinding]:

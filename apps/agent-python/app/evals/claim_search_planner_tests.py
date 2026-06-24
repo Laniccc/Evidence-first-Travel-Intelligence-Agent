@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from app.agents.search_task_planner_agent import SearchTaskPlannerAgent
+from app.agents.search_task_planner_agent import SearchTaskPlannerAgent, _planner_user_payload
 from app.evals.llm_test_helpers import StubLLMClient, duku_search_tasks_json
 from app.orchestrator.claim_search_planner import ClaimSearchPlanner
 from app.orchestrator.response_contract_compiler import ResponseContractCompiler
@@ -78,6 +78,61 @@ def test_planning_context_includes_s2_place_ambiguity():
     assert ctx["place_ambiguity"]["is_ambiguous"] is True
     assert "南岳衡山" in ctx["gated_search_keywords"]
     assert ctx["labeled_entities"]
+
+
+def test_planner_user_payload_includes_user_need_residual():
+    from app.orchestrator.user_need_residual import attach_user_need_residual
+
+    state = TravelAgentState(session_id="s", query_id="q", raw_user_query="今天独库公路能走吗？")
+    state.semantic_frame = SemanticFrame(
+        raw_query="今天独库公路能走吗？",
+        normalized_request="独库公路今日通行状态",
+        query_scope=QueryScope.PLACE,
+        task_family=TaskFamily.FACT_LOOKUP,
+        decision_type=DecisionType.FACT_LOOKUP,
+        entities=SemanticEntities(places=["独库公路"], region="新疆"),
+        time_scope=TimeScope.CURRENT,
+        information_needs=["seasonal_operation_status"],
+        requires_live_data=True,
+    )
+    state.response_contract = ResponseContractCompiler().compile(state.semantic_frame)
+    attach_user_need_residual(state)
+
+    ctx = ClaimSearchPlanner.planning_context(state)
+    payload = _planner_user_payload(ctx, refine=False)
+    assert payload.get("user_need_residual") is not None
+    assert payload["user_need_residual"]["time_scope"] == "current"
+    assert any(
+        n["need_type"] == "seasonal_operation_status"
+        for n in payload["user_need_residual"]["information_needs"]
+    )
+
+
+def test_s5_prompt_context_includes_user_need_residual():
+    from app.orchestrator.states.evidence_planning_and_tool_use_state import EvidencePlanningAndToolUseState
+    from app.orchestrator.user_need_residual import attach_user_need_residual
+    from app.schemas.tool_whitelist import ToolWhitelist
+
+    state = TravelAgentState(session_id="s", query_id="q", raw_user_query="今天独库公路能走吗？")
+    state.semantic_frame = SemanticFrame(
+        raw_query="今天独库公路能走吗？",
+        normalized_request="独库公路今日通行状态",
+        query_scope=QueryScope.PLACE,
+        task_family=TaskFamily.FACT_LOOKUP,
+        decision_type=DecisionType.FACT_LOOKUP,
+        entities=SemanticEntities(places=["独库公路"], region="新疆"),
+        time_scope=TimeScope.CURRENT,
+        information_needs=["seasonal_operation_status"],
+        requires_live_data=True,
+    )
+    state.response_contract = ResponseContractCompiler().compile(state.semantic_frame)
+    attach_user_need_residual(state)
+
+    wl = ToolWhitelist(state_name="evidence_planning_and_tool_use", allowed_tools=[])
+    ctx = EvidencePlanningAndToolUseState()._build_prompt_context(state, {}, wl)
+    assert ctx.get("user_need_residual") is not None
+    assert ctx["user_need_residual"]["time_scope"] == "current"
+    assert any("user_need_residual" in rule for rule in ctx.get("s5_prompt_rules", []))
 
 
 @pytest.mark.asyncio

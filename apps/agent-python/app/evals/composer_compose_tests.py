@@ -8,7 +8,7 @@ from app.agents.composer_agent import ComposerAgent
 from app.evals.llm_test_helpers import StubLLMClient
 from app.schemas.evidence import Claim, ClaimType, Evidence, SourceType
 from app.schemas.evidence_brief import CuratedClaimRow, EvidenceBrief
-from app.schemas.final_answer_draft import FinalAnswerDraft
+from app.schemas.final_answer_draft import FinalAnswerDraft, FinalAnswerSection
 from app.schemas.user_need_residual import ResidualInformationNeed, UserNeedResidual
 from app.schemas.user_query import TravelAgentState
 from app.schemas.tool_trace import ToolTrace
@@ -136,6 +136,112 @@ def test_looks_incomplete_answer_rejects_truncated_llm_text():
     assert AnswerComposerAgent._looks_incomplete_answer(draft) is True
 
 
+def test_looks_incomplete_answer_rejects_truncated_section_bullet():
+    draft = FinalAnswerDraft(
+        conclusion="结论完整。",
+        sections=[
+            FinalAnswerSection(
+                title="禾木村",
+                bullets=["据部分游记描述，禾木村长期保持原始状态，有"],
+            )
+        ],
+    )
+    assert AnswerComposerAgent._looks_incomplete_answer(draft) is True
+
+
+def test_summarize_comparison_claims_for_compose_limits_payload():
+    from app.orchestrator.comparison_helpers import summarize_comparison_claims_for_compose
+
+    claims = [
+        {
+            "place_name": "禾木村",
+            "claim_type": "review_summary",
+            "value": "a" * 300,
+            "confidence": 0.8,
+            "relevance_score": 0.9,
+            "evidence_id": "e1",
+        },
+        {
+            "place_name": "禾木村",
+            "claim_type": "review_summary",
+            "value": "second",
+            "confidence": 0.6,
+            "relevance_score": 0.5,
+            "evidence_id": "e2",
+        },
+        {
+            "place_name": "喀纳斯景区",
+            "claim_type": "crowd_level",
+            "value": "旺季游客较多",
+            "confidence": 0.7,
+            "relevance_score": 0.8,
+            "evidence_id": "e3",
+        },
+    ]
+    out = summarize_comparison_claims_for_compose(claims, ["禾木村", "喀纳斯景区"])
+    assert len(out) <= 6
+    assert all(len(str(c["value"])) <= 220 for c in out)
+
+
+def test_comparison_fallback_accepted_with_headline_title():
+    bundle = {
+        "compose_mode": "compare",
+        "target_label": "禾木村 vs 喀纳斯景区",
+        "compare_place_names": ["禾木村", "喀纳斯景区"],
+        "overall_confidence": 0.43,
+        "evidence_ids": ["e1", "e2"],
+        "has_actionable_evidence": True,
+        "actionable_evidence_claims": [
+            {
+                "place_name": "禾木",
+                "claim_type": "review_summary",
+                "value": "秋色很美，适合摄影",
+                "confidence": 0.7,
+                "evidence_id": "e1",
+            },
+            {
+                "place_name": "喀纳斯",
+                "claim_type": "crowd_level",
+                "value": "旺季拥挤但风景值得",
+                "confidence": 0.6,
+                "evidence_id": "e2",
+            },
+        ],
+    }
+    draft = AnswerComposerAgent._comparison_fallback_draft(bundle)
+    agent = AnswerComposerAgent()
+    assert agent._looks_incomplete_answer(draft) is False
+    assert agent._accept_draft(draft, bundle) is True
+
+
+def test_comparison_fallback_draft_per_place_sections():
+    bundle = {
+        "compose_mode": "compare",
+        "target_label": "禾木村 vs 喀纳斯景区",
+        "compare_place_names": ["禾木村", "喀纳斯景区"],
+        "overall_confidence": 0.43,
+        "actionable_evidence_claims": [
+            {
+                "place_name": "禾木村",
+                "claim_type": "review_summary",
+                "value": "秋色很美",
+                "confidence": 0.7,
+                "evidence_id": "e1",
+            },
+            {
+                "place_name": "喀纳斯景区",
+                "claim_type": "crowd_level",
+                "value": "旺季拥挤",
+                "confidence": 0.6,
+                "evidence_id": "e2",
+            },
+        ],
+    }
+    draft = AnswerComposerAgent._comparison_fallback_draft(bundle)
+    assert len(draft.sections) == 2
+    assert draft.answer_text.endswith("。") or "。" in draft.answer_text
+
+
 def test_validate_draft_allows_gap_answer_without_citations():
     bundle = {
         "evidence_ids": ["e1"],
@@ -205,7 +311,7 @@ def test_llm_compose_uses_brief_and_low_confidence_disclaimer():
         return _composer_stub_response(bundle)
 
     agent = AnswerComposerAgent(StubLLMClient(responder))
-    draft = asyncio.get_event_loop().run_until_complete(
+    draft = asyncio.run(
         agent.compose(state, {"compose_mode": "fact_lookup", "target_label": "巴音布鲁克景区"})
     )
     assert "65元" in draft.answer_text
@@ -220,7 +326,7 @@ def test_infrastructure_error_when_llm_unavailable():
         def _should_use_anthropic(self) -> bool:
             return False
 
-    draft = asyncio.get_event_loop().run_until_complete(
+    draft = asyncio.run(
         AnswerComposerAgent(NoLLM()).compose(state, {"target_label": "测试地"})
     )
     assert "合成服务不可用" in draft.answer_text
@@ -361,7 +467,7 @@ def test_llm_truncated_uuid_compose_succeeds():
         )
 
     agent = AnswerComposerAgent(StubLLMClient(responder))
-    draft = asyncio.get_event_loop().run_until_complete(
+    draft = asyncio.run(
         agent.compose(state, {"compose_mode": "fact_lookup", "target_label": "五彩滩"})
     )
     assert "75元" in draft.answer_text
@@ -424,7 +530,7 @@ def test_evidence_fallback_when_llm_repeatedly_invalid():
         )
 
     agent = AnswerComposerAgent(StubLLMClient(bad_responder))
-    draft = asyncio.get_event_loop().run_until_complete(
+    draft = asyncio.run(
         agent.compose(state, {"compose_mode": "fact_lookup", "target_label": "五彩滩"})
     )
     assert "50元" in draft.answer_text

@@ -10,6 +10,12 @@ class ToolDescriptor(BaseModel):
     configured: bool = True
     limitations: list[str] = Field(default_factory=list)
     restrictions: list[str] = Field(default_factory=list)
+    when_to_use: list[str] = Field(default_factory=list)
+    when_not_to_use: list[str] = Field(default_factory=list)
+    parameters_hint: str = ""
+    prerequisites: list[str] = Field(default_factory=list)
+    satisfies_needs: list[str] = Field(default_factory=list)
+    call_order_hint: str = ""
 
 
 class ToolWhitelist(BaseModel):

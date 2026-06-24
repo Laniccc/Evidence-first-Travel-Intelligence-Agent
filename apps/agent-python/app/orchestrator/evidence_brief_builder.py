@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from app.orchestrator.comparison_helpers import enrich_comparison_brief, is_comparison_mode
 from app.schemas.evidence import Evidence
 from app.schemas.evidence_brief import CuratedClaimRow, EvidenceBrief
 from app.schemas.evidence_decision_report import ClaimDecision, EvidenceDecisionReport
@@ -92,7 +93,10 @@ def _claim_value_for(ev: Evidence, claim_type: str) -> str:
 
 def build_evidence_brief(state: TravelAgentState, target_label: str) -> EvidenceBrief:
     if state.evidence_decision_report:
-        return build_evidence_brief_from_report(state, state.evidence_decision_report, target_label)
+        brief = build_evidence_brief_from_report(state, state.evidence_decision_report, target_label)
+        if is_comparison_mode(state):
+            brief = enrich_comparison_brief(state, brief, target_label)
+        return brief
 
     structured = state.structured_result or {}
     curated_raw = structured.get("curated_claims") or []
@@ -125,7 +129,7 @@ def build_evidence_brief(state: TravelAgentState, target_label: str) -> Evidence
     if curated:
         overall = sum(c.confidence * c.relevance_score for c in curated) / len(curated)
 
-    return EvidenceBrief(
+    brief = EvidenceBrief(
         target_label=target_label,
         curated_claims=curated,
         fact_decompositions=fact_decompositions,
@@ -135,6 +139,9 @@ def build_evidence_brief(state: TravelAgentState, target_label: str) -> Evidence
         overall_confidence=round(overall, 3),
         curation_notes=curation_notes,
     )
+    if is_comparison_mode(state):
+        brief = enrich_comparison_brief(state, brief, target_label)
+    return brief
 
 
 def apply_evidence_brief(state: TravelAgentState, brief: EvidenceBrief) -> TravelAgentState:

@@ -4,12 +4,21 @@ from __future__ import annotations
 
 from app.orchestrator.claim_policy_registry import ClaimPolicyView
 from app.orchestrator.evidence_scorer import EvidenceScore
+from app.orchestrator.intent_strategy_registry import IntentStrategy
 from app.orchestrator.official_source_judgement import best_official_support
 from app.schemas.evidence import ClaimType, SourceType
 from app.schemas.evidence_decision_report import ClaimDecision, EvidenceConflict, RejectedEvidence
+from app.schemas.intent_profile import EvidenceSensitivity
 
 
 class ClaimAdoptionPolicy:
+    _DECOMP_CLAIM_ALIASES: dict[str, set[str]] = {
+        "walking_intensity": {"visit_duration", "walking_intensity", "itinerary_feasibility"},
+        "itinerary_feasibility": {"visit_duration", "distance", "itinerary_feasibility", "duration"},
+        "transit": {"distance", "transit", "route_plan", "transport_planning"},
+        "opening_hours": {"opening_hours"},
+    }
+
     def decide(
         self,
         policy: ClaimPolicyView,
@@ -19,6 +28,7 @@ class ClaimAdoptionPolicy:
         preferred_id: str | None,
         evidence: list | None = None,
         fact_decomposition: list | None = None,
+        intent_strategy: IntentStrategy | None = None,
     ) -> tuple[ClaimDecision, list[RejectedEvidence]]:
         quality = self._coverage_quality(
             policy, scores, evidence=evidence, fact_decomposition=fact_decomposition
@@ -46,7 +56,9 @@ class ClaimAdoptionPolicy:
                 if s.source_name:
                     supporting_tools.append(s.source_name)
 
-        adoption = self._adoption_for_quality(policy, quality, scores, conflicts)
+        adoption = self._adoption_for_quality(
+            policy, quality, scores, conflicts, intent_strategy=intent_strategy
+        )
         if policy.claim_type == "ticket_price":
             adoption = self._ticket_price_adoption(
                 scores,
@@ -55,6 +67,22 @@ class ClaimAdoptionPolicy:
                 evidence=evidence,
                 fact_decomposition=fact_decomposition,
             )
+        if intent_strategy and intent_strategy.evidence_sensitivity == EvidenceSensitivity.HARD_FACT:
+            if quality == "partial" and policy.requires_exact_fact:
+                adoption = "adopt_with_limitation" if adoption == "adopt" else adoption
+                if adoption == "adopt" and conflicts:
+                    adoption = "refuse_to_guess"
+        if intent_strategy and intent_strategy.partial_review_ok and quality == "partial":
+            if adoption == "refuse_to_guess":
+                adoption = "adopt_with_limitation"
+        if intent_strategy and intent_strategy.refuse_asymmetric_comparison and quality == "none":
+            adoption = "refuse_to_guess"
+        if intent_strategy and intent_strategy.forbid_model_prior_for_live:
+            if any(
+                (s.source_type or "").lower() == "model_prior" for s in scores if s.evidence_id in adopted_ids
+            ):
+                adoption = "refuse_to_guess"
+                limitations.append("实时问题禁止用模型先验替代现场数据。")
         if policy.requires_exact_fact and any(
             (s.source_type or "").lower() == "model_prior" for s in scores if s.evidence_id in adopted_ids
         ):
@@ -142,10 +170,11 @@ class ClaimAdoptionPolicy:
     def _has_decomposition_for(claim_type: str, fact_decomposition: list | None) -> bool:
         if not fact_decomposition:
             return False
+        allowed = {claim_type, *ClaimAdoptionPolicy._DECOMP_CLAIM_ALIASES.get(claim_type, set())}
         for block in fact_decomposition:
             if not isinstance(block, dict):
                 continue
-            if block.get("claim_type") != claim_type:
+            if block.get("claim_type") not in allowed:
                 continue
             items = block.get("items") or []
             if len(items) >= 1:
@@ -158,6 +187,8 @@ class ClaimAdoptionPolicy:
         quality: str,
         scores: list[EvidenceScore],
         conflicts: list[EvidenceConflict],
+        *,
+        intent_strategy: IntentStrategy | None = None,
     ) -> str:
         if quality == "none":
             return self._missing_adoption(policy)
@@ -167,6 +198,10 @@ class ClaimAdoptionPolicy:
             return "adopt_with_limitation"
         if quality == "partial":
             if conflicts:
+                return "adopt_with_limitation"
+            if intent_strategy and intent_strategy.evidence_sensitivity == EvidenceSensitivity.HARD_FACT:
+                return "adopt_with_limitation" if policy.requires_exact_fact else "adopt"
+            if intent_strategy and intent_strategy.partial_review_ok:
                 return "adopt_with_limitation"
             return "adopt_with_limitation" if policy.requires_exact_fact else "adopt"
         if conflicts and policy.requires_exact_fact:

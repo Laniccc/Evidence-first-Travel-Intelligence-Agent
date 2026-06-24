@@ -14,30 +14,33 @@ from app.schemas.user_query import TravelAgentState
 
 logger = logging.getLogger(__name__)
 
-_SYSTEM_INITIAL = """You plan keyword search tasks for a travel evidence agent (China).
+_SYSTEM_INITIAL = """You plan evidence lookup tasks for a travel evidence agent (China).
 Return ONLY JSON:
-{"tasks":[{"anchor_keywords":["..."],"search_query":"...","information_need":"ticket_price","rationale":"...","preferred_tool":"search_mcp"}]}
+{"tasks":[{"lookup_intent":"...","claim_target":"opening_hours","search_query":"...","anchor_keywords":["..."],"information_need":"opening_hours","preferred_tool":"search_mcp","tool_parameters":{},"rationale":"..."}]}
 
 Rules:
-- Propose 2-3 search tasks tailored to the user's question, anchor_keywords, and claim_types.
-- information_need = search purpose passed to keyword_search_agent (e.g. ticket_price, opening_hours).
-- anchor_keywords: strict tokens from user place/need; search_query MUST contain at least one anchor.
-- If place_candidates shows multiple regions for the same name, create separate tasks per likely region
-  (e.g. 五彩滩 阿勒泰 门票 vs 五彩滩 北海 门票) — do NOT ask the user here.
-- preferred_tool is optional hint only; keyword_search_agent will pick MCP from whitelist.
-- Do NOT answer the user; only plan searches."""
+- lookup_intent: REQUIRED. One sentence — what evidence S5 needs after reading user context (not bare keywords).
+- claim_target / information_need: claim type keyword_search_agent should satisfy (e.g. distance, route_plan, ticket_price).
+- search_query: concrete string for the chosen MCP (search phrase OR route context label).
+- tool_parameters: structured MCP args when applicable (e.g. {"origin":"乌鲁木齐市","destination":"可可托海风景区","mode":"driving"}).
+- Propose 2-3 tasks tailored to user_need_residual, anchor_keywords, and claim_types.
+- anchor_keywords: disambiguation tokens; search_query MUST contain at least one for web-search tasks.
+- Route / day-trip / distance / drive-time: dedicate one task with preferred_tool=baidu_route_mcp and full tool_parameters.origin+destination.
+- Read agent_tool_definitions: keyword_search_agent picks MCP using when_to_use / satisfies_needs — set preferred_tool accordingly.
+- If place_candidates shows multiple regions, create separate tasks per region — do NOT ask the user here.
+- For comparison: anchor each task to ONE place with full region/city label.
+- Do NOT answer the user; only plan delegated lookups."""
 
-_SYSTEM_REFINE = """You refine keyword search tasks after prior keyword_search_agent runs.
+_SYSTEM_REFINE = """You refine evidence lookup tasks after prior keyword_search_agent runs.
 Return ONLY JSON:
-{"tasks":[{"anchor_keywords":["..."],"search_query":"...","information_need":"ticket_price","rationale":"...","preferred_tool":"search_mcp"}]}
+{"tasks":[{"lookup_intent":"...","claim_target":"ticket_price","search_query":"...","anchor_keywords":["..."],"information_need":"ticket_price","preferred_tool":"search_mcp","tool_parameters":{},"rationale":"..."}]}
 Rules:
 - Use the top-level key "tasks" (NOT new_tasks).
-- Return 1-2 NEW tasks only.
-- Read anchor_keywords, place_candidates, evidence_highlights, recent_keyword_search_results.
-- Combine S4 user keywords with subagent results; adjust search_query and information_need for next lookups.
+- Return 1-2 NEW tasks only; each MUST include lookup_intent.
+- Use place_candidates, evidence_highlights, recent_keyword_search_results.
 - Do NOT repeat tried_search_queries.
-- If place ambiguity remains, narrow queries by region/city from place_candidates or evidence.
-- preferred_tool is optional; subagent selects MCP."""
+- If distance/duration still missing, add baidu_route_mcp task with tool_parameters.origin+destination.
+- Read agent_tool_definitions and user_need_residual when refining."""
 
 _REPAIR_SUFFIX = (
     "\n\nYour previous reply was invalid or empty. "
@@ -127,15 +130,18 @@ class SearchTaskPlannerAgent:
             coerced = _coerce_planner_task(item, ctx, need)
             if coerced is None:
                 continue
-            anchor_tokens, query, information_need = coerced
+            anchor_tokens, query, information_need, lookup_intent, claim_target, tool_params = coerced
             if not query or query in tried:
                 continue
             task = SearchTask(
                 task_id=f"{'refine' if refine else 'search'}-{uuid.uuid4().hex[:8]}",
+                lookup_intent=lookup_intent,
+                claim_target=claim_target or information_need,
                 anchor_keywords=anchor_tokens,
                 search_query=query,
                 information_need=information_need,
                 preferred_tool=str(item.get("preferred_tool") or "search_mcp"),
+                tool_parameters=tool_params,
                 rationale=str(item.get("rationale") or ("LLM refine" if refine else "LLM planned")),
             )
             from app.agents.keyword_search_agent import KeywordSearchAgent
@@ -179,6 +185,8 @@ def _planner_user_payload(ctx: dict, refine: bool) -> dict:
         "labeled_entities": (ctx.get("labeled_entities") or [])[:8],
         "primary_information_need": ctx.get("primary_information_need"),
         "claim_types": ctx.get("claim_types") or [],
+        "user_need_residual": ctx.get("user_need_residual"),
+        "agent_tool_definitions": (ctx.get("agent_tool_definitions") or [])[:12],
         "entities": ctx.get("entities") or {},
         "tried_search_queries": ctx.get("tried_search_queries") or [],
         "keyword_search_count": ctx.get("keyword_search_count"),
@@ -196,8 +204,21 @@ def _coerce_planner_task(
     item: dict,
     ctx: dict,
     default_need: str,
-) -> tuple[list[str], str, str] | None:
-    """Normalize LLM task fields and align search_query with S3 anchor keywords."""
+) -> tuple[list[str], str, str, str, str, dict[str, str]] | None:
+    """Normalize LLM task fields into delegated lookup payload."""
+    lookup_intent = str(
+        item.get("lookup_intent")
+        or item.get("evidence_goal")
+        or item.get("rationale")
+        or ""
+    ).strip()
+    claim_target = str(item.get("claim_target") or item.get("claim_type") or "").strip()
+
+    raw_params = item.get("tool_parameters") or item.get("tool_args") or {}
+    tool_params: dict[str, str] = {}
+    if isinstance(raw_params, dict):
+        tool_params = {str(k): str(v) for k, v in raw_params.items() if v is not None and str(v).strip()}
+
     query = str(
         item.get("search_query")
         or item.get("query")
@@ -230,7 +251,13 @@ def _coerce_planner_task(
             anchor_tokens.append(token)
 
     anchor_tokens = [a for a in anchor_tokens if len(a) >= 2]
-    if not anchor_tokens:
+    route_ready = bool(tool_params.get("origin") and tool_params.get("destination"))
+    if not anchor_tokens and route_ready:
+        for token in (tool_params.get("origin"), tool_params.get("destination")):
+            t = str(token or "").strip()
+            if len(t) >= 2 and t not in anchor_tokens:
+                anchor_tokens.append(t)
+    if not anchor_tokens and not route_ready:
         return None
 
     if not query:
@@ -239,13 +266,43 @@ def _coerce_planner_task(
         query = " ".join(anchor_tokens[:3])
 
     information_need = str(
-        item.get("information_need") or item.get("need") or default_need
+        item.get("information_need") or item.get("need") or claim_target or default_need
     ).strip() or default_need
+    if not claim_target:
+        claim_target = information_need
 
-    if not _query_contains_anchor(query, anchor_tokens):
+    if not lookup_intent:
+        lookup_intent = query or " ".join(anchor_tokens[:3])
+
+    if not query:
+        query = lookup_intent[:96]
+    if not query:
+        query = " ".join(anchor_tokens[:3])
+
+    if not _query_contains_anchor(query, anchor_tokens) and not (
+        tool_params.get("origin") and tool_params.get("destination")
+    ):
         query = f"{anchor_tokens[0]} {query}".strip()
 
-    return anchor_tokens[:6], query[:96], information_need
+    if ctx.get("comparison_mode") and ctx.get("comparison_active_place"):
+        from app.orchestrator.comparison_helpers import build_comparison_search_query
+        from app.schemas.semantic_frame import SemanticFrame, SemanticEntities
+
+        place = str(ctx["comparison_active_place"])
+        frame_stub = SemanticFrame(
+            raw_query=str(ctx.get("raw_query") or ""),
+            normalized_request=str(ctx.get("normalized_request") or ""),
+            entities=SemanticEntities.model_validate(ctx.get("entities") or {}),
+        )
+        query = build_comparison_search_query(
+            place,
+            information_need,
+            frame_stub,
+            peer_places=list(ctx.get("comparison_peer_places") or []),
+            user_query=str(ctx.get("raw_query") or ""),
+        )
+
+    return anchor_tokens[:6], query[:96], information_need, lookup_intent[:200], claim_target, tool_params
 
 
 def _query_contains_anchor(query: str, anchors: list[str]) -> bool:

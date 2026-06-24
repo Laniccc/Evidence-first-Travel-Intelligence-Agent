@@ -4,6 +4,12 @@ from __future__ import annotations
 
 import re
 
+from app.orchestrator.comparison_helpers import (
+    active_place_name,
+    comparison_search_anchors,
+    disambiguated_place_label,
+    is_comparison_mode,
+)
 from app.schemas.evidence import Evidence
 from app.schemas.user_query import TravelAgentState
 
@@ -91,6 +97,18 @@ class ClaimSearchPlanner:
 
     @classmethod
     def primary_information_need(cls, state: TravelAgentState) -> str | None:
+        residual = state.user_need_residual
+        if residual:
+            for claim in residual.claim_requirements:
+                if claim.priority == "required":
+                    return claim.claim_type
+            for need in residual.information_needs:
+                if need.priority == "required":
+                    return need.need_type
+            if residual.claim_requirements:
+                return residual.claim_requirements[0].claim_type
+            if residual.information_needs:
+                return residual.information_needs[0].need_type
         contract = state.response_contract
         if contract:
             for claim in contract.claim_requirements:
@@ -116,11 +134,13 @@ class ClaimSearchPlanner:
 
         entities = {}
         if frame and frame.entities:
+            active = active_place_name(state) if is_comparison_mode(state) else None
+            place_list = [active] if active else list(frame.entities.places or [])
             entities = {
                 "country": frame.entities.country,
                 "region": frame.entities.region,
                 "city": frame.entities.city,
-                "places": list(frame.entities.places or []),
+                "places": place_list,
             }
 
         tried = sorted(cls.tried_from_traces(state))
@@ -136,7 +156,12 @@ class ClaimSearchPlanner:
         place_candidates = extract_place_candidates(list(state.evidence))
         place = (entities.get("places") or [None])[0] if entities else None
         city = entities.get("city") if entities else None
+        region = entities.get("region") if entities else None
         primary = cls.primary_information_need(state)
+
+        anchor_keywords = cls._anchor_keywords(state)
+        if is_comparison_mode(state) and place:
+            anchor_keywords = comparison_search_anchors(place, frame, peer_places=state.comparison_peer_places)
 
         return {
             "raw_query": state.raw_user_query,
@@ -144,7 +169,15 @@ class ClaimSearchPlanner:
             "decision_type": frame.decision_type.value if frame and frame.decision_type else None,
             "task_family": frame.task_family.value if frame and frame.task_family else None,
             "entities": entities,
-            "anchor_keywords": cls._anchor_keywords(state),
+            "anchor_keywords": anchor_keywords,
+            "comparison_mode": is_comparison_mode(state),
+            "comparison_active_place": active_place_name(state),
+            "comparison_peer_places": list(state.comparison_peer_places or []),
+            "disambiguated_place_label": (
+                disambiguated_place_label(place, city=city, region=region)
+                if place
+                else None
+            ),
             "claim_types": claim_types,
             "primary_information_need": cls.primary_information_need(state),
             "search_purpose_hint": cls.primary_information_need(state),
@@ -158,6 +191,10 @@ class ClaimSearchPlanner:
             "recent_keyword_search_results": cls.recent_keyword_search_results(state),
             "user_need_residual": (
                 state.user_need_residual.model_dump() if state.user_need_residual else None
+            ),
+            "agent_tool_definitions": (
+                (state.structured_result or {}).get("_agent_tool_definitions")
+                or []
             ),
             "response_contract_summary": contract.user_goal_summary if contract else None,
             "gated_search_keywords": (

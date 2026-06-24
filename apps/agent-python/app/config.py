@@ -97,7 +97,9 @@ class Settings(BaseSettings):
     mcp_browser_timeout_seconds: float = 45.0
     mcp_max_result_chars: int = 6000
     mcp_max_tool_calls_per_state: int = 10
+    mcp_max_tool_calls_comparison: int = 14
     evidence_max_gap_rounds: int = 1
+    intent_profile_enabled: bool = True
     evidence_gap_max_extra_steps: int = 3
     mcp_http_autostart: bool = True
     mcp_http_autostart_new_window: bool = True

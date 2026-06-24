@@ -91,6 +91,7 @@ def test_planning_context_includes_place_candidates_for_llm():
 def test_keyword_search_agent_picks_tool_by_search_purpose():
     task = SearchTask(
         task_id="t1",
+        lookup_intent="查询五彩滩门票价格",
         anchor_keywords=["五彩滩"],
         search_query="五彩滩 阿勒泰 门票",
         information_need="ticket_price",

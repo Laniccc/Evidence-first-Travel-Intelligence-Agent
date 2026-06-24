@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 from enum import Enum
+from typing import Literal
 
 from pydantic import BaseModel, Field
+
+from app.schemas.intent_profile import PrimaryIntent
 
 
 class InformationDomain(str, Enum):
@@ -57,6 +60,9 @@ class S5DomainPlan(BaseModel):
     claim_to_domains: dict[str, list[InformationDomain]] = Field(default_factory=dict)
     tool_bindings: list[S5DomainToolBinding] = Field(default_factory=list)
     notes: list[str] = Field(default_factory=list)
+    intent_primary: PrimaryIntent | None = None
+    domain_priority: list[InformationDomain] = Field(default_factory=list)
+    retrieval_mode: Literal["single_place", "multi_place_parallel"] = "single_place"
 
     def provider_groups(self) -> list[ProviderGroup]:
         seen: list[ProviderGroup] = []

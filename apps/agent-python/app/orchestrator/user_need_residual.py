@@ -79,11 +79,18 @@ def build_user_need_residual(state: TravelAgentState) -> UserNeedResidual:
     elif state.query_understanding and state.query_understanding.key_concerns:
         key_concerns = list(state.query_understanding.key_concerns)
 
+    time_scope = "unknown"
+    if norm and norm.time_scope:
+        time_scope = norm.time_scope.scope
+    elif frame and frame.time_scope:
+        time_scope = frame.time_scope.value
+
     return UserNeedResidual(
         intent_summary=(norm.intent_summary if norm else "") or (frame.normalized_request if frame else ""),
         query_scope=(norm.query_scope if norm else None) or (frame.query_scope.value if frame else "unknown"),
         task_family=(norm.task_family if norm else None) or (frame.task_family.value if frame else "unknown"),
         decision_type=(norm.decision_type if norm else None) or (frame.decision_type.value if frame else "unknown"),
+        time_scope=time_scope,
         information_needs=information_needs,
         user_constraints=constraints,
         answer_policy=answer_policy,

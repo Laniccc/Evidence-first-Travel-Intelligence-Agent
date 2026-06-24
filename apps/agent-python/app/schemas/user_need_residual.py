@@ -1,4 +1,4 @@
-"""S2-derived user need context for S7/S8 — excludes user-stated facts."""
+"""S2-derived user need context for S5/S7/S8 — excludes user-stated facts."""
 
 from __future__ import annotations
 
@@ -41,6 +41,7 @@ class UserNeedResidual(BaseModel):
     query_scope: str = "unknown"
     task_family: str = "unknown"
     decision_type: str = "unknown"
+    time_scope: str = "unknown"
     information_needs: list[ResidualInformationNeed] = Field(default_factory=list)
     user_constraints: ResidualUserConstraints = Field(default_factory=ResidualUserConstraints)
     answer_policy: ResidualAnswerPolicy = Field(default_factory=ResidualAnswerPolicy)

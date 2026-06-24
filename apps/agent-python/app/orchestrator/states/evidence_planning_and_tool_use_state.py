@@ -6,6 +6,7 @@ from app.orchestrator.action_executor import ActionExecutor
 from app.orchestrator.claude_state_runner import ClaudeStateRunner
 from app.orchestrator.claim_search_planner import ClaimSearchPlanner
 from app.orchestrator.evidence_policy_guard import EvidencePolicyGuard
+from app.orchestrator.comparison_helpers import comparison_max_tool_calls, is_comparison_mode
 from app.orchestrator.state_policy import EVIDENCE_PLANNING_AND_TOOL_USE_POLICY
 from app.orchestrator.state_reducer import StateReducer
 from app.orchestrator.tool_whitelist_builder import ToolWhitelistBuilder
@@ -103,7 +104,14 @@ class EvidencePlanningAndToolUseState:
             "gap_request": gap.model_dump(),
             "gap_max_extra_steps": min(gap.max_extra_steps, settings.evidence_gap_max_extra_steps),
             "reset_evidence": False,
-            "place_name": (state.semantic_frame.entities.places[0] if state.semantic_frame and state.semantic_frame.entities.places else None),
+            "place_name": (
+                state.comparison_active_place
+                or (
+                    state.semantic_frame.entities.places[0]
+                    if state.semantic_frame and state.semantic_frame.entities.places
+                    else None
+                )
+            ),
         }
         prompt_context["tool_whitelist"] = tool_whitelist
         prompt_context["allowed_tools"] = [t.model_dump() for t in tool_whitelist.allowed_tools]
@@ -142,14 +150,20 @@ class EvidencePlanningAndToolUseState:
         prompt_context.pop("candidate_tool_plan", None)
         prompt_context["s5_prompt_rules"] = [
             "Return ONLY one AgentAction JSON per step.",
-            "Prefer CALL_SUBAGENT search_task_planner_agent / keyword_search_agent over CALL_TOOL.",
-            "keyword_search_agent args: anchor_keywords (S4), search_query, information_need (search purpose).",
-            "preferred_tool on tasks is optional; keyword_search_agent picks MCP from whitelist.",
+            "Primary path: CALL_SUBAGENT search_task_planner_agent then keyword_search_agent.",
+            "keyword_search_agent is the first-party MCP executor — pass full SearchTask fields "
+            "(lookup_intent, claim_target, tool_parameters), not bare keywords.",
+            "search_task_planner must emit lookup_intent describing what evidence to obtain after S5 context.",
+            "Day-trip / distance tasks: tool_parameters.origin + destination + preferred_tool=baidu_route_mcp.",
             "place_candidates in evidence are normal tool output — refine queries, do not ASK_CLARIFICATION in S5.",
             "Every 2 keyword_search completions triggers search_task_planner refine (max 10 searches per S5).",
             "When multiple price/hour values appear, evidence_contradiction_decomposer_agent splits by ticket tier/season.",
-            "CALL_TOOL only for one-off geo when subagents cannot cover.",
+            "CALL_TOOL directly only when no subagent covers (rare); prefer delegating via keyword_search_agent.",
             "Do NOT generate final answer text in this state.",
+            "user_need_residual describes what the user wants to know — NOT verified facts.",
+            "Tailor search tasks to user_need_residual.information_needs and claim_requirements.",
+            "When time_scope=current or requires_live_data=true, prioritize official/recent sources.",
+            "Sub-agents read agent_tool_definitions for MCP when_to_use, parameters, prerequisites.",
         ]
         prompt_context["tool_diversity_hints"] = self._tool_diversity_hints(state, tool_whitelist)
 
@@ -165,13 +179,22 @@ class EvidencePlanningAndToolUseState:
                 state.tool_execution_plan = plan
 
         frame = state.semantic_frame
+        current_place = ctx.get("place_name") or (
+            state.comparison_active_place
+            if state.comparison_active_place
+            else (frame.entities.places[0] if frame and frame.entities.places else None)
+        )
+        if current_place:
+            prompt_context["place_name"] = current_place
         if frame:
-            prompt_context.setdefault(
-                "place_name",
-                (frame.entities.places[0] if frame.entities.places else None),
-            )
             prompt_context.setdefault("city", frame.entities.city)
             prompt_context.setdefault("country", frame.entities.country)
+
+        from app.orchestrator.comparison_helpers import is_comparison_mode
+
+        if is_comparison_mode(state):
+            prompt_context["comparison_mode"] = True
+            prompt_context["comparison_peer_places"] = list(state.comparison_peer_places or [])
 
         if state.normalized_request:
             prompt_context["normalized_request"] = state.normalized_request.model_dump()
@@ -185,10 +208,26 @@ class EvidencePlanningAndToolUseState:
         if state.coverage_report:
             prompt_context["coverage_report"] = state.coverage_report.model_dump()
 
+        if state.user_need_residual:
+            prompt_context["user_need_residual"] = state.user_need_residual.model_dump()
+
+        from app.orchestrator.agent_tool_catalog import agent_tool_definitions_for_allowed
+
+        allowed_names = tool_whitelist.allowed_tool_names()
+        prompt_context["agent_tool_definitions"] = agent_tool_definitions_for_allowed(allowed_names)
+        structured = dict(state.structured_result or {})
+        structured["_agent_tool_definitions"] = prompt_context["agent_tool_definitions"]
+        state.structured_result = structured
+
         prompt_context["blocked_tools"] = tool_whitelist.blocked_tools
         prompt_context["whitelist_policy_notes"] = tool_whitelist.policy_notes
         prompt_context["current_date"] = str(date.today())
-        prompt_context["max_tool_calls"] = get_settings().mcp_max_tool_calls_per_state
+        max_calls = (
+            comparison_max_tool_calls()
+            if is_comparison_mode(state)
+            else get_settings().mcp_max_tool_calls_per_state
+        )
+        prompt_context["max_tool_calls"] = max_calls
         prompt_context["tool_call_count"] = 0
         prompt_context["evidence_policy_summary"] = self._evidence_policy_summary(state)
         prompt_context["current_evidence_summary"] = self._evidence_summary(state.evidence)
@@ -200,11 +239,25 @@ class EvidencePlanningAndToolUseState:
         return prompt_context
 
     @staticmethod
+    def _residual_need_types(state: TravelAgentState) -> list[str]:
+        residual = state.user_need_residual
+        if not residual:
+            return []
+        types = [n.need_type for n in residual.information_needs if n.need_type]
+        for claim in residual.claim_requirements:
+            if claim.claim_type and claim.claim_type not in types:
+                types.append(claim.claim_type)
+        return types
+
+    @staticmethod
     def _tool_diversity_hints(state: TravelAgentState, tool_whitelist: ToolWhitelist) -> list[str]:
         hints: list[str] = []
         allowed = set(tool_whitelist.allowed_tool_names())
+        residual = state.user_need_residual
+        needs = EvidencePlanningAndToolUseState._residual_need_types(state)
         frame = state.semantic_frame
-        needs = list(frame.information_needs) if frame else []
+        if not needs and frame:
+            needs = list(frame.information_needs)
         if "ticket_price" in needs:
             for tool in (
                 "official_page_reader_mcp",
@@ -220,12 +273,59 @@ class EvidencePlanningAndToolUseState:
             for tool in ("official_page_reader_mcp", "baidu_place_detail_mcp", "official"):
                 if tool in allowed:
                     hints.append(f"opening_hours: try CALL_TOOL {tool}")
+        if "seasonal_operation_status" in needs or (
+            residual and residual.time_scope == "current" and residual.requires_live_data
+        ):
+            for tool in (
+                "official_source_discovery_mcp",
+                "official_page_reader_mcp",
+                "browser_mcp",
+                "baidu_traffic_mcp",
+            ):
+                if tool in allowed:
+                    hints.append(
+                        f"operational status: try CALL_TOOL {tool} for current open/closure notices"
+                    )
+        if is_comparison_mode(state):
+            for tool in (
+                "ctrip_review_crawler_mcp",
+                "dianping_review_crawler_mcp",
+                "baidu_route_matrix_mcp",
+                "baidu_route_mcp",
+            ):
+                if tool in allowed:
+                    hints.append(f"comparison: try CALL_TOOL {tool} for per-place or route evidence")
+        from app.orchestrator.evidence_signal_utils import is_day_trip_query
+
+        route_needs = {
+            "distance",
+            "duration",
+            "route_plan",
+            "transport_planning",
+            "itinerary_feasibility",
+            "transit",
+        }
+        needs_route = bool(set(needs) & route_needs)
+        if frame and is_day_trip_query(frame):
+            needs_route = True
+        if needs_route:
+            if "baidu_place_search_mcp" in allowed:
+                hints.append(
+                    "day-trip/route: CALL_TOOL baidu_place_search_mcp first to resolve destination POI"
+                )
+            if "baidu_route_mcp" in allowed:
+                hints.append(
+                    "day-trip/route: delegate keyword_search_agent task with tool_parameters "
+                    "origin→destination and preferred_tool=baidu_route_mcp before judging 一日游是否够用"
+                )
         return hints
 
     @staticmethod
     def _evidence_policy_summary(state: TravelAgentState) -> dict:
+        needs = EvidencePlanningAndToolUseState._residual_need_types(state)
         frame = state.semantic_frame
-        needs = list(frame.information_needs) if frame else []
+        if not needs and frame:
+            needs = list(frame.information_needs)
         return {
             need: {
                 "model_prior_allowed": EvidencePolicy.model_prior_allowed_for(need),
@@ -268,7 +368,14 @@ class EvidencePlanningAndToolUseState:
         allowed_names = set(tool_whitelist.allowed_tool_names())
 
         tool_call_count = int(prompt_context.get("tool_call_count", 0))
-        max_calls = get_settings().mcp_max_tool_calls_per_state
+        max_calls = int(
+            prompt_context.get("max_tool_calls")
+            or (
+                comparison_max_tool_calls()
+                if is_comparison_mode(state)
+                else get_settings().mcp_max_tool_calls_per_state
+            )
+        )
 
         for tool in pending:
             if tool_call_count >= max_calls:

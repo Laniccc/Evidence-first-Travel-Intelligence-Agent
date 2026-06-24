@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 
 from app.config import get_settings
+from app.orchestrator.comparison_helpers import is_comparison_mode
 from app.orchestrator.s5_domain_planner import S5DomainPlanner
 from app.orchestrator.state_policy import EVIDENCE_PLANNING_TOOL_NAMES
 from app.orchestrator.s5_information_domain_registry import placeholder_tool_names
@@ -395,6 +396,7 @@ class ToolWhitelistBuilder:
         if isinstance(gap, dict):
             gap = EvidenceGapRequest.model_validate(gap)
         forbidden = set(gap.forbidden_tools or [])
+        forbidden.add("knowledge_prior")
         failed = set(gap.failed_tools or [])
         tried = set(gap.already_tried_tools or [])
         names = [
@@ -418,6 +420,10 @@ class ToolWhitelistBuilder:
             ok, _ = self._is_configured(name)
             if ok:
                 configured.append(name)
+        if "search_mcp" not in configured:
+            ok, _ = self._is_configured("search_mcp")
+            if ok:
+                configured.insert(0, "search_mcp")
         names = configured or ["search_mcp"]
         allowed = [
             ToolDescriptor(name=n, description=f"gap-fill for {gap.claim_type}", configured=True)
@@ -438,6 +444,8 @@ class ToolWhitelistBuilder:
             contract,
             state.semantic_frame,
             evidence=state.evidence,
+            intent_profile=state.intent_profile,
+            intent_strategy=state.intent_strategy,
         )
         state.s5_domain_plan = plan
 
@@ -457,6 +465,8 @@ class ToolWhitelistBuilder:
 
         contract_preferred.update(contract.entity_policy.preferred_tools)
         contract_preferred.update(contract.tool_strategy.initial_tools)
+        if state.intent_strategy:
+            contract_preferred.update(state.intent_strategy.preferred_tools)
         candidates |= contract_preferred
         candidates -= forbidden
         candidates &= set(EVIDENCE_PLANNING_TOOL_NAMES)
@@ -484,6 +494,12 @@ class ToolWhitelistBuilder:
         if "baidu_ip_location_mcp" in candidates and not location_usage_allowed(state, prompt_context):
             blocked["baidu_ip_location_mcp"] = "requires_user_permission: IP location needs location_usage_allowed."
             candidates.discard("baidu_ip_location_mcp")
+
+        if state and is_comparison_mode(state):
+            for tool in ("wikipedia_mcp", "wikidata_mcp"):
+                if tool in candidates:
+                    blocked[tool] = "comparison mode: encyclopedia tools deprioritized"
+                    candidates.discard(tool)
 
         return self._finalize_candidates(
             candidates,
@@ -589,7 +605,16 @@ class ToolWhitelistBuilder:
                     candidates.discard(tool_name)
 
         allowed: list[ToolDescriptor] = []
-        for tool_name in sorted(candidates):
+        boost_order: list[str] = []
+        if state and state.intent_strategy:
+            boost_order = list(state.intent_strategy.preferred_tools)
+
+        def _tool_sort_key(name: str) -> tuple[int, str]:
+            if name in boost_order:
+                return (boost_order.index(name), name)
+            return (len(boost_order) + 1, name)
+
+        for tool_name in sorted(candidates, key=_tool_sort_key):
             block_reason = self._block_reason_for_tool(
                 tool_name,
                 relevant=relevant,
@@ -607,15 +632,24 @@ class ToolWhitelistBuilder:
                     if not EvidencePolicy.model_prior_allowed_for(need):
                         restrictions.append(f"model_prior not allowed for need: {need}")
 
+            from app.orchestrator.agent_tool_catalog import enrich_descriptor_fields
+
+            enriched = enrich_descriptor_fields(tool_name, str(meta.get("description", tool_name)))
             descriptor = ToolDescriptor(
                 name=tool_name,
-                description=meta["description"],
+                description=enriched["description"],
                 capabilities=list(meta.get("capabilities", [])),
                 source_type=meta.get("source_type"),
                 requires_api_key=bool(meta.get("requires_api_key", False)),
                 configured=configured,
                 limitations=[] if configured else [config_reason or "Tool not configured."],
                 restrictions=restrictions,
+                when_to_use=list(enriched.get("when_to_use") or []),
+                when_not_to_use=list(enriched.get("when_not_to_use") or []),
+                parameters_hint=str(enriched.get("parameters_hint") or ""),
+                prerequisites=list(enriched.get("prerequisites") or []),
+                satisfies_needs=list(enriched.get("satisfies_needs") or []),
+                call_order_hint=str(enriched.get("call_order_hint") or ""),
             )
             if configured:
                 allowed.append(descriptor)

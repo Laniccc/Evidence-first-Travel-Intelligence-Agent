@@ -130,6 +130,12 @@ class StateReducer:
             if output.get("presentation_guidance"):
                 structured["contradiction_presentation_guidance"] = output["presentation_guidance"]
             structured["_decompose_evidence_count"] = len(state.evidence)
+            target_need = str(output.get("target_need") or "").strip()
+            if target_need:
+                done = list(structured.get("_decomposed_needs") or [])
+                if target_need not in done:
+                    done.append(target_need)
+                structured["_decomposed_needs"] = done
             follow_up = output.get("follow_up_search_tasks") or []
             if follow_up:
                 existing = list(structured.get("search_tasks") or [])

@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from app.orchestrator.claim_policy_registry import ClaimPolicyView
+from app.config import get_settings
+from app.orchestrator.comparison_helpers import active_place_name, is_comparison_mode
 from app.orchestrator.official_source_judgement import needs_official_source_gap
 from app.schemas.evidence_decision_report import ClaimDecision
 from app.schemas.evidence_gap_request import EvidenceGapRequest
@@ -43,6 +45,25 @@ _GAP_TEMPLATES: dict[str, list[str]] = {
         "{place_name} 官方 开放 公告",
         "{place_name} 闭园 通知",
         "{city} {place_name} 季节性 开放",
+    ],
+    "crowd_level": [
+        "{region} {city} {place_name} 旅游旺季 拥挤程度",
+        "{place_name} 游客多吗 评价",
+        "{city} {place_name} crowd level",
+    ],
+    "route_plan": [
+        "{place_name} 交通 怎么去",
+        "{city} {place_name} 自驾 公共交通",
+        "{place_name} 到 {peer_place} 交通",
+    ],
+    "transit": [
+        "{place_name} 交通 怎么去",
+        "{city} {place_name} 自驾",
+    ],
+    "review_summary": [
+        "{place_name} 游客评价 值不值得去",
+        "{city} {place_name} 攻略 评价",
+        "{place_name} 避坑",
     ],
 }
 
@@ -88,10 +109,25 @@ class EvidenceGapPlanner:
         if not untried and decision.coverage_quality not in {"none", "weak"}:
             return None
         if decision.coverage_quality == "none" and not untried:
-            return None
+            if is_comparison_mode(state):
+                untried = [
+                    t
+                    for t in [
+                        "search_mcp",
+                        "ctrip_review_crawler_mcp",
+                        "dianping_review_crawler_mcp",
+                        "baidu_route_mcp",
+                        "baidu_route_matrix_mcp",
+                    ]
+                    if resolve_tool_name(t) not in tried
+                ]
+            if not untried:
+                return None
 
         place = self._place_name(state)
         city = self._city(state)
+        region = self._region(state)
+        peer = self._peer_place(state, place)
         templates = _GAP_TEMPLATES.get(
             claim.claim_type,
             [
@@ -100,7 +136,14 @@ class EvidenceGapPlanner:
             ],
         )
         rendered = [
-            t.format(place_name=place, city=city, claim_type=claim.claim_type, user_query=state.raw_user_query)
+            t.format(
+                place_name=place,
+                city=city,
+                region=region,
+                claim_type=claim.claim_type,
+                user_query=state.raw_user_query,
+                peer_place=peer,
+            )
             for t in templates
         ]
 
@@ -114,6 +157,9 @@ class EvidenceGapPlanner:
             )
         else:
             reason = decision.reason or f"missing evidence for {claim.claim_type}"
+        forbidden = list(dict.fromkeys([*(policy.forbidden_tools or []), "knowledge_prior"]))
+        if is_comparison_mode(state) and "search_mcp" not in suggested_tools:
+            suggested_tools = ["search_mcp", *suggested_tools][:4]
         gap = EvidenceGapRequest(
             claim_type=claim.claim_type,
             claim_family=policy.claim_family,
@@ -123,7 +169,7 @@ class EvidenceGapPlanner:
             suggested_domains=self._domains_for_claim(claim.claim_type, policy.claim_family),
             suggested_tools=suggested_tools,
             query_templates=rendered,
-            forbidden_tools=list(policy.forbidden_tools),
+            forbidden_tools=forbidden,
             already_tried_tools=tried,
             failed_tools=failed,
             max_extra_steps=3,
@@ -146,10 +192,33 @@ class EvidenceGapPlanner:
 
     @staticmethod
     def _place_name(state: TravelAgentState) -> str:
+        active = active_place_name(state)
+        if active:
+            return active
         frame = state.semantic_frame
         if frame and frame.entities.places:
             return frame.entities.places[0]
         return "目的地"
+
+    @staticmethod
+    def _peer_place(state: TravelAgentState, place: str) -> str:
+        peers = list(state.comparison_peer_places or [])
+        for peer in peers:
+            if peer and peer != place:
+                return peer
+        frame = state.semantic_frame
+        if frame and frame.entities.places:
+            for peer in frame.entities.places:
+                if peer and peer != place:
+                    return peer
+        return ""
+
+    @staticmethod
+    def _region(state: TravelAgentState) -> str:
+        frame = state.semantic_frame
+        if frame and frame.entities.region:
+            return frame.entities.region
+        return ""
 
     @staticmethod
     def _city(state: TravelAgentState) -> str:

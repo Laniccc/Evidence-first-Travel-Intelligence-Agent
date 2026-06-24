@@ -74,6 +74,7 @@ class EvidenceEvaluator:
                 preferred_id=preferred,
                 evidence=state.evidence,
                 fact_decomposition=fact_decomposition,
+                intent_strategy=state.intent_strategy,
             )
             decisions.append(decision)
             all_conflicts.extend(claim_conflicts)

@@ -4,11 +4,16 @@ import re
 from pathlib import Path
 
 from app.orchestrator.claim_search_planner import is_search_miss_value
+from app.orchestrator.comparison_helpers import (
+    places_match,
+    summarize_comparison_claims_for_compose,
+)
 from app.orchestrator.trace import TraceRecorder
 from app.policies.citation_policy import CitationPolicy
 from app.schemas.evidence import Evidence
 from app.schemas.evidence_brief import EvidenceBrief
 from app.schemas.final_answer_draft import FinalAnswerDraft, FinalAnswerSection
+from app.schemas.intent_profile import AnswerStyle
 from app.schemas.user_need_residual import UserNeedResidual
 from app.schemas.user_query import TravelAgentState
 from app.utils.llm_json import normalize_llm_json_text, parse_llm_json
@@ -111,9 +116,22 @@ class AnswerComposerAgent:
         curated_claims = []
         if brief:
             curated_claims = [c.model_dump() for c in brief.curated_claims]
+        compose_mode = arguments.get("compose_mode", "advisory")
+        compare_places = list(arguments.get("place_names") or [])
+        if compose_mode == "compare" and curated_claims:
+            if not compare_places and state.semantic_frame and state.semantic_frame.entities.places:
+                compare_places = list(state.semantic_frame.entities.places)
+            summarized = summarize_comparison_claims_for_compose(
+                curated_claims,
+                compare_places,
+            )
+            if summarized:
+                curated_claims = summarized
         actionable_claims = [r for r in claim_rows if not r.get("is_search_miss")]
-        if brief and brief.curated_claims:
+        if brief and curated_claims:
             actionable_claims = curated_claims
+        elif brief and brief.curated_claims:
+            actionable_claims = [c.model_dump() for c in brief.curated_claims]
 
         overall_confidence = brief.overall_confidence if brief else 0.0
         if not brief and actionable_claims:
@@ -137,19 +155,30 @@ class AnswerComposerAgent:
                 for d in report.claim_decisions
             ]
 
+        slim_brief = None
+        if brief:
+            slim_brief = {
+                "target_label": brief.target_label,
+                "curated_claims": curated_claims,
+                "coverage_gaps": list(brief.coverage_gaps),
+                "conflict_notes": list(brief.conflict_notes),
+                "overall_confidence": brief.overall_confidence,
+            }
+
         return {
-            "compose_mode": arguments.get("compose_mode", "advisory"),
+            "compose_mode": compose_mode,
             "target_label": arguments.get("target_label") or arguments.get("place_name") or "目的地",
             "user_need_residual": residual.model_dump() if residual else None,
-            "evidence_brief": brief.model_dump() if brief else None,
+            "evidence_brief": slim_brief,
             "curated_claims": curated_claims,
             "overall_confidence": overall_confidence,
             "coverage_gaps": list(brief.coverage_gaps) if brief else [],
             "conflict_notes": list(brief.conflict_notes) if brief else [],
             "fact_decompositions": list(brief.fact_decompositions) if brief else [],
-            "evidence_claims": claim_rows,
+            "evidence_claims": [] if curated_claims else claim_rows[:40],
             "actionable_evidence_claims": actionable_claims,
-            "has_actionable_evidence": bool(actionable_claims),
+            "has_actionable_evidence": bool(actionable_claims)
+            or bool(brief and brief.curated_claims),
             "evidence_ids": [ev.evidence_id for ev in evidence if isinstance(ev, Evidence)],
             "citable_evidence_refs": self._citable_evidence_refs(evidence, actionable_claims),
             "limitations": list(state.limitations),
@@ -162,6 +191,7 @@ class AnswerComposerAgent:
                 state.coverage_report.model_dump() if state.coverage_report else None
             ),
             "composition_rules": self._composition_rules(state, overall_confidence, brief),
+            "style_prompt_fragment": self._style_prompt_fragment(state),
             "itinerary_plan": (
                 arguments["plan"].model_dump()
                 if arguments.get("plan") and hasattr(arguments["plan"], "model_dump")
@@ -189,7 +219,18 @@ class AnswerComposerAgent:
             "cited_evidence_ids: copy full evidence_id from curated_claims — never shorten UUIDs.",
             "S8 must follow claim_decisions.adoption from evidence_decision_report — do NOT re-judge evidence.",
         ]
+        profile = state.intent_profile
+        if profile and profile.answer_style == AnswerStyle.COMPARISON:
+            rules.extend(
+                [
+                    "Structure the answer with one subsection per place, then a short comparison summary.",
+                    "For each place, list crowd / access / review clues from curated_claims when present.",
+                    "If a dimension lacks strong evidence, say 证据不足 for that dimension only — not that all evidence is missing.",
+                    "Complete every bullet and section; never stop mid-sentence.",
+                ]
+            )
         rules.extend(self._adoption_rules(state))
+        rules.extend(self._style_rules(state))
         from app.orchestrator.place_disambiguation_guard import extract_place_candidates
 
         if extract_place_candidates(list(state.evidence or [])):
@@ -200,8 +241,9 @@ class AnswerComposerAgent:
         if brief and brief.fact_decompositions:
             rules.extend(
                 [
-                    "evidence_brief.fact_decompositions lists verified product tiers (e.g. 单门票 vs 门+区间车 vs 联票).",
-                    "Present EACH tier with its price/conditions — differences are package types, NOT 'price unknown'.",
+                    "evidence_brief.fact_decompositions lists decomposed tiers "
+                    "(ticket packages, visit-duration scopes, distance with origin/destination).",
+                    "Present EACH tier with its conditions — differences are scope/type, NOT 'unknown'.",
                     "Mark outliers separately with low confidence; do not let one outlier block presenting agreed tiers.",
                 ]
             )
@@ -248,6 +290,54 @@ class AnswerComposerAgent:
         return rules
 
     @staticmethod
+    def _style_rules(state: TravelAgentState) -> list[str]:
+        profile = state.intent_profile
+        if not profile:
+            return []
+        style = profile.answer_style
+        mapping: dict[AnswerStyle, list[str]] = {
+            AnswerStyle.DIRECT_FACT: [
+                "Lead with the factual conclusion; if evidence is missing, say 无法确认 before background.",
+            ],
+            AnswerStyle.ADVISORY: [
+                "Lead with recommendation, then suitable/unsuitable conditions.",
+            ],
+            AnswerStyle.ITINERARY: [
+                "Structure by time blocks or steps; avoid vague generic advice.",
+            ],
+            AnswerStyle.COMPARISON: [
+                "Compare by consistent dimensions; refuse asymmetric guesses when one side lacks evidence.",
+            ],
+            AnswerStyle.RECOMMENDATION_LIST: [
+                "Use a list with distance, reason, and caveats per recommendation.",
+            ],
+            AnswerStyle.CLARIFICATION: [
+                "Ask exactly one critical clarifying question; do not answer the main question yet.",
+            ],
+        }
+        return list(mapping.get(style, []))
+
+    @staticmethod
+    def _style_prompt_fragment(state: TravelAgentState) -> str:
+        profile = state.intent_profile
+        if not profile:
+            return ""
+        fname = {
+            AnswerStyle.DIRECT_FACT: "composer_direct_fact.md",
+            AnswerStyle.ADVISORY: "composer_advisory.md",
+            AnswerStyle.ITINERARY: "composer_itinerary.md",
+            AnswerStyle.COMPARISON: "composer_comparison.md",
+            AnswerStyle.RECOMMENDATION_LIST: "composer_recommendation_list.md",
+            AnswerStyle.CLARIFICATION: "composer_clarification.md",
+        }.get(profile.answer_style)
+        if not fname:
+            return ""
+        path = PROMPTS_DIR / fname
+        if path.is_file():
+            return path.read_text(encoding="utf-8").strip()
+        return ""
+
+    @staticmethod
     def _adoption_rules(state: TravelAgentState) -> list[str]:
         report = state.evidence_decision_report
         if not report:
@@ -260,9 +350,24 @@ class AnswerComposerAgent:
                     "never state as official confirmed fact."
                 )
             elif decision.adoption == "refuse_to_guess":
-                rules.append(
-                    f"For {decision.claim_type}: explicitly state you cannot confirm; do not guess."
+                brief = state.evidence_brief
+                has_curated = bool(
+                    brief
+                    and any(c.claim_type == decision.claim_type for c in brief.curated_claims)
                 )
+                if (
+                    state.intent_profile
+                    and state.intent_profile.primary_intent.value == "comparison"
+                    and has_curated
+                ):
+                    rules.append(
+                        f"For {decision.claim_type}: coverage is weak — present partial curated clues "
+                        "with limitations instead of claiming zero evidence."
+                    )
+                else:
+                    rules.append(
+                        f"For {decision.claim_type}: explicitly state you cannot confirm; do not guess."
+                    )
             elif decision.adoption == "ask_clarification":
                 rules.append(
                     f"For {decision.claim_type}: ask the user for clarification instead of guessing."
@@ -279,19 +384,34 @@ class AnswerComposerAgent:
         return rules
 
     async def _llm_compose(self, bundle: dict) -> FinalAnswerDraft:
+        style_fragment = bundle.get("style_prompt_fragment", "")
         system = (
             "You compose travel answers grounded in evidence_brief.curated_claims and user_need_residual.\n"
             "Return ONLY valid JSON matching FinalAnswerDraft:\n"
-            "{headline, conclusion, sections:[{title,bullets:[string,...]}], limitations, cited_evidence_ids, answer_text, compose_mode}\n"
+            "{headline, conclusion, sections:[{title,bullets:[string,...]}], limitations, cited_evidence_ids, compose_mode}\n"
+            "Do NOT duplicate content in answer_text; leave answer_text empty — rendering uses sections.\n"
             "sections[].bullets must be plain strings (not objects); put evidence_id values in cited_evidence_ids.\n"
             "cited_evidence_ids must use exact evidence_id strings from citable_evidence_refs or curated_claims (full UUIDs).\n"
+        )
+        if style_fragment:
+            system += f"\n{style_fragment}\n"
+        system += (
             "Rules:\n"
             + "\n".join(f"- {r}" for r in bundle["citation_rules"])
             + "\n"
             + "\n".join(f"- {r}" for r in bundle.get("composition_rules", []))
         )
         user = json.dumps(bundle, ensure_ascii=False)
-        raw = await self.llm.complete(system=system, user=user, max_tokens=1200)
+        from app.config import get_settings
+
+        settings = get_settings()
+        max_tokens = int(settings.llm_max_output_tokens)
+        raw = await self.llm.complete(
+            system=system,
+            user=user,
+            max_tokens=max_tokens,
+            json_only=True,
+        )
         try:
             data = parse_llm_json(raw)
         except json.JSONDecodeError as exc:
@@ -519,6 +639,9 @@ class AnswerComposerAgent:
         target = bundle.get("target_label", "目的地")
         compose_mode = bundle.get("compose_mode", "advisory")
         claims = bundle.get("actionable_evidence_claims") or []
+        if compose_mode == "compare":
+            return AnswerComposerAgent._comparison_fallback_draft(bundle)
+
         bullets: list[str] = []
         cited: list[str] = []
         for claim in claims[:8]:
@@ -554,6 +677,62 @@ class AnswerComposerAgent:
         )
 
     @staticmethod
+    def _comparison_fallback_draft(bundle: dict) -> FinalAnswerDraft:
+        places = list(bundle.get("compare_place_names") or [])
+        claims = bundle.get("actionable_evidence_claims") or []
+        target = bundle.get("target_label", " vs ".join(places) if places else "比较")
+        sections: list[FinalAnswerSection] = []
+        cited: list[str] = []
+        low_conf = float(bundle.get("overall_confidence", 0))
+        gap_prefix = "【证据不足/未核实】" if low_conf < 0.55 or bundle.get("coverage_gaps") else ""
+
+        for place in places or [target]:
+            bullets: list[str] = []
+            for claim in claims:
+                claim_place = str(claim.get("place_name") or "").strip()
+                if claim_place and not places_match(place, claim_place):
+                    continue
+                if not claim_place:
+                    value = str(claim.get("value", "")).strip()
+                    if value and place not in value and not places_match(place, value):
+                        continue
+                value = str(claim.get("value", "")).strip()
+                if not value:
+                    continue
+                dim = str(claim.get("claim_type", "线索"))
+                conf = float(claim.get("confidence", 0.5))
+                bullets.append(f"【{dim}】{value[:200]}（置信度 {conf:.0%}）")
+                eid = str(claim.get("evidence_id", "")).strip()
+                if eid and eid not in cited:
+                    cited.append(eid)
+            if not bullets:
+                bullets.append("暂无足够可引用线索，建议查阅官方或近期游记核实。")
+            sections.append(FinalAnswerSection(title=place, bullets=bullets))
+
+        conclusion = (
+            f"{gap_prefix}基于现有检索线索，对{'与'.join(places)}做维度对比；"
+            "拥挤度与交通信息仍可能不完整，请结合出行季节再核实。"
+        )
+        body_parts = [f"### {target}", "", conclusion]
+        for section in sections:
+            body_parts.extend(["", f"#### {section.title}", *[f"- {b}" for b in section.bullets]])
+        answer_text = "\n".join(body_parts).strip()
+
+        limitations = list(bundle.get("limitations", []))
+        limitations.extend(bundle.get("coverage_gaps") or [])
+        limitations.extend(bundle.get("conflict_notes") or [])
+
+        return FinalAnswerDraft(
+            headline=f"{target} 对比",
+            conclusion=conclusion,
+            sections=sections,
+            limitations=limitations,
+            cited_evidence_ids=cited,
+            answer_text=answer_text,
+            compose_mode="compare",
+        )
+
+    @staticmethod
     def _has_substantive_content(draft: FinalAnswerDraft) -> bool:
         if (draft.answer_text or draft.conclusion or draft.headline or "").strip():
             return True
@@ -564,16 +743,26 @@ class AnswerComposerAgent:
 
     @staticmethod
     def _looks_incomplete_answer(draft: FinalAnswerDraft) -> bool:
-        text = (draft.answer_text or draft.conclusion or draft.headline or "").strip()
-        if not text:
+        chunks: list[str] = []
+        for part in (draft.answer_text, draft.conclusion):
+            if part and str(part).strip():
+                chunks.append(str(part).strip())
+        for section in draft.sections:
+            chunks.extend(str(b).strip() for b in section.bullets if str(b).strip())
+
+        if not chunks:
             return True
-        if len(text) < 25:
-            return False
-        tail = text[-24:]
-        if not re.search(r"[。！？?!\n]", tail):
-            return True
-        if re.search(r"(官方|目前|无法|没有|尚未|是否|需要)$", text):
-            return True
+
+        for text in chunks:
+            stripped = text.strip()
+            if len(stripped) < 12:
+                continue
+            if not re.search(r"[。！？?!）%\n]$", stripped):
+                return True
+            if re.search(r"(，有|：有|——|…|\.\.\.|\d{4})$", stripped):
+                return True
+            if re.search(r"[\[\(（「『]$", stripped):
+                return True
         return False
 
     @staticmethod

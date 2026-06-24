@@ -30,6 +30,8 @@ from app.config import get_settings
 from app.orchestrator.states.evidence_accumulation_state import EvidenceAccumulationState
 from app.llm_client import LLMClient
 from app.orchestrator.answer_mode_router import AnswerModeRouter
+from app.orchestrator.intent_profile_deriver import IntentProfileDeriver
+from app.orchestrator.intent_strategy_registry import resolve_intent_strategy
 from app.orchestrator.response_contract_compiler import ResponseContractCompiler
 from app.orchestrator.citation_check import CitationChecker
 from app.orchestrator.states.answer_composition_state import AnswerCompositionState
@@ -46,6 +48,7 @@ from app.schemas.place_factsheet import PlaceFactSheet
 from app.schemas.response import StructuredResult, TravelQueryResponse
 from app.schemas.review import ReviewAspectResult
 from app.schemas.travel_task import TravelTaskType
+from app.schemas.intent_profile import EvidenceSensitivity, PrimaryIntent
 from app.schemas.semantic_frame import AnswerMode, DecisionType, TaskFamily
 from app.schemas.user_query import ConflictRecord, IntentType, RegionGateResult, TravelAgentState, UserContext, UserGoal
 from app.tools import ToolRegistry
@@ -184,6 +187,8 @@ class TravelAgentStateMachine:
             return "crowd"
         if task and task.task_type == TravelTaskType.SINGLE_PLACE_SUITABILITY:
             return "suitability"
+        if state.intent_strategy:
+            return state.intent_strategy.compose_mode
         frame = state.semantic_frame
         if frame:
             if frame.task_family == TaskFamily.FACT_LOOKUP:
@@ -209,6 +214,8 @@ class TravelAgentStateMachine:
             confidence = state.query_understanding.confidence if state.query_understanding else 0.3
             return self._to_response(state, confidence)
 
+        state = self._derive_intent_profile(state)
+
         # S3: AnswerModeRouting + ResponseContract（早于 RegionGate / place 判断）
         state = self._run_answer_mode_routing(state)
 
@@ -217,8 +224,9 @@ class TravelAgentStateMachine:
             return self._clarification_from_contract(state)
 
         gate_query = state.rewritten_query_result.rewritten_query if state.rewritten_query_result else query
+        intent_soft = get_settings().intent_profile_enabled
 
-        if dispatch == "legacy":
+        if dispatch == "legacy" and not intent_soft:
             decision = state.answer_mode_decision
             mode = decision.answer_mode if decision else AnswerMode.EVIDENCE_REQUIRED
             if mode == AnswerMode.CLARIFICATION_REQUIRED:
@@ -350,6 +358,25 @@ class TravelAgentStateMachine:
         )
         return ctx, memory, state
 
+    def _derive_intent_profile(self, state: TravelAgentState) -> TravelAgentState:
+        settings = get_settings()
+        if not settings.intent_profile_enabled:
+            return state
+        frame = state.semantic_frame
+        if not frame:
+            return state
+        profile = IntentProfileDeriver().derive(frame)
+        state.intent_profile = profile
+        state.intent_strategy = resolve_intent_strategy(profile)
+        if profile:
+            subtypes = ",".join(profile.intent_subtypes[:4]) or "-"
+            TraceRecorder.add(
+                state,
+                f"✓ IntentProfile: {profile.primary_intent.value} / "
+                f"{profile.evidence_sensitivity.value} / subtypes=[{subtypes}]",
+            )
+        return state
+
     def _run_answer_mode_routing(self, state: TravelAgentState) -> TravelAgentState:
         frame = state.semantic_frame
         if not frame:
@@ -365,6 +392,7 @@ class TravelAgentStateMachine:
             state.normalized_request,
             conversation_context=state.conversation_context.model_dump() if state.conversation_context else None,
             available_tools=set(available_caps),
+            intent_profile=state.intent_profile,
         )
         contract.derived_debug_answer_mode = decision.answer_mode.value
         state.response_contract = contract
@@ -386,7 +414,7 @@ class TravelAgentStateMachine:
         from app.orchestrator.user_need_residual import attach_user_need_residual
 
         attach_user_need_residual(state)
-        TraceRecorder.add(state, "✓ 已生成 UserNeedResidual（S7/S8 需求残差）")
+        TraceRecorder.add(state, "✓ 已生成 UserNeedResidual（S5/S7/S8 需求残差）")
         return state
 
     @staticmethod
@@ -414,9 +442,22 @@ class TravelAgentStateMachine:
         contract = state.response_contract
         if not contract:
             return "legacy"
+        if contract.clarification_policy.should_ask:
+            return "clarification"
+        if state.intent_profile and state.intent_profile.primary_intent == PrimaryIntent.CLARIFICATION:
+            return "clarification"
         if self._has_required_hard_claims(contract):
             return "evidence_pipeline"
         if self._requires_full_evidence_pipeline(contract):
+            return "evidence_pipeline"
+        if get_settings().intent_profile_enabled and state.intent_profile:
+            profile = state.intent_profile
+            if profile.primary_intent in {
+                PrimaryIntent.ADVISORY,
+                PrimaryIntent.REVIEW_CHECK,
+            } and profile.evidence_sensitivity != EvidenceSensitivity.LIVE_REQUIRED:
+                if self._allows_prior_advisory(contract):
+                    return "prior_advisory"
             return "evidence_pipeline"
         if self._allows_prior_advisory(contract):
             return "prior_advisory"
@@ -778,17 +819,29 @@ class TravelAgentStateMachine:
         return self._to_response(state, confidence)
 
     async def _run_compare(self, state: TravelAgentState) -> TravelQueryResponse:
+        from app.orchestrator.comparison_helpers import (
+            comparison_places_from_state,
+            reset_per_place_search_state,
+        )
+
+        places = comparison_places_from_state(state)
         goal = state.user_goal
-        places = goal.place_candidates if goal else []
+        if len(places) < 2 and goal:
+            places = list(goal.place_candidates or [])
         if len(places) < 2:
             state.limitations.append("比较任务需要至少两个景点。")
 
         self._backfill_location_from_places(state)
         canonical_places: list[str] = []
+        state.comparison_mode = True
+        state.comparison_peer_places = list(places[:4])
 
         for idx, place in enumerate(places[:4]):
             canonical = self.catalog.normalize_place_name(place) or place
             canonical_places.append(canonical)
+            state.comparison_active_place = canonical
+            reset_per_place_search_state(state)
+            self._init_gap_loop_state(state)
             place_ctx = self._place_context_for(state, place, idx)
             state = await self._run_evidence_loop(
                 state,
@@ -796,7 +849,9 @@ class TravelAgentStateMachine:
                 place_context=place_ctx,
                 reset_evidence=(idx == 0),
             )
-            TraceRecorder.add(state, f"✓ 已完成 {canonical} 情报检索")
+            TraceRecorder.add(state, f"✓ 已完成 {canonical} 情报检索（comparison per-place）")
+
+        state = await self._run_comparison_route_probe(state, canonical_places)
 
         state.conflicts = [
             ConflictRecord(**c) for c in self.verifier.detect_conflicts(state.evidence)
@@ -805,9 +860,12 @@ class TravelAgentStateMachine:
         compare_label = " vs ".join(canonical_places) if canonical_places else "比较"
         state = await self._run_evidence_evaluation(state, target_label=compare_label)
 
-        state.structured_result = StructuredResult(
-            places=[{"name": n} for n in canonical_places],
-        ).model_dump()
+        state.structured_result = {
+            **(state.structured_result or {}),
+            **StructuredResult(
+                places=[{"name": n} for n in canonical_places],
+            ).model_dump(),
+        }
         state = await self._run_answer_composition(
             state,
             compose_mode=self._resolve_compose_mode(state),
@@ -818,7 +876,71 @@ class TravelAgentStateMachine:
         brief = state.evidence_brief
         base_conf = brief.overall_confidence if brief else 0.5
         confidence = self._citation_check(state, [], [], base_conf)
+        state.comparison_active_place = None
         return self._to_response(state, confidence)
+
+    async def _run_comparison_route_probe(
+        self,
+        state: TravelAgentState,
+        places: list[str],
+    ) -> TravelAgentState:
+        if len(places) < 2:
+            return state
+        from app.orchestrator.comparison_helpers import (
+            disambiguated_place_label,
+            stamp_evidence_place,
+        )
+
+        origin, dest = places[0], places[1]
+        frame = state.semantic_frame
+        city = frame.entities.city if frame and frame.entities else None
+        region = frame.entities.region if frame and frame.entities else None
+        country = frame.entities.country if frame and frame.entities else None
+        prior_evidence: list = []
+        for place in (origin, dest):
+            try:
+                search_ev = await self.tools.run_tool(
+                    "baidu_place_search_mcp",
+                    query=place,
+                    place_name=place,
+                    city=city,
+                    region=region,
+                    country=country,
+                    information_need="route_plan",
+                )
+                if search_ev:
+                    stamped = stamp_evidence_place(list(search_ev), place)
+                    state.evidence.extend(stamped)
+                    prior_evidence.extend(stamped)
+                    TraceRecorder.add(state, f"✓ comparison place search: {place}")
+            except Exception:
+                continue
+
+        resolved_origin = disambiguated_place_label(
+            origin, city=city, region=region, country=country
+        )
+        resolved_dest = disambiguated_place_label(dest, city=city, region=region, country=country)
+        for tool_name in ("baidu_route_matrix_mcp", "baidu_route_mcp"):
+            try:
+                evidence = await self.tools.run_tool(
+                    tool_name,
+                    place_name=origin,
+                    origin=resolved_origin,
+                    destination=resolved_dest,
+                    city=city,
+                    region=region,
+                    country=country,
+                    prior_evidence=prior_evidence,
+                    information_need="route_plan",
+                    query=f"{resolved_origin} 到 {resolved_dest} 交通",
+                )
+                if evidence:
+                    state.evidence.extend(stamp_evidence_place(list(evidence), origin))
+                    TraceRecorder.add(state, f"✓ comparison route probe: {tool_name}")
+                    break
+            except Exception:
+                continue
+        return state
 
     async def _run_itinerary(self, state: TravelAgentState) -> TravelQueryResponse:
         goal = state.user_goal

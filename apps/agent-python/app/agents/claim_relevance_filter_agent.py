@@ -7,6 +7,7 @@ import logging
 
 from app.llm_client import LLMClient
 from app.orchestrator.claim_search_planner import is_search_miss_value
+from app.orchestrator.comparison_helpers import is_comparison_mode
 from app.utils.llm_json import parse_llm_json
 from app.schemas.evidence import Evidence
 from app.schemas.evidence_brief import CuratedClaimRow
@@ -25,6 +26,8 @@ class ClaimRelevanceFilterAgent:
         needs = plan.get("needs_to_filter") or []
         if not needs and state.user_need_residual:
             needs = [n.need_type for n in state.user_need_residual.information_needs]
+        if is_comparison_mode(state):
+            needs = ["crowd_level", "route_plan", "review_summary"]
 
         curated, excluded = self._rule_filter(state.evidence, needs)
 
@@ -111,6 +114,14 @@ class ClaimRelevanceFilterAgent:
         review_needs = {"review_summary", "elderly_suitability", "family_friendly", "value_for_money"}
         if needs & review_needs and claim_type in {"review_summary", "review_aspect", "travel_advice"}:
             score = max(score, 0.6)
+        comparison_needs = {"crowd_level", "route_plan", "review_summary", "transit"}
+        if needs & comparison_needs:
+            if claim_type in comparison_needs:
+                score = max(score, 0.8)
+            elif claim_type in {"review_summary", "review_aspect", "travel_advice"}:
+                score = max(score, 0.55)
+            elif claim_type in {"duration", "distance", "transit"}:
+                score = max(score, 0.6)
         if "seasonal" in " ".join(needs) or "best_time" in " ".join(needs):
             if claim_type in {"seasonal_operation_status", "seasonality", "best_time_to_visit", "travel_advice"}:
                 score = max(score, 0.65)

@@ -18,6 +18,12 @@ from app.schemas.response_contract import (
     ResponseContract,
     ToolStrategy,
 )
+from app.schemas.intent_profile import (
+    AnswerStyle,
+    EvidenceSensitivity,
+    IntentProfile,
+    PrimaryIntent,
+)
 from app.schemas.semantic_frame import DecisionType, SemanticFrame
 
 
@@ -103,6 +109,7 @@ class ResponseContractCompiler:
         *,
         conversation_context: dict[str, Any] | None = None,
         available_tools: set[str] | None = None,
+        intent_profile: IntentProfile | None = None,
     ) -> ResponseContract:
         _ = conversation_context
         _ = available_tools
@@ -130,13 +137,16 @@ class ResponseContractCompiler:
         if not claims:
             claims.append(self._general_advice_claim(frame))
 
+        claims = self._apply_intent_claim_hints(claims, intent_profile)
+        if intent_profile and intent_profile.primary_intent == PrimaryIntent.COMPARISON:
+            claims = self._ensure_comparison_claims(claims, frame)
         claims = self._append_provider_preferred_tools(claims)
         entity_policy = self._build_entity_policy(frame, text)
         gated_keywords = self._gate_search_keywords(frame, text, claims)
-        clarification = self._build_clarification()
-        tool_strategy = self._build_tool_strategy(claims, settings.mcp_max_tool_calls_per_state)
-        fallback = self._build_fallback_policy(claims)
-        composition = self._build_composition_policy(frame, claims)
+        clarification = self._build_clarification(frame, intent_profile)
+        tool_strategy = self._build_tool_strategy(claims, settings.mcp_max_tool_calls_per_state, intent_profile)
+        fallback = self._build_fallback_policy(claims, intent_profile)
+        composition = self._build_composition_policy(frame, claims, intent_profile)
         risk = self._overall_risk(claims, entity_policy)
 
         if normalized:
@@ -297,6 +307,9 @@ class ResponseContractCompiler:
                 allowed_source_types=["review", "map_proxy", "public_web"],
                 preferred_tools=[
                     "search_mcp",
+                    "ctrip_review_crawler_mcp",
+                    "dianping_review_crawler_mcp",
+                    "crowd_estimation_mcp",
                     "baidu_place_detail_mcp",
                     "places_mcp",
                     "reviews",
@@ -306,6 +319,47 @@ class ResponseContractCompiler:
                 model_prior_allowed=False,
                 estimation_allowed=True,
                 coverage_rule="crowd proxy or live estimate with limitation",
+                missing_behavior="answer_with_limitation",
+            )
+
+        if need in {"transit", "transport_planning", "route_plan"}:
+            claim_type = "route_plan" if need == "transit" else need
+            return ClaimRequirement(
+                claim_type=claim_type,
+                priority="important",
+                requires_exact_fact=False,
+                requires_live_data=False,
+                freshness="recent",
+                allowed_source_types=["map", "transit_api", "public_web"],
+                preferred_tools=[
+                    "baidu_route_mcp",
+                    "baidu_route_matrix_mcp",
+                    "baidu_traffic_mcp",
+                    "baidu_place_search_mcp",
+                    "transit",
+                    "search_mcp",
+                ],
+                forbidden_tools=["knowledge_prior"],
+                model_prior_allowed=False,
+                coverage_rule="route/transit context for comparison or access",
+                missing_behavior="answer_with_limitation",
+            )
+
+        if need == "review_summary":
+            return ClaimRequirement(
+                claim_type="review_summary",
+                priority="important",
+                requires_exact_fact=False,
+                allowed_source_types=["review", "public_web"],
+                preferred_tools=[
+                    "ctrip_review_crawler_mcp",
+                    "dianping_review_crawler_mcp",
+                    "search_mcp",
+                    "reviews",
+                ],
+                forbidden_tools=["knowledge_prior"],
+                model_prior_allowed=False,
+                coverage_rule="review/experience signal for suitability comparison",
                 missing_behavior="answer_with_limitation",
             )
 
@@ -469,9 +523,79 @@ class ResponseContractCompiler:
             if_unresolved="answer_with_limitation",
         )
 
+    _COMPARISON_CLAIM_TYPES = frozenset(
+        {"crowd_level", "route_plan", "review_summary", "transit"}
+    )
+
+    @classmethod
+    def _ensure_comparison_claims(
+        cls,
+        claims: list[ClaimRequirement],
+        frame: SemanticFrame,
+    ) -> list[ClaimRequirement]:
+        compiler = ResponseContractCompiler()
+        claims = [c for c in claims if c.claim_type in cls._COMPARISON_CLAIM_TYPES]
+        existing = {c.claim_type for c in claims}
+        for required in ("crowd_level", "route_plan", "review_summary"):
+            if required in existing:
+                continue
+            if required == "crowd_level":
+                claim = compiler._claim_for_need("crowd_level", frame)
+            elif required == "route_plan":
+                claim = compiler._claim_for_need("transit", frame) or compiler._claim_for_need(
+                    "route_plan", frame
+                )
+            else:
+                claim = compiler._claim_for_need("review_summary", frame)
+            if claim and claim.claim_type not in existing:
+                claims.append(claim)
+                existing.add(claim.claim_type)
+        return claims
+
     @staticmethod
-    def _build_clarification() -> ClarificationPolicy:
-        """S3 does not ask users to disambiguate — S5 handles via evidence."""
+    def _apply_intent_claim_hints(
+        claims: list[ClaimRequirement],
+        intent_profile: IntentProfile | None,
+    ) -> list[ClaimRequirement]:
+        if not intent_profile:
+            return claims
+        family_by_intent = {
+            PrimaryIntent.LOOKUP: "hard_fact",
+            PrimaryIntent.ADVISORY: "suitability_advice",
+            PrimaryIntent.PLANNING: "route_context",
+            PrimaryIntent.COMPARISON: "comparison",
+            PrimaryIntent.REVIEW_CHECK: "review_signal",
+            PrimaryIntent.REALTIME_CHECK: "live_status",
+            PrimaryIntent.NEARBY: "nearby_recommendation",
+            PrimaryIntent.CLARIFICATION: "clarification",
+        }
+        default_family = family_by_intent.get(intent_profile.primary_intent)
+        if not default_family:
+            return claims
+        updated: list[ClaimRequirement] = []
+        for claim in claims:
+            if claim.claim_family:
+                updated.append(claim)
+                continue
+            updated.append(claim.model_copy(update={"claim_family": default_family}))
+        return updated
+
+    @staticmethod
+    def _build_clarification(
+        frame: SemanticFrame,
+        intent_profile: IntentProfile | None = None,
+    ) -> ClarificationPolicy:
+        if intent_profile and intent_profile.primary_intent == PrimaryIntent.CLARIFICATION:
+            question = "您说的地点指哪一座城市/景区？请补充具体地名以便检索。"
+            if frame.place_ambiguity and frame.place_ambiguity.candidates:
+                names = [c.name for c in frame.place_ambiguity.candidates if c.name]
+                if names:
+                    question = f"「{frame.raw_query.strip()}」可能指：{'、'.join(names[:4])}，请问您指的是哪一个？"
+            return ClarificationPolicy(
+                should_ask=True,
+                question=question,
+                reason="IntentProfile 判定需澄清地点",
+            )
         return ClarificationPolicy(should_ask=False)
 
     @staticmethod
@@ -496,9 +620,25 @@ class ResponseContractCompiler:
         return updated
 
     @staticmethod
-    def _build_tool_strategy(claims: list[ClaimRequirement], max_steps: int) -> ToolStrategy:
+    def _build_tool_strategy(
+        claims: list[ClaimRequirement],
+        max_steps: int,
+        intent_profile: IntentProfile | None = None,
+    ) -> ToolStrategy:
         initial: list[str] = []
         fallback: list[str] = ["fallback"]
+        lookup_boost = [
+            "official_source_discovery_mcp",
+            "official_page_reader_mcp",
+            "search_mcp",
+        ]
+        if intent_profile and intent_profile.primary_intent == PrimaryIntent.LOOKUP:
+            for tool in lookup_boost:
+                if tool not in initial:
+                    initial.append(tool)
+        effective_max = max_steps
+        if intent_profile and intent_profile.primary_intent == PrimaryIntent.COMPARISON:
+            effective_max = max(max_steps, get_settings().mcp_max_tool_calls_comparison)
         for claim in claims:
             if claim.priority in ("required", "important"):
                 for tool in claim.preferred_tools:
@@ -507,12 +647,26 @@ class ResponseContractCompiler:
         return ToolStrategy(
             initial_tools=initial,
             fallback_tools=fallback,
-            max_tool_steps=max_steps,
+            max_tool_steps=effective_max,
         )
 
     @staticmethod
-    def _build_fallback_policy(claims: list[ClaimRequirement]) -> FallbackPolicy:
+    def _build_fallback_policy(
+        claims: list[ClaimRequirement],
+        intent_profile: IntentProfile | None = None,
+    ) -> FallbackPolicy:
         allow_prior = any(c.model_prior_allowed for c in claims)
+        has_hard_required = any(
+            c.priority == "required" and not c.model_prior_allowed for c in claims
+        )
+        if intent_profile:
+            if intent_profile.evidence_sensitivity == EvidenceSensitivity.MODEL_PRIOR_ALLOWED:
+                allow_prior = allow_prior and not has_hard_required
+            elif intent_profile.evidence_sensitivity in {
+                EvidenceSensitivity.HARD_FACT,
+                EvidenceSensitivity.LIVE_REQUIRED,
+            }:
+                allow_prior = False
         allow_partial = not all(
             c.priority == "required" and c.requires_exact_fact for c in claims
         )
@@ -526,10 +680,21 @@ class ResponseContractCompiler:
     def _build_composition_policy(
         frame: SemanticFrame,
         claims: list[ClaimRequirement],
+        intent_profile: IntentProfile | None = None,
     ) -> CompositionPolicy:
         has_hard = any(c.priority == "required" and not c.model_prior_allowed for c in claims)
         style = "advisory"
-        if frame.decision_type == DecisionType.FACT_LOOKUP or has_hard:
+        if intent_profile:
+            style_map = {
+                AnswerStyle.DIRECT_FACT: "direct",
+                AnswerStyle.ADVISORY: "advisory",
+                AnswerStyle.ITINERARY: "itinerary",
+                AnswerStyle.COMPARISON: "comparison",
+                AnswerStyle.RECOMMENDATION_LIST: "advisory",
+                AnswerStyle.CLARIFICATION: "clarification",
+            }
+            style = style_map.get(intent_profile.answer_style, "advisory")
+        elif frame.decision_type == DecisionType.FACT_LOOKUP or has_hard:
             style = "direct"
         if any(c.claim_type == "seasonal_operation_status" for c in claims):
             style = "direct"

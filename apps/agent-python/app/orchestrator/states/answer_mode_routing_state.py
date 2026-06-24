@@ -25,6 +25,7 @@ class AnswerModeRoutingState:
             state.normalized_request,
             conversation_context=state.conversation_context.model_dump() if state.conversation_context else None,
             available_tools=caps,
+            intent_profile=state.intent_profile,
         )
         contract.derived_debug_answer_mode = decision.answer_mode.value
         state.response_contract = contract

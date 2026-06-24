@@ -1,14 +1,11 @@
 import logging
 
 from app.agents.query_understanding_agent import QueryUnderstandingAgent
-from app.config import get_settings
 from app.llm_client import LLMClient
 from app.orchestrator.actions import ActionResult, AgentAction, AgentActionType
-from app.orchestrator.claim_search_planner import ClaimSearchPlanner
 from app.schemas.tool_trace import ToolTrace
 from app.schemas.user_query import TravelAgentState
-from app.tools.tool_name_resolver import is_mcp_policy_tool, resolve_tool_name
-from tools.ticketing.provider_config import is_ticket_provider_tool
+from app.tools.tool_name_resolver import resolve_tool_name
 
 logger = logging.getLogger(__name__)
 
@@ -220,111 +217,14 @@ class ActionExecutor:
         state: TravelAgentState,
         prompt_context: dict,
     ) -> dict:
-        args = dict(arguments)
-        goal = state.user_goal
-        frame = state.semantic_frame
-        place_name = (
-            args.get("place_name")
-            or prompt_context.get("place_name")
-            or (frame.entities.places[0] if frame and frame.entities.places else None)
+        from app.orchestrator.mcp_tool_arguments import enrich_mcp_tool_arguments
+
+        return enrich_mcp_tool_arguments(
+            tool_name,
+            arguments,
+            state=state,
+            prompt_context=prompt_context,
         )
-        city = (
-            args.get("city")
-            or prompt_context.get("city")
-            or (goal.destination_city if goal else None)
-            or (frame.entities.city if frame else None)
-        )
-        country = (
-            args.get("country")
-            or prompt_context.get("country")
-            or (goal.destination_country if goal else None)
-            or (frame.entities.country if frame else None)
-        )
-
-        if tool_name in {"official", "places", "reviews", "transit", "restaurant"} or tool_name.endswith("_mcp"):
-            effective_place = place_name or city
-            if effective_place and "place_name" not in args:
-                args["place_name"] = effective_place
-            if country and "country" not in args:
-                args["country"] = country
-            if city and "city" not in args:
-                args["city"] = city
-            if goal and goal.start_location and "start_location" not in args:
-                args["start_location"] = goal.start_location
-
-        if is_ticket_provider_tool(tool_name):
-            effective_place = place_name or city
-            if effective_place:
-                args.setdefault("place_name", effective_place)
-            if country:
-                args.setdefault("country", country)
-            if city:
-                args.setdefault("city", city)
-            need = ClaimSearchPlanner.primary_information_need(state)
-            if need:
-                args.setdefault("information_need", need)
-                args.setdefault("claim_type", need)
-            args.setdefault("query", state.raw_user_query)
-
-        if tool_name in {"weather", "seasonality", "lodging"} or tool_name in {
-            "openmeteo_mcp",
-            "weather_mcp",
-            "climate_mcp",
-            "baidu_weather_mcp",
-        }:
-            if city and "city" not in args:
-                args["city"] = city
-            if country and "country" not in args:
-                args["country"] = country
-            if goal and goal.travel_date and "travel_date" not in args:
-                args["travel_date"] = goal.travel_date
-            from tools.mcp.adapters.baidu_response_parser import resolve_coordinates_from_evidence
-
-            coords = resolve_coordinates_from_evidence(list(state.evidence))
-            if coords:
-                args.setdefault("latitude", coords["latitude"])
-                args.setdefault("longitude", coords["longitude"])
-
-        if tool_name == "knowledge_prior":
-            args.setdefault("raw_query", state.raw_user_query)
-            if frame is not None:
-                args.setdefault("semantic_frame", frame)
-            args.setdefault("limitations", list(state.limitations))
-
-        if tool_name == "fallback":
-            args.setdefault("place_name", place_name or city or "unknown")
-            args.setdefault("city", city)
-            args.setdefault("country", country)
-            args.setdefault("need_types", ["crowd_level"])
-
-        if is_mcp_policy_tool(tool_name):
-            if "query" not in args:
-                args["query"] = state.raw_user_query
-            if frame and frame.information_needs:
-                args.setdefault("information_need", frame.information_needs[0])
-            need = ClaimSearchPlanner.primary_information_need(state)
-            if need:
-                args.setdefault("information_need", need)
-            settings = get_settings()
-            if tool_name in {"browser_mcp", "official_page_reader_mcp", "baidu_place_detail_mcp"}:
-                domains = settings.official_page_domain_allowlist() or settings.browser_domain_allowlist()
-                if domains:
-                    args.setdefault("allowed_domains", domains)
-                if state.evidence and "url" not in args and "source_url" not in args:
-                    args.setdefault("prior_evidence", list(state.evidence))
-                if tool_name == "baidu_place_detail_mcp" and "uid" not in args:
-                    from tools.mcp.adapters.baidu_response_parser import pick_baidu_uid_from_evidence
-
-                    uid = pick_baidu_uid_from_evidence(list(state.evidence))
-                    if uid:
-                        args.setdefault("uid", uid)
-            if tool_name == "baidu_geocode_mcp":
-                if place_name and "address" not in args and "query" not in args:
-                    args.setdefault("address", place_name)
-            if tool_name == "baidu_ip_location_mcp":
-                args["location_sensitive"] = True
-
-        return args
 
     def _annotate_traces(self, trace_before: int, policy_tool_name: str, prompt_context: dict) -> None:
         if not self.tools or len(self.tools.traces) <= trace_before:

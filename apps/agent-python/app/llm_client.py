@@ -77,8 +77,35 @@ class LLMClient:
                 continue
 
             text, stop_reason, block_types = self._extract_message_text(message)
-            if text:
+            truncated = stop_reason == "max_tokens" or block_types == ["thinking"]
+            ceiling = int(self.settings.llm_max_output_tokens)
+
+            if text and not truncated:
                 return text
+
+            if text and truncated:
+                if token_budget >= ceiling:
+                    logger.warning(
+                        "LLM output still truncated at token ceiling %s (%s chars); returning partial",
+                        ceiling,
+                        len(text),
+                    )
+                    return text
+                logger.warning(
+                    "LLM output truncated (stop_reason=%s, %s chars, budget=%s); retrying with higher max_tokens",
+                    stop_reason,
+                    len(text),
+                    token_budget,
+                )
+                token_budget = min(
+                    max(token_budget * 2, int(self.settings.llm_json_min_tokens)),
+                    ceiling,
+                )
+                last_error = RuntimeError(
+                    f"LLM output truncated (stop_reason={stop_reason}, budget={token_budget})"
+                )
+                await asyncio.sleep(0.4 * (attempt + 1))
+                continue
 
             usage = getattr(message, "usage", None)
             logger.warning(
@@ -92,8 +119,11 @@ class LLMClient:
             last_error = RuntimeError(
                 f"LLM returned empty response (stop_reason={stop_reason}, blocks={block_types})"
             )
-            if stop_reason == "max_tokens" or block_types == ["thinking"]:
-                token_budget = min(max(token_budget * 2, self.settings.llm_json_min_tokens), self.settings.llm_max_output_tokens)
+            if truncated:
+                token_budget = min(
+                    max(token_budget * 2, int(self.settings.llm_json_min_tokens)),
+                    ceiling,
+                )
             await asyncio.sleep(0.4 * (attempt + 1))
 
         raise last_error or RuntimeError("LLM returned empty response")

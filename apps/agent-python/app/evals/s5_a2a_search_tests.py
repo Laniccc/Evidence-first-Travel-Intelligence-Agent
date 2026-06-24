@@ -50,6 +50,7 @@ async def test_search_task_planner_creates_keyword_tasks():
 def test_keyword_search_validates_anchors():
     task = SearchTask(
         task_id="t1",
+        lookup_intent="查询独库公路开放月份",
         anchor_keywords=["独库公路", "开放"],
         search_query="独库公路什么时候开放",
     )
@@ -57,6 +58,7 @@ def test_keyword_search_validates_anchors():
 
     bad = SearchTask(
         task_id="t2",
+        lookup_intent="查询开放信息",
         anchor_keywords=["喀纳斯湖"],
         search_query="独库公路什么时候开放",
     )
@@ -72,6 +74,7 @@ def test_evidence_guard_accepts_keyword_search_subagent():
         target="keyword_search_agent",
         arguments={
             "task_id": "search-1",
+            "lookup_intent": "查询独库公路季节性开放信息",
             "anchor_keywords": ["独库公路", "开放"],
             "search_query": "独库公路几月通车",
             "information_need": "seasonal_operation_status",

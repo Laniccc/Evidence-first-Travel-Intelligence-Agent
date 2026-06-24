@@ -124,7 +124,14 @@ def test_model_prior_queue_tries_tools_before_knowledge_prior():
         reason="test",
     )
     queue = ActionModelController()._evidence_tool_queue(state, {})
-    assert queue[0] in {"weather", "seasonality", "search_mcp"}
+    assert queue[0] in {
+        "weather",
+        "seasonality",
+        "search_mcp",
+        "baidu_place_search_mcp",
+        "baidu_place_detail_mcp",
+        "baidu_geocode_mcp",
+    }
     assert "knowledge_prior" in queue
     assert queue.index("knowledge_prior") > 0
 

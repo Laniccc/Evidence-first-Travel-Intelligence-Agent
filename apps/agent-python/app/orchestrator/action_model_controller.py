@@ -4,9 +4,10 @@ from app.agents.information_need_planner import InformationNeedPlanner
 from app.llm_client import LLMClient
 from app.orchestrator.actions import AgentAction, AgentActionType
 from app.orchestrator.claim_search_planner import ClaimSearchPlanner
+from app.orchestrator.comparison_helpers import is_comparison_mode
 from app.orchestrator.state_policy import StateNodePolicy
 from app.policies.evidence_policy import EvidencePolicy
-from app.schemas.semantic_frame import AnswerMode, DecisionType
+from app.schemas.semantic_frame import AnswerMode, DecisionType, TaskFamily
 from app.schemas.user_query import TravelAgentState
 from app.tools.mcp.tool_specs import NEED_TOOL_PROFILES
 from app.tools.tool_name_resolver import resolve_tool_name
@@ -101,12 +102,16 @@ class ActionModelController:
                 + f"\nallowed_tools (CALL_TOOL targets): {[t.get('name') for t in allowed]}\n"
                 + f"allowed_subagents (CALL_SUBAGENT targets): {subagents}\n"
                 "Primary path: CALL_SUBAGENT search_task_planner_agent or keyword_search_agent.\n"
-                "keyword_search_agent arguments MUST include: anchor_keywords (from S4), search_query, "
-                "information_need (search purpose for this lookup). preferred_tool is optional hint only.\n"
+                "keyword_search_agent is the first-party MCP executor. Pass full delegated task: "
+                "lookup_intent, claim_target, search_query, anchor_keywords, information_need, "
+                "preferred_tool, tool_parameters (origin/destination for routes).\n"
+                "search_task_planner_agent must plan lookup_intent (what evidence to obtain), not bare keywords.\n"
+                "Sub-agents read agent_tool_definitions for MCP when_to_use / satisfies_needs.\n"
                 "When evidence contains place_candidates (多地同名), refine search_query with region/city "
                 "in the next keyword_search tasks — do NOT ask the user in S5.\n"
                 "Every 2 keyword_search_agent completions trigger search_task_planner refine automatically.\n"
-                "CALL_TOOL only when subagents cannot cover (e.g. one-off geo); avoid bypassing subagents.\n"
+                "CALL_TOOL directly only when no subagent task applies (rare fallback).\n"
+                "Use user_need_residual (in planning_context) for search/tool focus — needs only, not verified facts.\n"
                 "Never output final answer text."
             )
         else:
@@ -140,6 +145,7 @@ class ActionModelController:
                     "completed_search_task_ids": self._completed_search_task_ids(state),
                     "tool_diversity_hints": prompt_context.get("tool_diversity_hints", []),
                     "planning_context": ClaimSearchPlanner.planning_context(state),
+                    "agent_tool_definitions": prompt_context.get("agent_tool_definitions", []),
                     "keyword_search_count": ClaimSearchPlanner.keyword_search_call_count(state),
                     "max_keyword_searches": ClaimSearchPlanner.max_search_attempts(state),
                 }
@@ -502,37 +508,34 @@ class ActionModelController:
         return True
 
     def _contradiction_decompose_due(self, state: TravelAgentState, prompt_context: dict) -> bool:
-        from app.orchestrator.evidence_signal_utils import multi_value_signal_for_need
+        from app.orchestrator.evidence_signal_utils import any_contradiction_signal
 
-        if int(prompt_context.get("_contradiction_decompose_round", 0)) >= 2:
-            return False
-        primary = ClaimSearchPlanner.primary_information_need(state)
-        if primary not in {"ticket_price", "opening_hours"}:
+        if int(prompt_context.get("_contradiction_decompose_round", 0)) >= 3:
             return False
         kw = ClaimSearchPlanner.keyword_search_call_count(state)
         if kw < 2 and len(state.evidence) < 4:
             return False
-        structured = state.structured_result or {}
-        if structured.get("fact_decomposition") and structured.get("_decompose_evidence_count") == len(
-            state.evidence
-        ):
+        need, due = any_contradiction_signal(state)
+        if not due:
             return False
-        return multi_value_signal_for_need(state, primary)
+        prompt_context["_contradiction_target_need"] = need
+        return True
 
     def _contradiction_decompose_action(
         self,
         state: TravelAgentState,
         prompt_context: dict,
     ) -> AgentAction:
+        need = str(prompt_context.get("_contradiction_target_need") or "").strip()
         prompt_context["_contradiction_decompose_round"] = (
             int(prompt_context.get("_contradiction_decompose_round", 0)) + 1
         )
         return AgentAction(
             action_type=AgentActionType.CALL_SUBAGENT,
             target="evidence_contradiction_decomposer_agent",
-            arguments={},
+            arguments={"target_need": need} if need else {},
             reason_summary=(
-                "S5 多源数值分歧：查证票种/套餐口径并分拆呈现，避免笼统称价格不确定"
+                f"S5 多源分歧：分解 {need or 'claim'} 的不同口径（票种/时长/距离等），避免笼统称不确定"
             ),
             confidence=0.9,
         )
@@ -831,6 +834,10 @@ class ActionModelController:
             and resolve_tool_name(t) not in set(gap.failed_tools)
             and resolve_tool_name(t) not in set(gap.already_tried_tools)
         ]
+        allowed = set(self._whitelist_names(prompt_context))
+        tools = [t for t in tools if t in allowed]
+        if not tools and "search_mcp" in allowed:
+            tools = ["search_mcp"]
         tools = [t for t in tools if t not in called]
 
         if step < len(tools) and step < max_steps:
@@ -849,6 +856,17 @@ class ActionModelController:
         if search_idx >= 0 and search_idx < len(templates) and step < max_steps + len(templates):
             query = templates[search_idx]
             task_id = f"gap-{gap.gap_id[:8]}-{search_idx}"
+            anchor_keywords: list[str] = []
+            if state.comparison_active_place:
+                from app.orchestrator.comparison_helpers import comparison_search_anchors
+
+                anchor_keywords = comparison_search_anchors(
+                    state.comparison_active_place,
+                    state.semantic_frame,
+                    peer_places=state.comparison_peer_places,
+                )
+            elif state.semantic_frame and state.semantic_frame.entities.places:
+                anchor_keywords = [state.semantic_frame.entities.places[0]]
             return AgentAction(
                 action_type=AgentActionType.CALL_SUBAGENT,
                 target="keyword_search_agent",
@@ -856,9 +874,7 @@ class ActionModelController:
                     "search_query": query,
                     "information_need": gap.claim_type,
                     "task_id": task_id,
-                    "anchor_keywords": [state.semantic_frame.entities.places[0]]
-                    if state.semantic_frame and state.semantic_frame.entities.places
-                    else [],
+                    "anchor_keywords": anchor_keywords,
                 },
                 reason_summary=f"S5 gap-fill search: {query[:48]}",
                 confidence=0.8,
@@ -1044,8 +1060,20 @@ class ActionModelController:
 
     def _evidence_tool_queue(self, state: TravelAgentState, prompt_context: dict) -> list[str]:
         contract = state.response_contract
+        allowed_names: set[str] = set()
+        wl = prompt_context.get("tool_whitelist")
+        if wl is not None and hasattr(wl, "allowed_tool_names"):
+            allowed_names = set(wl.allowed_tool_names())
+        elif prompt_context.get("allowed_tools"):
+            allowed_names = {t.get("name") for t in prompt_context["allowed_tools"] if t.get("name")}
+
         if contract:
-            queue = list(contract.tool_strategy.initial_tools)
+            queue: list[str] = []
+            if state.intent_strategy:
+                for tool in state.intent_strategy.preferred_tools:
+                    if tool not in queue:
+                        queue.append(tool)
+            queue.extend(contract.tool_strategy.initial_tools)
             for claim in contract.claim_requirements:
                 if claim.priority in ("required", "important"):
                     for tool in claim.preferred_tools:
@@ -1061,7 +1089,7 @@ class ActionModelController:
             for tool in queue:
                 if tool not in deduped:
                     deduped.append(tool)
-            return deduped
+            return self._inject_route_tools_if_needed(state, deduped, allowed_names)
 
         frame = state.semantic_frame
         decision = state.answer_mode_decision
@@ -1084,7 +1112,20 @@ class ActionModelController:
         elif frame and frame.decision_type == DecisionType.GENERAL_ADVICE:
             queue = ["search_mcp", "wikipedia_mcp", "wikidata_mcp", "places", "knowledge_prior", "fallback"]
         elif frame and frame.decision_type == DecisionType.WHETHER_TO_GO:
-            queue = ["weather", "official", "places", "reviews", "weather_mcp"]
+            queue = [
+                "search_mcp",
+                "baidu_place_search_mcp",
+                "baidu_route_mcp",
+                "baidu_route_matrix_mcp",
+                "official_source_discovery_mcp",
+                "official_page_reader_mcp",
+                "weather",
+                "official",
+                "places",
+                "reviews",
+                "weather_mcp",
+            ]
+            queue = self._china_baidu_tools(frame) + queue
         elif any(n in needs for n in ("crowd_level", "queue_time", "current_crowd")):
             queue = ["search_mcp", "reviews", "places", "fallback"]
         elif any(n in needs for n in ("opening_hours", "ticket_price", "reservation_policy")):
@@ -1105,6 +1146,16 @@ class ActionModelController:
                 "weather",
                 "fallback",
             ]
+        elif frame and frame.task_family == TaskFamily.COMPARISON:
+            queue = [
+                "ctrip_review_crawler_mcp",
+                "dianping_review_crawler_mcp",
+                "baidu_place_search_mcp",
+                "baidu_route_matrix_mcp",
+                "baidu_route_mcp",
+                "search_mcp",
+                "reviews",
+            ]
         elif frame and frame.decision_type == DecisionType.FACT_LOOKUP and frame.requires_exact_fact:
             queue = [
                 "search_mcp",
@@ -1123,11 +1174,72 @@ class ActionModelController:
         elif decision and decision.allow_knowledge_prior and "knowledge_prior" not in queue:
             queue.append("knowledge_prior")
 
+        if is_comparison_mode(state):
+            queue = [t for t in queue if t not in {"wikipedia_mcp", "wikidata_mcp", "knowledge_prior"}]
+
         deduped: list[str] = []
         for tool in queue:
             if tool not in deduped:
                 deduped.append(tool)
-        return deduped
+        return self._inject_route_tools_if_needed(state, deduped, allowed_names)
+
+    @staticmethod
+    def _inject_route_tools_if_needed(
+        state: TravelAgentState,
+        queue: list[str],
+        allowed_names: set[str],
+    ) -> list[str]:
+        from app.orchestrator.agent_tool_catalog import route_tools_priority
+        from app.orchestrator.evidence_signal_utils import is_day_trip_query
+
+        frame = state.semantic_frame
+        route_needs = {
+            "distance",
+            "duration",
+            "route_plan",
+            "transport_planning",
+            "itinerary_feasibility",
+            "transit",
+        }
+        needs_route = False
+        if frame and is_day_trip_query(frame):
+            needs_route = True
+        if frame and set(frame.information_needs or []) & route_needs:
+            needs_route = True
+        residual = state.user_need_residual
+        if residual:
+            for need in residual.information_needs:
+                if need.need_type in route_needs:
+                    needs_route = True
+                    break
+            for claim in residual.claim_requirements:
+                if claim.claim_type in route_needs:
+                    needs_route = True
+                    break
+        if not needs_route:
+            return queue
+
+        out = list(queue)
+        for tool in route_tools_priority():
+            if tool not in allowed_names or tool in out:
+                continue
+            # Place search before route; route before tail fallback tools
+            if tool == "baidu_place_search_mcp":
+                insert_at = 0
+                for anchor in ("search_mcp", "official_source_discovery_mcp"):
+                    if anchor in out:
+                        insert_at = out.index(anchor) + 1
+                        break
+                out.insert(insert_at, tool)
+            elif tool in {"baidu_route_mcp", "baidu_route_matrix_mcp"}:
+                insert_at = len(out)
+                for prefer_after in ("baidu_place_search_mcp", "baidu_geocode_mcp", "search_mcp"):
+                    if prefer_after in out:
+                        insert_at = out.index(prefer_after) + 1
+                out.insert(insert_at, tool)
+            else:
+                out.append(tool)
+        return out
 
     @staticmethod
     def _tool_arguments_for(tool: str, state: TravelAgentState, prompt_context: dict) -> dict:

@@ -85,4 +85,33 @@ class VerifierAgent:
                     "resolution": f"Prefer official source when available ({winner or 'official priority'}).",
                 }
             )
+
+        from app.orchestrator.evidence_signal_utils import (
+            distance_km_values,
+            distance_values_conflict,
+            visit_duration_buckets,
+        )
+
+        duration_buckets = visit_duration_buckets(evidence)
+        if len(duration_buckets) >= 2:
+            conflicts.append(
+                {
+                    "field": "visit_duration",
+                    "description": (
+                        "Visit duration suggestions conflict (e.g. hours inside scenic area vs multi-day stay)."
+                    ),
+                    "sources": [],
+                    "resolution": "Decompose by scope: in-park half-day vs multi-day itinerary.",
+                }
+            )
+        if distance_values_conflict(evidence):
+            kms = sorted(distance_km_values(evidence))
+            conflicts.append(
+                {
+                    "field": "distance",
+                    "description": f"Distance values differ across sources (km samples: {kms[:6]}).",
+                    "sources": [],
+                    "resolution": "Label origin/destination; prefer route API over unverified snippets.",
+                }
+            )
         return conflicts

@@ -13,6 +13,8 @@ from app.schemas.rewritten_query import RewrittenQueryResult
 from app.schemas.tool_trace import ToolTrace
 from app.schemas.coverage_report import CoverageReport
 from app.schemas.response_contract import ResponseContract
+from app.orchestrator.intent_strategy_registry import IntentStrategy
+from app.schemas.intent_profile import IntentProfile
 from app.schemas.s5_information_domain import S5DomainPlan
 from app.schemas.semantic_frame import AnswerModeDecision, SemanticFrame
 from app.schemas.evidence_brief import EvidenceBrief
@@ -137,6 +139,8 @@ class TravelAgentState(BaseModel):
     rewritten_query_result: RewrittenQueryResult | None = None
     travel_task: TravelTask | None = None
     semantic_frame: SemanticFrame | None = None
+    intent_profile: IntentProfile | None = None
+    intent_strategy: IntentStrategy | None = None
     answer_mode_decision: AnswerModeDecision | None = None
     response_contract: ResponseContract | None = None
     s5_domain_plan: S5DomainPlan | None = None
@@ -167,3 +171,6 @@ class TravelAgentState(BaseModel):
     final_response: str | None = None
     structured_result: dict | None = None
     recommendations: list[dict] = Field(default_factory=list)
+    comparison_mode: bool = False
+    comparison_active_place: str | None = None
+    comparison_peer_places: list[str] = Field(default_factory=list)

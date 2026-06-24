@@ -3,7 +3,7 @@
 import json
 
 from app.orchestrator.user_need_residual import build_user_need_residual
-from app.schemas.semantic_frame import DecisionType, QueryScope, SemanticEntities, SemanticFrame, TaskFamily
+from app.schemas.semantic_frame import DecisionType, QueryScope, SemanticEntities, SemanticFrame, TaskFamily, TimeScope
 from app.schemas.user_query import TravelAgentState
 
 
@@ -62,6 +62,29 @@ def test_residual_includes_needs_and_constraints_not_places():
     assert residual.task_family == "suitability"
     assert "父母" in json.dumps(residual.user_constraints.model_dump(), ensure_ascii=False)
     assert "南京博物院" not in json.dumps(residual.model_dump(), ensure_ascii=False)
+
+
+def test_residual_includes_time_scope_from_frame():
+    from app.schemas.semantic_frame import TimeScope
+
+    state = TravelAgentState(
+        session_id="s",
+        query_id="q",
+        raw_user_query="今天独库公路能走吗？",
+        semantic_frame=SemanticFrame(
+            raw_query="今天独库公路能走吗？",
+            normalized_request="查询独库公路今日通行状态",
+            task_family=TaskFamily.FACT_LOOKUP,
+            decision_type=DecisionType.FACT_LOOKUP,
+            entities=SemanticEntities(places=["独库公路"], region="新疆"),
+            time_scope=TimeScope.CURRENT,
+            information_needs=["seasonal_operation_status"],
+            requires_live_data=True,
+        ),
+    )
+    residual = build_user_need_residual(state)
+    assert residual.time_scope == "current"
+    assert residual.requires_live_data is True
 
 
 def test_attach_residual_on_state():

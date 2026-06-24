@@ -1,5 +1,6 @@
 from app.config import get_settings
 from app.orchestrator.actions import AgentAction, AgentActionType
+from app.orchestrator.comparison_helpers import comparison_max_tool_calls, is_comparison_mode
 from app.orchestrator.evidence_coverage_checker import EvidenceCoverageChecker
 from app.orchestrator.policy_guard import PolicyGuard
 from app.orchestrator.state_policy import StateNodePolicy
@@ -66,7 +67,7 @@ class EvidencePolicyGuard(PolicyGuard):
         gap_mode = state.current_evidence_gap_request is not None
 
         if action.action_type == AgentActionType.CALL_TOOL:
-            self._validate_max_tool_calls(tool_call_count, gap_mode=gap_mode)
+            self._validate_max_tool_calls(tool_call_count, gap_mode=gap_mode, state=state)
             self._validate_tool_call(action, state, tool_whitelist)
 
         if action.action_type == AgentActionType.CALL_SUBAGENT:
@@ -78,13 +79,19 @@ class EvidencePolicyGuard(PolicyGuard):
             self._validate_finish(action, state, tool_whitelist)
 
     @staticmethod
-    def _validate_max_tool_calls(tool_call_count: int, *, gap_mode: bool = False) -> None:
+    def _validate_max_tool_calls(
+        tool_call_count: int,
+        *,
+        gap_mode: bool = False,
+        state: TravelAgentState | None = None,
+    ) -> None:
         settings = get_settings()
-        limit = (
-            settings.evidence_gap_max_extra_steps
-            if gap_mode
-            else settings.mcp_max_tool_calls_per_state
-        )
+        if gap_mode:
+            limit = settings.evidence_gap_max_extra_steps
+        elif state and is_comparison_mode(state):
+            limit = comparison_max_tool_calls()
+        else:
+            limit = settings.mcp_max_tool_calls_per_state
         if tool_call_count >= limit:
             raise ValueError(
                 f"S5 max tool calls ({limit}) reached; FINISH_STATE or UPDATE_STATE with limitations"

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from types import SimpleNamespace
 
 import pytest
@@ -73,6 +74,46 @@ async def test_complete_retries_on_empty_response(monkeypatch):
     assert text == '{"tasks":[]}'
     assert len(calls) == 2
     assert calls[1] >= calls[0]
+
+
+def test_complete_retries_when_partial_text_hits_max_tokens(monkeypatch):
+    calls: list[int] = []
+
+    def _fake_create(_system: str, _user: str, max_tokens: int):
+        calls.append(max_tokens)
+        if len(calls) == 1:
+            return SimpleNamespace(
+                content=[SimpleNamespace(type="text", text='{"headline":"x","sections":[]')],
+                stop_reason="max_tokens",
+                usage=None,
+            )
+        return SimpleNamespace(
+            content=[SimpleNamespace(type="text", text='{"headline":"x","sections":[]}')],
+            stop_reason="end_turn",
+            usage=None,
+        )
+
+    client = LLMClient.__new__(LLMClient)
+    client.settings = SimpleNamespace(
+        llm_empty_response_retries=3,
+        llm_max_output_tokens=4096,
+        llm_json_min_tokens=1536,
+        llm_disable_thinking=True,
+        anthropic_base_url="https://api.deepseek.com/anthropic",
+        llm_model=lambda: "test-model",
+    )
+    client._client = object()
+
+    async def _no_sleep(_seconds: float) -> None:
+        return None
+
+    monkeypatch.setattr("app.llm_client.asyncio.sleep", _no_sleep)
+    monkeypatch.setattr(client, "_create_message", _fake_create)
+
+    text = asyncio.run(client.complete("sys", "user", max_tokens=512, json_only=True))
+    assert text == '{"headline":"x","sections":[]}'
+    assert len(calls) == 2
+    assert calls[1] > calls[0]
 
 
 def test_create_message_disables_thinking_on_deepseek():
