@@ -22,3 +22,7 @@ class ToolTrace(BaseModel):
     gap_filling: bool = False
     gap_id: str | None = None
     gap_claim_type: str | None = None
+    official_source_discovery: bool = False
+    urls_checked_count: int | None = None
+    official_candidates_count: int | None = None
+    top_source_classes: list[str] | None = None

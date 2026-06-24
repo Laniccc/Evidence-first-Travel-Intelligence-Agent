@@ -60,6 +60,9 @@ def build_evidence_brief_from_report(
     conflict_notes = [c.conflict_note for c in report.conflicts if c.conflict_note]
     curation_notes: list[str] = []
     structured = state.structured_result or {}
+    fact_decompositions = list(structured.get("fact_decomposition") or [])
+    if structured.get("contradiction_presentation_guidance"):
+        curation_notes.append(str(structured["contradiction_presentation_guidance"]))
     plan = structured.get("curation_plan") or {}
     if plan.get("rationale"):
         curation_notes.append(str(plan["rationale"]))
@@ -68,6 +71,7 @@ def build_evidence_brief_from_report(
     return EvidenceBrief(
         target_label=target_label,
         curated_claims=curated,
+        fact_decompositions=fact_decompositions,
         excluded_evidence_ids=excluded,
         coverage_gaps=coverage_gaps,
         conflict_notes=conflict_notes,
@@ -101,7 +105,10 @@ def build_evidence_brief(state: TravelAgentState, target_label: str) -> Evidence
 
     excluded = list(structured.get("excluded_evidence_ids") or [])
     conflict_notes = list(structured.get("conflict_notes") or [])
+    fact_decompositions = list(structured.get("fact_decomposition") or [])
     curation_notes: list[str] = []
+    if structured.get("contradiction_presentation_guidance"):
+        curation_notes.append(str(structured["contradiction_presentation_guidance"]))
     plan = structured.get("curation_plan") or {}
     if plan.get("rationale"):
         curation_notes.append(str(plan["rationale"]))
@@ -121,6 +128,7 @@ def build_evidence_brief(state: TravelAgentState, target_label: str) -> Evidence
     return EvidenceBrief(
         target_label=target_label,
         curated_claims=curated,
+        fact_decompositions=fact_decompositions,
         excluded_evidence_ids=excluded,
         coverage_gaps=coverage_gaps,
         conflict_notes=conflict_notes,

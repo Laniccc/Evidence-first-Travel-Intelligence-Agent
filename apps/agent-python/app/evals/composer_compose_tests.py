@@ -237,6 +237,28 @@ def test_normalize_truncated_uuid_prefix():
     assert unresolved == []
 
 
+def test_normalize_draft_payload_dict_bullets():
+    eid = "a1b2c3d4-958d-9489-227e6cb19091"
+    raw = {
+        "headline": "门票",
+        "conclusion": "有线索显示需购票。",
+        "sections": [
+            {
+                "title": "检索线索",
+                "bullets": [
+                    {"content": "有线索称门票约40元", "evidence_id": eid},
+                    "纯字符串 bullet",
+                ],
+            }
+        ],
+        "cited_evidence_ids": [],
+    }
+    normalized = AnswerComposerAgent._normalize_draft_payload(raw)
+    draft = FinalAnswerDraft.model_validate(normalized)
+    assert draft.sections[0].bullets == ["有线索称门票约40元", "纯字符串 bullet"]
+    assert eid in draft.cited_evidence_ids
+
+
 def test_postprocess_resolves_truncated_citations_in_draft():
     full_id = "7a3a8fc7-1234-5678-9abc-def012345678"
     bundle = {

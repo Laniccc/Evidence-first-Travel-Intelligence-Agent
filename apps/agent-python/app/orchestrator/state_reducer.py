@@ -123,6 +123,23 @@ class StateReducer:
                 state,
                 f"✓ [A2A] search_task_planner → {output.get('task_count', len(output['search_tasks']))} keyword tasks",
             )
+        elif target == "evidence_contradiction_decomposer_agent":
+            structured = dict(state.structured_result or {})
+            decomps = output.get("decompositions") or []
+            structured["fact_decomposition"] = decomps
+            if output.get("presentation_guidance"):
+                structured["contradiction_presentation_guidance"] = output["presentation_guidance"]
+            structured["_decompose_evidence_count"] = len(state.evidence)
+            follow_up = output.get("follow_up_search_tasks") or []
+            if follow_up:
+                existing = list(structured.get("search_tasks") or [])
+                structured["search_tasks"] = existing + list(follow_up)
+            state.structured_result = structured
+            item_count = sum(len(d.get("items") or []) for d in decomps if isinstance(d, dict))
+            TraceRecorder.add(
+                state,
+                f"✓ [A2A] evidence_contradiction_decomposer → {item_count} decomposed fact tiers",
+            )
         elif target == "keyword_search_agent":
             evidence = output.get("evidence", [])
             if evidence:

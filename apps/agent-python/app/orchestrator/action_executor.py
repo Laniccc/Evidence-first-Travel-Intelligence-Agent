@@ -132,6 +132,15 @@ class ActionExecutor:
                 }
             )
 
+        if name == "evidence_contradiction_decomposer_agent":
+            from app.agents.evidence_contradiction_decomposer_agent import (
+                EvidenceContradictionDecomposerAgent,
+            )
+
+            agent = EvidenceContradictionDecomposerAgent(self.llm)
+            output = await agent.run(state, arguments)
+            return ActionResult(output=output)
+
         if name == "keyword_search_agent":
             from app.agents.keyword_search_agent import KeywordSearchAgent
 

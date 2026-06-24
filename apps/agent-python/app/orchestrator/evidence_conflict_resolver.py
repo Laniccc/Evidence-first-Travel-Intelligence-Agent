@@ -5,6 +5,8 @@ from __future__ import annotations
 import re
 
 from app.orchestrator.evidence_scorer import EvidenceScore
+from app.orchestrator.official_source_judgement import parse_candidate_from_evidence, source_class_priority
+from app.schemas.evidence import Evidence
 from app.schemas.evidence_decision_report import EvidenceConflict
 
 _PRICE_RE = re.compile(r"(\d+(?:\.\d+)?)")
@@ -27,6 +29,8 @@ class EvidenceConflictResolver:
         self,
         claim_type: str,
         scores: list[EvidenceScore],
+        *,
+        evidence: list | None = None,
     ) -> tuple[list[EvidenceConflict], str | None]:
         if len(scores) < 2:
             return [], (scores[0].evidence_id if scores else None)
@@ -35,7 +39,7 @@ class EvidenceConflictResolver:
         if claim_type == "ticket_price":
             prices = self._extract_prices(scores)
             if len(prices) >= 2 and max(prices) - min(prices) > 1:
-                preferred = self._pick_preferred(scores)
+                preferred = self._pick_preferred(scores, claim_type=claim_type, evidence=evidence)
                 conflicts.append(
                     EvidenceConflict(
                         claim_type=claim_type,
@@ -52,7 +56,7 @@ class EvidenceConflictResolver:
 
         values = {self._normalize(s.claim_value) for s in scores}
         if len(values) > 1:
-            preferred = self._pick_preferred(scores)
+            preferred = self._pick_preferred(scores, claim_type=claim_type, evidence=evidence)
             conflicts.append(
                 EvidenceConflict(
                     claim_type=claim_type,
@@ -66,7 +70,22 @@ class EvidenceConflictResolver:
 
         return conflicts, scores[0].evidence_id
 
-    def _pick_preferred(self, scores: list[EvidenceScore]) -> str:
+    def _pick_preferred(
+        self,
+        scores: list[EvidenceScore],
+        *,
+        claim_type: str | None = None,
+        evidence: list | None = None,
+    ) -> str:
+        official_classes: dict[str, str] = {}
+        if evidence and claim_type == "ticket_price":
+            for ev in evidence:
+                if not isinstance(ev, Evidence):
+                    continue
+                cand = parse_candidate_from_evidence(ev)
+                if cand:
+                    official_classes[ev.evidence_id] = cand.source_class
+
         def rank(s: EvidenceScore) -> tuple:
             src = (s.source_type or "").lower()
             pri = 99
@@ -74,6 +93,11 @@ class EvidenceConflictResolver:
                 if key in src or key in (s.source_name or "").lower():
                     pri = i
                     break
+            class_pri = source_class_priority(official_classes.get(s.evidence_id, ""))
+            if class_pri < 50:
+                pri = min(pri, class_pri)
+            if "official_candidate:" in (s.rank_reason or ""):
+                pri = min(pri, 2)
             return (pri, -s.total_score)
 
         return sorted(scores, key=rank)[0].evidence_id

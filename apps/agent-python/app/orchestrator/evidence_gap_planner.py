@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from app.orchestrator.claim_policy_registry import ClaimPolicyView
+from app.orchestrator.official_source_judgement import needs_official_source_gap
 from app.schemas.evidence_decision_report import ClaimDecision
 from app.schemas.evidence_gap_request import EvidenceGapRequest
 from app.schemas.response_contract import ClaimRequirement
@@ -30,7 +31,18 @@ _GAP_TEMPLATES: dict[str, list[str]] = {
     "ticket_price": [
         "{place_name} 门票价格",
         "{place_name} 官方 票价",
+        "{place_name} 官网 门票",
         "{city} {place_name} 门票",
+    ],
+    "opening_hours": [
+        "{place_name} 官网 开放时间",
+        "{place_name} 营业时间",
+        "{city} {place_name} 开放时间",
+    ],
+    "seasonal_operation_status": [
+        "{place_name} 官方 开放 公告",
+        "{place_name} 闭园 通知",
+        "{city} {place_name} 季节性 开放",
     ],
 }
 
@@ -48,15 +60,17 @@ class EvidenceGapPlanner:
     ) -> EvidenceGapRequest | None:
         if gap_round >= max_gap_rounds:
             return None
-        if decision.coverage_quality in {"strong", "partial"} and decision.adoption in {
-            "adopt",
-            "adopt_with_limitation",
-        }:
-            return None
         if decision.adoption == "omit" and claim.priority == "optional":
             return None
+        if not needs_official_source_gap(state.evidence, claim.claim_type, decision):
+            if decision.coverage_quality in {"strong", "partial"} and decision.adoption in {
+                "adopt",
+                "adopt_with_limitation",
+            }:
+                return None
         if claim.priority not in {"required", "important"} and decision.coverage_quality != "none":
-            return None
+            if not needs_official_source_gap(state.evidence, claim.claim_type, decision):
+                return None
 
         tried = self._tried_tools(state)
         failed = self._failed_tools(state)
@@ -91,13 +105,22 @@ class EvidenceGapPlanner:
         ]
 
         suggested_tools = untried[:4] or ["search_mcp"]
+        if needs_official_source_gap(state.evidence, claim.claim_type, decision):
+            if "official_source_discovery_mcp" not in suggested_tools:
+                suggested_tools = ["official_source_discovery_mcp", *suggested_tools][:4]
+            reason = (
+                decision.reason
+                or f"missing official source support for {claim.claim_type}"
+            )
+        else:
+            reason = decision.reason or f"missing evidence for {claim.claim_type}"
         gap = EvidenceGapRequest(
             claim_type=claim.claim_type,
             claim_family=policy.claim_family,
             claim_description=policy.claim_description,
-            reason=decision.reason or f"missing evidence for {claim.claim_type}",
+            reason=reason,
             missing_evidence_need=claim.claim_type,
-            suggested_domains=self._domains_for_family(policy.claim_family),
+            suggested_domains=self._domains_for_claim(claim.claim_type, policy.claim_family),
             suggested_tools=suggested_tools,
             query_templates=rendered,
             forbidden_tools=list(policy.forbidden_tools),
@@ -134,6 +157,20 @@ class EvidenceGapPlanner:
         if frame and frame.entities.city:
             return frame.entities.city
         return ""
+
+    @staticmethod
+    def _domains_for_claim(claim_type: str, family: str) -> list[str]:
+        by_claim = {
+            "ticket_price": ["official_web_provider", "ticket_booking", "search_provider"],
+            "opening_hours": ["official_web_provider", "search_provider"],
+            "seasonal_operation_status": ["official_web_provider", "operation_status", "search_provider"],
+            "road_opening_period": ["official_web_provider", "operation_status", "search_provider"],
+            "temporary_closure": ["official_web_provider", "operation_status", "search_provider"],
+            "reservation_policy": ["official_web_provider", "ticket_booking", "search_provider"],
+        }
+        if claim_type in by_claim:
+            return by_claim[claim_type]
+        return EvidenceGapPlanner._domains_for_family(family)
 
     @staticmethod
     def _domains_for_family(family: str) -> list[str]:

@@ -57,6 +57,7 @@ class BaseCrawlerTool:
             "{country}": country or "",
             "{query}": query or place_name or "",
             "{claim_type}": claim_type or "",
+            "{mode}": getattr(self, "crawler_mode", "") or claim_type or "",
         }
         for key, val in replacements.items():
             cmd = cmd.replace(key, val)

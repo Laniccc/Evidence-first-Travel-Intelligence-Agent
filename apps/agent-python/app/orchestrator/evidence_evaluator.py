@@ -48,6 +48,8 @@ class EvidenceEvaluator:
         all_rejected: list[RejectedEvidence] = []
         gap_requests = []
 
+        fact_decomposition = list((state.structured_result or {}).get("fact_decomposition") or [])
+
         for claim in claims:
             policy = resolve_policy(claim)
             scores = self.scorer.score_claim_evidence(policy, state.evidence, tool_traces=state.tool_traces)
@@ -62,9 +64,16 @@ class EvidenceEvaluator:
                         rank_reason=s.rank_reason,
                     )
                 )
-            claim_conflicts, preferred = self.conflicts.resolve(policy.claim_type, scores)
+            claim_conflicts, preferred = self.conflicts.resolve(
+                policy.claim_type, scores, evidence=state.evidence
+            )
             decision, rejected = self.adoption.decide(
-                policy, scores, claim_conflicts, preferred_id=preferred
+                policy,
+                scores,
+                claim_conflicts,
+                preferred_id=preferred,
+                evidence=state.evidence,
+                fact_decomposition=fact_decomposition,
             )
             decisions.append(decision)
             all_conflicts.extend(claim_conflicts)

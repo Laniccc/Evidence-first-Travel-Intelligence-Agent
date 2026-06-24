@@ -10,9 +10,11 @@ TICKET_PROVIDER_TOOL_NAMES: frozenset[str] = frozenset(
         "ticketlens_experience_review_signal_mcp",
         "ctrip_review_crawler_mcp",
         "ctrip_ticket_signal_crawler_mcp",
+        "ctrip_guide_crawler_mcp",
         "fliggy_ticket_snapshot_crawler_mcp",
         "dianping_review_crawler_mcp",
         "dianping_ticket_signal_crawler_mcp",
+        "dianping_nearby_crawler_mcp",
         "ticket_snapshot_store",
         "ticket_price_history_query",
     }
@@ -38,8 +40,37 @@ REVIEW_CRAWLER_TOOLS: frozenset[str] = frozenset(
 )
 
 
+CROWD_PROVIDER_TOOL_NAMES: frozenset[str] = frozenset({"crowd_estimation_mcp"})
+
+
 def is_ticket_provider_tool(name: str) -> bool:
     return name in TICKET_PROVIDER_TOOL_NAMES
+
+
+def is_crowd_provider_tool(name: str) -> bool:
+    return name in CROWD_PROVIDER_TOOL_NAMES
+
+
+def dianping_spider_configured(settings: Settings | None = None) -> bool:
+    s = settings or get_settings()
+    return bool(s.dianping_crawler_enabled and (s.dianping_spider_command or "").strip())
+
+
+def dianping_nearby_configured(settings: Settings | None = None) -> bool:
+    return dianping_spider_configured(settings) or dianping_subprocess_configured(settings) or dianping_websearch_signal_configured(settings)
+
+
+def crowd_estimation_configured(settings: Settings | None = None) -> bool:
+    s = settings or get_settings()
+    if not s.enable_crowd_estimation_tools:
+        return False
+    if ctrip_subprocess_configured(s) or ctrip_websearch_signal_configured(s):
+        return True
+    if dianping_subprocess_configured(s) or dianping_websearch_signal_configured(s):
+        return True
+    if s.mcp_baidu_map_enabled and s.baidu_map_ak:
+        return True
+    return False
 
 
 def ticketlens_configured(settings: Settings | None = None) -> bool:
@@ -120,12 +151,18 @@ def provider_enabled_for_tool(tool_name: str, settings: Settings | None = None) 
         return s.ctrip_crawler_enabled and (
             s.enable_review_crawler_providers or s.enable_ticket_crawler_providers
         )
+    if tool_name == "ctrip_guide_crawler_mcp":
+        return s.ctrip_crawler_enabled and s.enable_travel_note_crawlers
     if tool_name == "fliggy_ticket_snapshot_crawler_mcp":
         return s.fliggy_ticket_crawler_enabled and s.enable_ticket_crawler_providers
     if tool_name in {"dianping_review_crawler_mcp", "dianping_ticket_signal_crawler_mcp"}:
         return s.dianping_crawler_enabled and (
             s.enable_review_crawler_providers or s.enable_ticket_crawler_providers
         )
+    if tool_name == "dianping_nearby_crawler_mcp":
+        return s.dianping_crawler_enabled and s.enable_nearby_platform_crawlers
+    if tool_name == "crowd_estimation_mcp":
+        return s.enable_crowd_estimation_tools
     if tool_name in {"ticket_snapshot_store", "ticket_price_history_query"}:
         return s.ticket_snapshot_store_enabled
     return False
@@ -139,10 +176,16 @@ def provider_configured_for_tool(tool_name: str, settings: Settings | None = Non
         return ticketlens_configured(s)
     if tool_name.startswith("ctrip_"):
         return ctrip_crawler_configured(s)
+    if tool_name == "ctrip_guide_crawler_mcp":
+        return ctrip_crawler_configured(s)
     if tool_name == "fliggy_ticket_snapshot_crawler_mcp":
         return fliggy_api_configured(s)
+    if tool_name == "dianping_nearby_crawler_mcp":
+        return dianping_nearby_configured(s)
     if tool_name.startswith("dianping_"):
         return dianping_crawler_configured(s)
+    if tool_name == "crowd_estimation_mcp":
+        return crowd_estimation_configured(s)
     if tool_name in {"ticket_snapshot_store", "ticket_price_history_query"}:
         return ticket_snapshot_store_enabled(s)
     return False

@@ -10,6 +10,7 @@ from tools.mcp.adapters.search_mcp_adapter import SearchMCPAdapter
 from tools.mcp.client_manager import MCPClientManager, get_mcp_client_manager
 
 PlatformName = Literal["ctrip", "dianping"]
+SignalMode = Literal["review", "ticket", "guide", "nearby", "crowd"]
 
 _PRICE_RE = re.compile(r"[¥￥]\s*\d+(?:\.\d+)?(?:\s*起)?|\d+(?:\.\d+)?\s*元")
 _TICKET_RE = re.compile(
@@ -17,6 +18,9 @@ _TICKET_RE = re.compile(
 )
 _CROWD_RE = re.compile(r"排队|人多|拥挤|人少|清净")
 _VALUE_RE = re.compile(r"性价比|值得|不值|贵|便宜")
+_SEASON_RE = re.compile(
+    r"最佳旅游时间|适宜游玩|游玩季节|推荐季节|最佳季节|几月|春季|夏季|秋季|冬季|淡季|旺季"
+)
 _POI_URL_RE = {
     "ctrip": re.compile(r"you\.ctrip\.com/sight", re.I),
     "dianping": re.compile(r"dianping\.com/(?:shop|poi)", re.I),
@@ -60,14 +64,34 @@ class PlatformWebSearchSignalService:
         city: str | None,
         *,
         ticket_focus: bool,
+        signal_mode: SignalMode | None = None,
         query: str | None,
         include_brand_only: bool = False,
     ) -> list[str]:
+        mode = signal_mode or ("ticket" if ticket_focus else "review")
         domain, brand = _PLATFORM_DOMAINS[platform]
         anchor = self._place_keyword(place_name, query)
         city_part = (city or "").strip()
         location = f"{city_part} {anchor}".strip() if city_part else anchor
-        if ticket_focus:
+        if mode == "guide":
+            return [
+                f"site:{domain} {location} 最佳旅游时间 攻略",
+                f"{brand} {location} 游玩季节 推荐",
+                f"site:you.ctrip.com {location} 攻略",
+            ]
+        if mode == "nearby":
+            return [
+                f"site:{domain} {location} 附近 美食",
+                f"site:{domain} {location} 周边 餐厅",
+                f"{brand} {location} 附近 推荐",
+            ]
+        if mode == "crowd":
+            return [
+                f"site:{domain} {location} 人多 排队 拥挤",
+                f"{brand} {location} 人流量",
+                f"{location} {brand} 排队",
+            ]
+        if mode == "ticket" or ticket_focus:
             base = [
                 f"site:{domain} {location} 门票 票价",
                 f"{brand} {location} 门票",
@@ -117,8 +141,10 @@ class PlatformWebSearchSignalService:
         *,
         query: str | None = None,
         ticket_focus: bool = False,
+        signal_mode: SignalMode | None = None,
         max_results: int | None = None,
     ) -> tuple[list[dict[str, Any]], str | None]:
+        mode = signal_mode or ("ticket" if ticket_focus else "review")
         if not self.is_available():
             return [], "open-webSearch (search MCP) not configured"
         limit = max_results or 10
@@ -126,7 +152,8 @@ class PlatformWebSearchSignalService:
             platform,
             place_name,
             city,
-            ticket_focus=ticket_focus,
+            ticket_focus=ticket_focus or mode == "ticket",
+            signal_mode=mode,
             query=query,
         )
         items: list[dict[str, Any]] = []
@@ -157,7 +184,12 @@ class PlatformWebSearchSignalService:
                     continue
                 raw_hit_count += len(hits)
                 for hit in hits:
-                    item = self._hit_to_item(hit, platform=platform, ticket_focus=ticket_focus)
+                    item = self._hit_to_item(
+                        hit,
+                        platform=platform,
+                        ticket_focus=ticket_focus or mode == "ticket",
+                        signal_mode=mode,
+                    )
                     if not item:
                         filtered_hit_count += 1
                         continue
@@ -174,12 +206,13 @@ class PlatformWebSearchSignalService:
             return len(items) >= limit
 
         await _run_queries(queries)
-        if not items and ticket_focus:
+        if not items and mode == "ticket":
             brand_queries = self._queries(
                 platform,
                 place_name,
                 city,
-                ticket_focus=ticket_focus,
+                ticket_focus=True,
+                signal_mode=mode,
                 query=query,
                 include_brand_only=True,
             )
@@ -197,7 +230,7 @@ class PlatformWebSearchSignalService:
                 f"{location} 门票 {brand}",
                 f"{location} 门票 票价",
             ]
-            if ticket_focus:
+            if mode == "ticket":
                 relaxed.append(f"{location} 门票")
             await _run_queries([q for q in relaxed if q not in queries])
 
@@ -243,7 +276,9 @@ class PlatformWebSearchSignalService:
         *,
         platform: PlatformName,
         ticket_focus: bool,
+        signal_mode: SignalMode | None = None,
     ) -> dict[str, Any] | None:
+        mode = signal_mode or ("ticket" if ticket_focus else "review")
         title = str(hit.get("title") or hit.get("name") or "").strip()
         url = str(hit.get("url") or hit.get("link") or "").strip() or None
         snippet = str(hit.get("snippet") or hit.get("description") or hit.get("content") or "").strip()
@@ -279,6 +314,17 @@ class PlatformWebSearchSignalService:
         crowd = _CROWD_RE.search(blob)
         if crowd:
             item["crowd_risk"] = crowd.group(0)
+        queue = re.search(r"排队", blob)
+        if queue:
+            item["queue_risk"] = "排队"
+        if mode == "guide" and _SEASON_RE.search(blob):
+            item["seasonality"] = blob[:200]
+            item["best_time_to_visit"] = blob[:200]
+        if mode == "nearby":
+            item["shop_name"] = title[:80] or blob[:80]
+            item["main_category"] = "nearby_poi"
+        if mode == "crowd" and not item.get("crowd_risk") and not item.get("queue_risk"):
+            return None
         if _VALUE_RE.search(blob):
             item["value_for_money"] = blob[:120]
 
@@ -293,6 +339,8 @@ class PlatformWebSearchSignalService:
             item["confidence"] = min(float(item.get("confidence") or 0.52), 0.54)
             return item
 
-        if ticket_focus and not item.get("price_text") and not item.get("ticket_related_mentions"):
+        if mode == "ticket" and not item.get("price_text") and not item.get("ticket_related_mentions"):
             return None
+        if mode == "guide" and not (item.get("seasonality") or item.get("best_time_to_visit") or _SEASON_RE.search(blob)):
+            item["seasonality"] = blob[:200]
         return item

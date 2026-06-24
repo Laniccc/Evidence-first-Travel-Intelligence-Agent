@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from app.orchestrator.claim_policy_registry import ClaimPolicyView
 from app.orchestrator.evidence_scorer import EvidenceScore
+from app.orchestrator.official_source_judgement import best_official_support
 from app.schemas.evidence import ClaimType, SourceType
 from app.schemas.evidence_decision_report import ClaimDecision, EvidenceConflict, RejectedEvidence
 
@@ -16,8 +17,12 @@ class ClaimAdoptionPolicy:
         conflicts: list[EvidenceConflict],
         *,
         preferred_id: str | None,
+        evidence: list | None = None,
+        fact_decomposition: list | None = None,
     ) -> tuple[ClaimDecision, list[RejectedEvidence]]:
-        quality = self._coverage_quality(policy, scores)
+        quality = self._coverage_quality(
+            policy, scores, evidence=evidence, fact_decomposition=fact_decomposition
+        )
         adopted_ids: list[str] = []
         rejected: list[RejectedEvidence] = []
         limitations: list[str] = []
@@ -43,7 +48,13 @@ class ClaimAdoptionPolicy:
 
         adoption = self._adoption_for_quality(policy, quality, scores, conflicts)
         if policy.claim_type == "ticket_price":
-            adoption = self._ticket_price_adoption(scores, quality, adoption)
+            adoption = self._ticket_price_adoption(
+                scores,
+                quality,
+                adoption,
+                evidence=evidence,
+                fact_decomposition=fact_decomposition,
+            )
         if policy.requires_exact_fact and any(
             (s.source_type or "").lower() == "model_prior" for s in scores if s.evidence_id in adopted_ids
         ):
@@ -53,7 +64,13 @@ class ClaimAdoptionPolicy:
         confidence = scores[0].total_score if scores else 0.0
         if conflicts:
             confidence = max(0.2, confidence - 0.15)
-            limitations.append(conflicts[0].conflict_note)
+            note = conflicts[0].conflict_note
+            if fact_decomposition and self._has_decomposition_for(policy.claim_type, fact_decomposition):
+                note = (
+                    f"{note} "
+                    "已按票种/套餐口径分拆，请在回答中分列呈现而非称价格不确定。"
+                )
+            limitations.append(note)
 
         reason = f"coverage={quality}, adoption={adoption}, tier={policy.policy_tier}"
         if quality == "none" and policy.priority == "optional":
@@ -77,17 +94,63 @@ class ClaimAdoptionPolicy:
             rejected,
         )
 
-    def _coverage_quality(self, policy: ClaimPolicyView, scores: list[EvidenceScore]) -> str:
+    def _coverage_quality(
+        self,
+        policy: ClaimPolicyView,
+        scores: list[EvidenceScore],
+        *,
+        evidence: list | None = None,
+        fact_decomposition: list | None = None,
+    ) -> str:
         if not scores:
+            if fact_decomposition and self._has_decomposition_for(policy.claim_type, fact_decomposition):
+                return "partial"
+            if evidence and policy.claim_type == "ticket_price":
+                support = best_official_support(evidence, policy.claim_type)
+                if support.tier == "strong":
+                    return "partial"
             return "none"
         top = scores[0]
+        quality = "none"
         if top.total_score >= 0.72 and top.source_reliability >= 0.85:
-            return "strong"
-        if top.total_score >= 0.55:
-            return "partial"
-        if top.total_score >= 0.35:
-            return "weak"
-        return "none"
+            quality = "strong"
+        elif top.total_score >= 0.55:
+            quality = "partial"
+        elif top.total_score >= 0.35:
+            quality = "weak"
+
+        if evidence and policy.claim_type in {"ticket_price", "opening_hours", "seasonal_operation_status"}:
+            support = best_official_support(evidence, policy.claim_type)
+            if policy.claim_type == "ticket_price":
+                if support.tier != "strong":
+                    if quality == "strong":
+                        quality = "partial"
+                    elif support.tier in {"none", "weak"} and quality == "partial":
+                        quality = "weak"
+                elif support.tier == "strong" and quality in {"partial", "weak"}:
+                    quality = "partial"
+            elif support.tier == "strong" and quality in {"weak", "none"}:
+                quality = "partial"
+        if fact_decomposition and self._has_decomposition_for(policy.claim_type, fact_decomposition):
+            if quality in {"none", "weak"}:
+                quality = "partial"
+            elif quality == "partial" and policy.claim_type == "ticket_price":
+                quality = "partial"
+        return quality
+
+    @staticmethod
+    def _has_decomposition_for(claim_type: str, fact_decomposition: list | None) -> bool:
+        if not fact_decomposition:
+            return False
+        for block in fact_decomposition:
+            if not isinstance(block, dict):
+                continue
+            if block.get("claim_type") != claim_type:
+                continue
+            items = block.get("items") or []
+            if len(items) >= 1:
+                return True
+        return False
 
     def _adoption_for_quality(
         self,
@@ -122,17 +185,42 @@ class ClaimAdoptionPolicy:
         return "adopt_with_limitation"
 
     @staticmethod
-    def _ticket_price_adoption(scores: list[EvidenceScore], quality: str, current: str) -> str:
+    def _ticket_price_adoption(
+        scores: list[EvidenceScore],
+        quality: str,
+        current: str,
+        *,
+        evidence: list | None = None,
+        fact_decomposition: list | None = None,
+    ) -> str:
+        decomposed = ClaimAdoptionPolicy._has_decomposition_for("ticket_price", fact_decomposition)
+        if decomposed:
+            if current in {"refuse_to_guess", "candidate_only", "omit"}:
+                return "adopt_with_limitation"
+            if quality in {"none", "weak"}:
+                return "adopt_with_limitation"
         if not scores:
-            return "refuse_to_guess"
+            return "refuse_to_guess" if not decomposed else "adopt_with_limitation"
+        support = best_official_support(evidence or [], "ticket_price")
+        if support.tier != "strong":
+            if support.tier == "partial":
+                return "candidate_only"
+            if support.tier == "weak" and support.best_candidate:
+                return "adopt_with_limitation"
+            return "candidate_only"
         top = scores[0]
         ct_values = top.claim_value
-        is_candidate = any(
-            kw in (top.rank_reason or "").lower() or "candidate" in ct_values.lower()
-            for kw in ("ticket_platform", "review")
-        )
         if quality != "strong":
             return "candidate_only"
         if top.source_reliability < 0.85:
             return "candidate_only"
+        if ClaimType.TICKET_PRICE.value not in ct_values and ClaimType.PRICE_CANDIDATE.value not in (
+            top.rank_reason or ""
+        ):
+            price_claim = any(
+                "ticket_price" in (s.rank_reason or "") or any(ch.isdigit() for ch in s.claim_value)
+                for s in scores[:3]
+            )
+            if not price_claim:
+                return "adopt_with_limitation"
         return current if current == "adopt" else "candidate_only"

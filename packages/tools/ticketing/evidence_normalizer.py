@@ -185,6 +185,20 @@ def normalize_review_crawler_payload(
             claims.append(
                 Claim(claim_type=ClaimType.CROWD, value=f"queue: {item['queue_risk']}", confidence=0.5)
             )
+        heat = item.get("heat_score")
+        if heat is not None:
+            try:
+                heat_val = float(heat)
+                level = "high" if heat_val >= 7 else "medium" if heat_val >= 4 else "low"
+                claims.append(
+                    Claim(
+                        claim_type=ClaimType.CROWD,
+                        value=f"heat_score: {heat_val} ({level})",
+                        confidence=0.48,
+                    )
+                )
+            except (TypeError, ValueError):
+                pass
         price_text = item.get("price_text") or item.get("ticket_price_mention")
         if price_text:
             claims.append(
@@ -338,3 +352,162 @@ def normalize_dianping_payload(
     return normalize_review_crawler_payload(
         "Dianping", payload, place_name=place_name, city=city, country=country
     )
+
+
+def normalize_guide_crawler_payload(
+    provider: str,
+    payload: dict[str, Any],
+    *,
+    place_name: str,
+    city: str | None = None,
+    country: str = "China",
+) -> list[Evidence]:
+    items = payload.get("items") or [payload]
+    if not isinstance(items, list):
+        items = [items]
+    evidence_list: list[Evidence] = []
+    limitation = f"{provider} 攻略/季节信号来自平台页面摘要，非官方运营公告。"
+    for item in items[:15]:
+        if not isinstance(item, dict):
+            continue
+        claims: list[Claim] = []
+        season = item.get("seasonality") or item.get("best_time_to_visit")
+        summary = item.get("review_summary") or item.get("summary")
+        if season:
+            claims.append(
+                Claim(claim_type=ClaimType.SEASONALITY, value=str(season)[:500], confidence=0.5)
+            )
+            claims.append(
+                Claim(
+                    claim_type=ClaimType.BEST_TIME_TO_VISIT,
+                    value=str(season)[:500],
+                    confidence=0.5,
+                )
+            )
+        elif summary:
+            claims.append(
+                Claim(claim_type=ClaimType.TRAVEL_ADVICE, value=str(summary)[:500], confidence=0.45)
+            )
+        if not claims:
+            continue
+        evidence_list.append(
+            Evidence(
+                source_name=f"{provider} Guide",
+                source_type=SourceType.REVIEW_PLATFORM,
+                source_url=item.get("source_url") or item.get("url"),
+                country=country,
+                city=city,
+                place_name=place_name,
+                confidence=_clamp(float(item.get("confidence", 0.5)), 0.4, 0.6),
+                claims=claims,
+                limitations=[limitation],
+            )
+        )
+    return evidence_list
+
+
+def normalize_nearby_crawler_payload(
+    provider: str,
+    payload: dict[str, Any],
+    *,
+    place_name: str,
+    city: str | None = None,
+    country: str = "China",
+) -> list[Evidence]:
+    items = payload.get("items") or payload.get("nearby_poi") or [payload]
+    if not isinstance(items, list):
+        items = [items]
+    evidence_list: list[Evidence] = []
+    limitation = f"{provider} 附近 POI 为平台搜索候选，距离与营业状态需二次核实。"
+    for item in items[:20]:
+        if not isinstance(item, dict):
+            continue
+        name = item.get("shop_name") or item.get("name") or item.get("title")
+        if not name:
+            continue
+        claims: list[Claim] = [
+            Claim(
+                claim_type=ClaimType.PLACE_CANDIDATES,
+                value=str(name)[:200],
+                confidence=0.5,
+            ),
+            Claim(
+                claim_type=ClaimType.TRAVEL_ADVICE,
+                value=f"nearby_poi: {name}",
+                confidence=0.45,
+            ),
+        ]
+        if item.get("address"):
+            claims.append(
+                Claim(claim_type=ClaimType.ADDRESS, value=str(item["address"])[:200], confidence=0.45)
+            )
+        rating = item.get("rating")
+        if rating is not None:
+            claims.append(
+                Claim(claim_type=ClaimType.RATING_CANDIDATE, value=rating, confidence=0.45)
+            )
+        price_level = item.get("price_level") or item.get("avg_price")
+        if price_level:
+            claims.append(
+                Claim(claim_type=ClaimType.PRICE_CANDIDATE, value=str(price_level), confidence=0.4)
+            )
+        category = item.get("main_category") or item.get("category")
+        if category and "餐" in str(category):
+            claims.append(Claim(claim_type=ClaimType.FOOD, value=str(name)[:120], confidence=0.45))
+        evidence_list.append(
+            Evidence(
+                source_name=f"{provider} Nearby",
+                source_type=SourceType.FOOD_PLATFORM,
+                source_url=item.get("source_url") or item.get("url"),
+                country=country,
+                city=city,
+                place_name=place_name,
+                confidence=_clamp(float(item.get("confidence", 0.5)), 0.4, 0.55),
+                claims=claims,
+                limitations=[limitation],
+            )
+        )
+    return evidence_list
+
+
+def normalize_crowd_estimation_payload(
+    *,
+    place_name: str,
+    city: str | None = None,
+    country: str = "China",
+    score: float,
+    label: str,
+    sources: list[str],
+    detail: str | None = None,
+) -> list[Evidence]:
+    claims = [
+        Claim(
+            claim_type=ClaimType.CROWD,
+            value={"score": round(score, 2), "level": label},
+            confidence=_clamp(0.35 + score * 0.35, 0.35, 0.65),
+        ),
+        Claim(
+            claim_type=ClaimType.TRAVEL_ADVICE,
+            value=f"current_crowd_estimate: {label} ({score:.2f})",
+            confidence=0.45,
+        ),
+    ]
+    if detail:
+        claims.append(
+            Claim(claim_type=ClaimType.CONGESTION_RISK, value=detail[:300], confidence=0.4)
+        )
+    return [
+        Evidence(
+            source_name="Crowd Estimation",
+            source_type=SourceType.REVIEW_PLATFORM,
+            country=country,
+            city=city,
+            place_name=place_name,
+            confidence=0.5,
+            claims=claims,
+            limitations=[
+                "拥挤度为平台评论/热度/路况信号融合估计，非实时官方客流数据。",
+                "sources: " + ", ".join(sources),
+            ],
+        )
+    ]

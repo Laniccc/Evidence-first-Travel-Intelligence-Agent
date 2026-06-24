@@ -105,11 +105,14 @@ class Settings(BaseSettings):
     mcp_http_autostart_wait_seconds: float = 8.0
     official_page_allowed_domains: str = ""
     browser_allowed_domains: str = ""
+    official_source_discovery_enabled: bool = True
 
     weather_api_key: str | None = None
     places_api_key: str | None = None
 
     official_page_whitelist: dict[str, str] = {
+        "故宫博物院": "https://www.dpm.org.cn/",
+        "故宫": "https://www.dpm.org.cn/",
         "Kiyomizu-dera": "https://www.kyoto-travel.jp/en/shrine_temple/100.html",
         "Fushimi Inari": "https://inari.jp/en/",
         "Senso-ji": "https://www.senso-ji.jp/english/",
@@ -171,6 +174,10 @@ class Settings(BaseSettings):
     dianping_crawler_max_results: int = 20
     dianping_crawler_output_format: str = "json"
     dianping_websearch_signal_enabled: bool = True
+    dianping_spider_command: str = ""
+    dianping_spider_workdir: str = ""
+    ctrip_spider_root: str = ""
+    dianping_crawler_root: str = ""
 
     # Ticket snapshot store
     ticket_snapshot_store_enabled: bool = True

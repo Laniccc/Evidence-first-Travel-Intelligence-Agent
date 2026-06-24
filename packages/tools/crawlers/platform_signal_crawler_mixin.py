@@ -56,6 +56,7 @@ class PlatformSignalCrawlerMixin:
             claim_type in {"ticket_price", "ticket_price_candidate"}
             or getattr(self, "policy_name", "").endswith("ticket_signal_crawler_mcp")
         )
+        signal_mode = getattr(self, "crawler_mode", None)
         if self._subprocess_configured():
             data, err = await super().run_query(  # type: ignore[misc]
                 place_name,
@@ -74,6 +75,7 @@ class PlatformSignalCrawlerMixin:
                 city,
                 query=query,
                 ticket_focus=ticket_focus,
+                signal_mode=signal_mode,
                 max_results=self.max_results,
             )
             ws_meta = self._websearch.last_run_meta

@@ -84,6 +84,12 @@ class ClaimSearchPlanner:
         return bucket[-4:] if isinstance(bucket, list) else []
 
     @classmethod
+    def search_hits_from_evidence(cls, state: TravelAgentState) -> list[dict]:
+        from tools.official_source.url_normalizer import hits_from_evidence_list
+
+        return hits_from_evidence_list(list(state.evidence))
+
+    @classmethod
     def primary_information_need(cls, state: TravelAgentState) -> str | None:
         contract = state.response_contract
         if contract:
@@ -121,9 +127,16 @@ class ClaimSearchPlanner:
         structured = state.structured_result or {}
         completed_ids = structured.get("completed_search_task_ids") or []
 
+        from app.orchestrator.official_source_search_templates import (
+            OFFICIAL_SEARCH_QUERY_TEMPLATES,
+            templates_for_claim,
+        )
         from app.orchestrator.place_disambiguation_guard import extract_place_candidates
 
         place_candidates = extract_place_candidates(list(state.evidence))
+        place = (entities.get("places") or [None])[0] if entities else None
+        city = entities.get("city") if entities else None
+        primary = cls.primary_information_need(state)
 
         return {
             "raw_query": state.raw_user_query,
@@ -165,6 +178,10 @@ class ClaimSearchPlanner:
                 list(frame.labeled_entities)
                 if frame and frame.labeled_entities
                 else None
+            ),
+            "official_search_query_templates": OFFICIAL_SEARCH_QUERY_TEMPLATES,
+            "official_search_queries_for_primary_need": templates_for_claim(
+                primary, place_name=place or "", city=city or ""
             ),
         }
 

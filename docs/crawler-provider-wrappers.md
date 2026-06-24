@@ -131,3 +131,41 @@ python check_fliggy_crawler.py --place "禾木景区" --city "阿勒泰"
 | Historical | `TicketSnapshotStore` | 仅历史参考 |
 
 详见 [ticketing-mcp-providers.md](ticketing-mcp-providers.md)。
+
+---
+
+## 内置 CLI 包装器（subprocess 优先）
+
+仓库提供统一 JSON stdout 契约，对接外部 git 爬虫或 HTTP 回退：
+
+| CLI | 工具 policy | `--mode` |
+|-----|-------------|----------|
+| `scripts/crawlers/ctrip_cli.py` | `ctrip_review_crawler_mcp`, `ctrip_ticket_signal_crawler_mcp`, `ctrip_guide_crawler_mcp`, crowd 子信号 | `review`, `ticket`, `guide`, `crowd` |
+| `scripts/crawlers/dianping_cli.py` | `dianping_review_crawler_mcp`, `dianping_nearby_crawler_mcp` | `review`, `nearby`, `ticket` |
+
+推荐 `.env`：
+
+```env
+CTRIP_CRAWLER_COMMAND=python ../../scripts/crawlers/ctrip_cli.py --place "{place}" --city "{city}" --mode {mode}
+DIANPING_CRAWLER_COMMAND=python ../../scripts/crawlers/dianping_cli.py --place "{place}" --city "{city}" --mode review
+DIANPING_SPIDER_COMMAND=python ../../scripts/crawlers/dianping_cli.py --place "{place}" --city "{city}" --mode nearby
+ENABLE_TRAVEL_NOTE_CRAWLERS=true
+ENABLE_NEARBY_PLATFORM_CRAWLERS=true
+ENABLE_CROWD_ESTIMATION_TOOLS=true
+```
+
+外部仓库（可选，设置 `CTRIP_SPIDER_ROOT` / `DIANPING_CRAWLER_ROOT` 后 CLI 会优先调用其 `run_place_query.py`）：
+
+- `aglorice/CtripSpider` — 评论/热度
+- `crazyboycjr/dianping-crawler` — 店铺评论 JSON
+- `Sniper970119/dianping_spider` — 搜索型附近 POI（经 `DIANPING_SPIDER_COMMAND`）
+
+`crowd_estimation_mcp` 为组合 Provider（携程 crowd + 点评排队 + 百度路况），非独立 CLI。
+
+Smoke：
+
+```bash
+python scripts/smoke/check_ctrip_guide_crawler.py --place "喀纳斯" --city "阿勒泰"
+python scripts/smoke/check_dianping_nearby_crawler.py --place "喀纳斯"
+python scripts/smoke/check_crowd_estimation.py --place "喀纳斯" --city "阿勒泰"
+```

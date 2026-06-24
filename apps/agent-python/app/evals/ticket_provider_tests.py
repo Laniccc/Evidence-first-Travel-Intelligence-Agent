@@ -458,3 +458,60 @@ def test_base_crawler_parse_output_non_json():
     assert status == "non_json"
     assert data is not None
     assert "items" in data
+
+
+def test_policy_tool_aliases_resolve_deprecated_names():
+    from tools.tool_name_resolver import resolve_tool_name
+
+    assert resolve_tool_name("ctrip_ticket_crawler_mcp") == "ctrip_ticket_signal_crawler_mcp"
+    assert resolve_tool_name("ctrip_review_signal_mcp") == "ctrip_review_crawler_mcp"
+    assert resolve_tool_name("dianping_review_signal_mcp") == "dianping_review_crawler_mcp"
+
+
+def test_guide_and_nearby_providers_registered(monkeypatch):
+    monkeypatch.setenv("CTRIP_CRAWLER_ENABLED", "true")
+    monkeypatch.setenv("ENABLE_TRAVEL_NOTE_CRAWLERS", "true")
+    monkeypatch.setenv("CTRIP_CRAWLER_COMMAND", "python scripts/crawlers/ctrip_cli.py --mode guide")
+    monkeypatch.setenv("DIANPING_CRAWLER_ENABLED", "true")
+    monkeypatch.setenv("ENABLE_NEARBY_PLATFORM_CRAWLERS", "true")
+    monkeypatch.setenv("DIANPING_SPIDER_COMMAND", "python scripts/crawlers/dianping_cli.py --mode nearby")
+    get_settings.cache_clear()
+
+    from tools.crawlers.ctrip_crawler_tool import CtripGuideCrawlerTool
+    from tools.crawlers.dianping_crawler_tool import DianpingNearbyCrawlerTool
+
+    assert CtripGuideCrawlerTool().is_configured()
+    assert DianpingNearbyCrawlerTool().is_configured()
+
+
+def test_normalize_guide_and_nearby_payloads():
+    from tools.ticketing.evidence_normalizer import (
+        normalize_guide_crawler_payload,
+        normalize_nearby_crawler_payload,
+    )
+
+    guide = normalize_guide_crawler_payload(
+        "Ctrip",
+        {"items": [{"seasonality": "9-10月秋色最佳", "source_url": "https://you.ctrip.com"}]},
+        place_name="喀纳斯",
+    )
+    assert guide[0].claims[0].claim_type == ClaimType.SEASONALITY
+
+    nearby = normalize_nearby_crawler_payload(
+        "Dianping",
+        {"items": [{"shop_name": "景区餐厅", "rating": 4.5, "address": "门口"}]},
+        place_name="喀纳斯",
+    )
+    assert nearby[0].claims[0].claim_type == ClaimType.PLACE_CANDIDATES
+
+
+def test_crowd_estimation_configured_with_baidu(monkeypatch):
+    monkeypatch.setenv("ENABLE_CROWD_ESTIMATION_TOOLS", "true")
+    monkeypatch.setenv("MCP_BAIDU_MAP_ENABLED", "true")
+    monkeypatch.setenv("BAIDU_MAP_AK", "test-ak")
+    get_settings.cache_clear()
+
+    from tools.ticketing.provider_config import crowd_estimation_configured
+
+    assert crowd_estimation_configured() is True
+

@@ -7,7 +7,7 @@ from typing import Any
 from app.config import Settings, get_settings
 from tools.crawlers.base_crawler_tool import BaseCrawlerTool
 from tools.crawlers.platform_signal_crawler_mixin import PlatformSignalCrawlerMixin
-from tools.ticketing.evidence_normalizer import normalize_dianping_payload
+from tools.ticketing.evidence_normalizer import normalize_dianping_payload, normalize_nearby_crawler_payload
 
 
 class DianpingReviewCrawlerTool(PlatformSignalCrawlerMixin, BaseCrawlerTool):
@@ -38,6 +38,7 @@ class DianpingTicketSignalCrawlerTool(PlatformSignalCrawlerMixin, BaseCrawlerToo
     policy_name = "dianping_ticket_signal_crawler_mcp"
     platform = "dianping"
     websearch_flag_attr = "dianping_websearch_signal_enabled"
+    crawler_mode = "ticket"
 
     def __init__(self, settings: Settings | None = None) -> None:
         super().__init__(settings)
@@ -56,9 +57,35 @@ class DianpingTicketSignalCrawlerTool(PlatformSignalCrawlerMixin, BaseCrawlerToo
         )
 
 
+class DianpingNearbyCrawlerTool(PlatformSignalCrawlerMixin, BaseCrawlerTool):
+    provider_name = "Dianping"
+    policy_name = "dianping_nearby_crawler_mcp"
+    platform = "dianping"
+    websearch_flag_attr = "dianping_websearch_signal_enabled"
+    crawler_mode = "nearby"
+
+    def __init__(self, settings: Settings | None = None) -> None:
+        super().__init__(settings)
+        s = self.settings
+        self.enabled = s.dianping_crawler_enabled and s.enable_nearby_platform_crawlers
+        spider_cmd = (s.dianping_spider_command or "").strip()
+        self.command = spider_cmd or s.dianping_crawler_command or ""
+        self.workdir = s.dianping_spider_workdir or s.dianping_crawler_workdir or None
+        self.timeout_seconds = s.dianping_crawler_timeout_seconds
+        self.max_results = s.dianping_crawler_max_results
+        self._init_platform_signal()
+
+    def _normalize(self, data: dict[str, Any] | list, *, place_name: str, city: str | None, country: str) -> list:
+        payload = data if isinstance(data, dict) else {"items": data}
+        return normalize_nearby_crawler_payload(
+            "Dianping", payload, place_name=place_name, city=city, country=country
+        )
+
+
 def build_dianping_tools(settings: Settings | None = None) -> dict[str, BaseCrawlerTool]:
     s = settings or get_settings()
     return {
         "dianping_review_crawler_mcp": DianpingReviewCrawlerTool(s),
         "dianping_ticket_signal_crawler_mcp": DianpingTicketSignalCrawlerTool(s),
+        "dianping_nearby_crawler_mcp": DianpingNearbyCrawlerTool(s),
     }

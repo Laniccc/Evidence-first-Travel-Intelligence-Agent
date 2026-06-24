@@ -146,6 +146,7 @@ class AnswerComposerAgent:
             "overall_confidence": overall_confidence,
             "coverage_gaps": list(brief.coverage_gaps) if brief else [],
             "conflict_notes": list(brief.conflict_notes) if brief else [],
+            "fact_decompositions": list(brief.fact_decompositions) if brief else [],
             "evidence_claims": claim_rows,
             "actionable_evidence_claims": actionable_claims,
             "has_actionable_evidence": bool(actionable_claims),
@@ -195,6 +196,14 @@ class AnswerComposerAgent:
             rules.append(
                 "Multiple同名 places detected: present ticket/price clues as 候选信息 per source, "
                 "note which region each clue may refer to, and ask which 五彩滩/place the user means."
+            )
+        if brief and brief.fact_decompositions:
+            rules.extend(
+                [
+                    "evidence_brief.fact_decompositions lists verified product tiers (e.g. 单门票 vs 门+区间车 vs 联票).",
+                    "Present EACH tier with its price/conditions — differences are package types, NOT 'price unknown'.",
+                    "Mark outliers separately with low confidence; do not let one outlier block presenting agreed tiers.",
+                ]
             )
         if overall_confidence < 0.55 or (brief and brief.coverage_gaps):
             rules.append(
@@ -273,7 +282,8 @@ class AnswerComposerAgent:
         system = (
             "You compose travel answers grounded in evidence_brief.curated_claims and user_need_residual.\n"
             "Return ONLY valid JSON matching FinalAnswerDraft:\n"
-            "{headline, conclusion, sections:[{title,bullets}], limitations, cited_evidence_ids, answer_text, compose_mode}\n"
+            "{headline, conclusion, sections:[{title,bullets:[string,...]}], limitations, cited_evidence_ids, answer_text, compose_mode}\n"
+            "sections[].bullets must be plain strings (not objects); put evidence_id values in cited_evidence_ids.\n"
             "cited_evidence_ids must use exact evidence_id strings from citable_evidence_refs or curated_claims (full UUIDs).\n"
             "Rules:\n"
             + "\n".join(f"- {r}" for r in bundle["citation_rules"])
@@ -292,7 +302,57 @@ class AnswerComposerAgent:
                 normalized,
             )
             raise
+        data = self._normalize_draft_payload(data)
         return FinalAnswerDraft.model_validate(data)
+
+    @staticmethod
+    def _normalize_draft_payload(data: dict) -> dict:
+        """Coerce LLM variants (e.g. bullets as {content, evidence_id}) into schema shape."""
+        if not isinstance(data, dict):
+            return data
+
+        cited = [
+            str(x).strip()
+            for x in (data.get("cited_evidence_ids") or [])
+            if x and str(x).strip()
+        ]
+        sections = data.get("sections")
+        if not isinstance(sections, list):
+            return {**data, "cited_evidence_ids": cited}
+
+        normalized_sections: list[dict] = []
+        for sec in sections:
+            if not isinstance(sec, dict):
+                continue
+            bullets_out: list[str] = []
+            for item in sec.get("bullets") or []:
+                if isinstance(item, str):
+                    text = item.strip()
+                    if text:
+                        bullets_out.append(text)
+                    continue
+                if isinstance(item, dict):
+                    text = str(
+                        item.get("content")
+                        or item.get("text")
+                        or item.get("bullet")
+                        or item.get("value")
+                        or ""
+                    ).strip()
+                    eid = item.get("evidence_id") or item.get("evidenceId") or item.get("citation")
+                    if text:
+                        bullets_out.append(text)
+                    if eid:
+                        token = str(eid).strip()
+                        if token and token not in cited:
+                            cited.append(token)
+                    continue
+                text = str(item).strip()
+                if text:
+                    bullets_out.append(text)
+            normalized_sections.append({**sec, "bullets": bullets_out})
+
+        return {**data, "sections": normalized_sections, "cited_evidence_ids": cited}
 
     def _accept_draft(self, draft: FinalAnswerDraft, bundle: dict) -> bool:
         return (

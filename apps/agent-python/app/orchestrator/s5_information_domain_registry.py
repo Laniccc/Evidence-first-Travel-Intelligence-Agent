@@ -80,7 +80,7 @@ _TICKET_BINDINGS: list[S5DomainToolBinding] = [
     _b(D.TICKET_BOOKING, P.BAIDU_LBS_PROVIDER, "baidu_place_detail_mcp", R.CANDIDATE, _TICKET_CLAIMS),
     _b(D.TICKET_BOOKING, P.FALLBACK_PROVIDER, "ticket_snapshot_store", R.ENRICHMENT, _TICKET_CLAIMS),
     _b(D.TICKET_BOOKING, P.FALLBACK_PROVIDER, "ticket_price_history_query", R.ENRICHMENT, _TICKET_CLAIMS),
-    _b(D.TICKET_BOOKING, P.TICKET_PLATFORM_PROVIDER, "ctrip_ticket_crawler_mcp", R.CANDIDATE, _TICKET_CLAIMS, limitations=["deprecated placeholder"]),
+    _b(D.TICKET_BOOKING, P.TICKET_PLATFORM_PROVIDER, "ctrip_ticket_signal_crawler_mcp", R.CANDIDATE, _TICKET_CLAIMS),
     _b(D.TICKET_BOOKING, P.TICKET_PLATFORM_PROVIDER, "fliggy_ticket_crawler_mcp", R.CANDIDATE, _TICKET_CLAIMS, limitations=["deprecated placeholder"]),
     _b(D.TICKET_BOOKING, P.TICKET_PLATFORM_PROVIDER, "dianping_ticket_crawler_mcp", R.CANDIDATE, _TICKET_CLAIMS, limitations=["deprecated placeholder"]),
     _b(D.TICKET_BOOKING, P.TICKET_PLATFORM_PROVIDER, "meituan_ticket_crawler_mcp", R.CANDIDATE, _TICKET_CLAIMS),
@@ -264,8 +264,8 @@ _REALTIME_BINDINGS: list[S5DomainToolBinding] = [
     _b(D.REALTIME_STATUS, P.BAIDU_LBS_PROVIDER, "baidu_route_mcp", R.PRIMARY, _REALTIME_CLAIMS),
     _b(D.REALTIME_STATUS, P.CRAWLER_PROVIDER, "crowd_estimation_mcp", R.CANDIDATE, _REALTIME_CLAIMS),
     _b(D.REALTIME_STATUS, P.CRAWLER_PROVIDER, "event_calendar_mcp", R.CANDIDATE, _REALTIME_CLAIMS),
-    _b(D.REALTIME_STATUS, P.REVIEW_PLATFORM_PROVIDER, "dianping_review_signal_mcp", R.CANDIDATE, _REALTIME_CLAIMS),
-    _b(D.REALTIME_STATUS, P.REVIEW_PLATFORM_PROVIDER, "ctrip_review_signal_mcp", R.CANDIDATE, _REALTIME_CLAIMS),
+    _b(D.REALTIME_STATUS, P.REVIEW_PLATFORM_PROVIDER, "dianping_review_crawler_mcp", R.CANDIDATE, _REALTIME_CLAIMS),
+    _b(D.REALTIME_STATUS, P.REVIEW_PLATFORM_PROVIDER, "ctrip_review_crawler_mcp", R.CANDIDATE, _REALTIME_CLAIMS),
     _b(D.REALTIME_STATUS, P.SEARCH_PROVIDER, "search_mcp", R.FALLBACK, _REALTIME_CLAIMS),
     _b(D.REALTIME_STATUS, P.CRAWLER_PROVIDER, "browser_mcp", R.FALLBACK, _REALTIME_CLAIMS),
     _b(D.REALTIME_STATUS, P.FALLBACK_PROVIDER, "fallback", R.FALLBACK, _REALTIME_CLAIMS),
@@ -292,7 +292,6 @@ S5_INFORMATION_DOMAIN_REGISTRY: dict[InformationDomain, list[S5DomainToolBinding
 
 _PLACEHOLDER_TOOLS: frozenset[str] = frozenset(
     {
-        "ctrip_ticket_crawler_mcp",
         "fliggy_ticket_crawler_mcp",
         "meituan_ticket_crawler_mcp",
         "dianping_ticket_crawler_mcp",
@@ -301,13 +300,9 @@ _PLACEHOLDER_TOOLS: frozenset[str] = frozenset(
         "platform_notice_crawler_mcp",
         "mafengwo_note_crawler_mcp",
         "xiaohongshu_note_crawler_mcp",
-        "ctrip_guide_crawler_mcp",
         "review_signal_mcp",
         "public_review_search_mcp",
-        "dianping_review_crawler_mcp",
         "meituan_review_crawler_mcp",
-        "ctrip_review_crawler_mcp",
-        "qunar_review_crawler_mcp",
         "tripadvisor_review_crawler_mcp",
         "nearby_food_mcp",
         "nearby_rest_area_mcp",
@@ -316,16 +311,12 @@ _PLACEHOLDER_TOOLS: frozenset[str] = frozenset(
         "nearby_station_mcp",
         "nearby_attraction_mcp",
         "nearby_hotel_mcp",
-        "dianping_nearby_crawler_mcp",
         "meituan_nearby_crawler_mcp",
         "itinerary_planner_mcp",
         "route_feasibility_checker_mcp",
         "elderly_friendly_route_scorer_mcp",
         "family_trip_planner_mcp",
-        "crowd_estimation_mcp",
         "event_calendar_mcp",
-        "dianping_review_signal_mcp",
-        "ctrip_review_signal_mcp",
     }
 )
 

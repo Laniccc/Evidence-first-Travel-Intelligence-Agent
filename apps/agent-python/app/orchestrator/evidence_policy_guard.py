@@ -14,6 +14,7 @@ from app.tools.mcp.client_manager import get_mcp_client_manager
 from app.tools.mcp.tool_specs import MCP_POLICY_SPECS, NEED_TOOL_PROFILES
 from app.tools.tool_name_resolver import is_mcp_policy_tool, resolve_tool_name
 from tools.ticketing.provider_config import (
+    is_crowd_provider_tool,
     is_ticket_provider_tool,
     provider_configured_for_tool,
     provider_enabled_for_tool,
@@ -96,21 +97,33 @@ class EvidencePolicyGuard(PolicyGuard):
         tool_whitelist: ToolWhitelist | None,
     ) -> None:
         tool = action.target or ""
+        resolved = resolve_tool_name(tool)
 
-        if is_mcp_policy_placeholder(tool):
+        if is_mcp_policy_placeholder(resolved):
             raise ValueError(f"not_implemented: MCP policy tool {tool!r} is a placeholder (provider not wired)")
 
-        if is_ticket_provider_tool(tool):
+        if is_ticket_provider_tool(resolved):
             settings = get_settings()
-            if not provider_enabled_for_tool(tool, settings):
+            if not provider_enabled_for_tool(resolved, settings):
                 raise ValueError(f"disabled_by_config: ticket provider {tool!r}")
-            if not provider_configured_for_tool(tool, settings):
-                if tool in {"ticketlens_experience_mcp", "ticketlens_experience_review_signal_mcp"}:
+            if not provider_configured_for_tool(resolved, settings):
+                if resolved in {"ticketlens_experience_mcp", "ticketlens_experience_review_signal_mcp"}:
                     if not settings.ticketlens_api_key:
                         raise ValueError(f"missing_api_key: TicketLens API key required for {tool!r}")
                 raise ValueError(f"not_configured: ticket provider {tool!r}")
-            if tool_whitelist and not tool_whitelist.is_allowed(tool):
+            if tool_whitelist and not tool_whitelist.is_allowed(tool) and not tool_whitelist.is_allowed(resolved):
                 reason = tool_whitelist.reason_by_tool.get(tool, f"ticket provider {tool} blocked")
+                raise ValueError(reason)
+            return
+
+        if is_crowd_provider_tool(resolved):
+            settings = get_settings()
+            if not provider_enabled_for_tool(resolved, settings):
+                raise ValueError(f"disabled_by_config: crowd provider {tool!r}")
+            if not provider_configured_for_tool(resolved, settings):
+                raise ValueError(f"not_configured: crowd provider {tool!r}")
+            if tool_whitelist and not tool_whitelist.is_allowed(tool) and not tool_whitelist.is_allowed(resolved):
+                reason = tool_whitelist.reason_by_tool.get(tool, f"crowd provider {tool} blocked")
                 raise ValueError(reason)
             return
 
@@ -208,6 +221,8 @@ class EvidencePolicyGuard(PolicyGuard):
             if tool_whitelist and not tool_whitelist.is_allowed(tool):
                 raise ValueError(f"keyword_search_agent tool {tool!r} not in whitelist")
         elif target == "search_task_planner_agent":
+            return
+        elif target == "evidence_contradiction_decomposer_agent":
             return
         else:
             raise ValueError(f"Subagent {target!r} not allowed in evidence_planning_and_tool_use")

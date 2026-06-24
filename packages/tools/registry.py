@@ -10,6 +10,8 @@ from tools.knowledge_prior_tool import KnowledgePriorTool
 from tools.lodging_area_tool import MockLodgingAreaTool
 from tools.mcp.registry_setup import attach_mcp_tools
 from tools.ticketing.registry_setup import attach_ticket_providers
+from tools.crowd.registry_setup import attach_crowd_providers
+from tools.official_source.registry_setup import attach_official_source_tools
 from tools.official_site_tool import MockOfficialSiteTool
 from tools.places_tool import MockPlacesTool
 from tools.real.official_page_tool import RealOfficialPageTool
@@ -136,6 +138,8 @@ class TravelToolRegistry:
       )
       self._mcp_tool_names = attach_mcp_tools(self)
       self._ticket_provider_names = attach_ticket_providers(self)
+      self._crowd_provider_names = attach_crowd_providers(self)
+      self._official_source_names = attach_official_source_tools(self)
 
   def _settings_for_mode(self, mode: str) -> Settings:
       return self.settings.model_copy(update={"tool_mode": mode})
@@ -143,6 +147,8 @@ class TravelToolRegistry:
   def registered_tool_names(self) -> list[str]:
       return list(BASE_REGISTERED_TOOL_NAMES) + list(getattr(self, "_mcp_tool_names", [])) + list(
           getattr(self, "_ticket_provider_names", [])
+      ) + list(getattr(self, "_crowd_provider_names", [])) + list(
+          getattr(self, "_official_source_names", [])
       )
 
   def clear_traces(self) -> None:
@@ -183,6 +189,10 @@ class TravelToolRegistry:
           "snapshot_saved_count": meta.get("snapshot_saved_count"),
           "output_parse_status": meta.get("output_parse_status"),
           "error": meta.get("error"),
+          "official_source_discovery": meta.get("official_source_discovery"),
+          "urls_checked_count": meta.get("urls_checked_count"),
+          "official_candidates_count": meta.get("official_candidates_count"),
+          "top_source_classes": meta.get("top_source_classes"),
       }
 
   async def run_tool(self, tool_name: str, **kwargs: Any) -> list:

@@ -71,6 +71,7 @@ EVIDENCE_PLANNING_TOOL_NAMES = [
     "restaurant",
     "lodging",
     "search_mcp",
+    "official_source_discovery_mcp",
     "browser_mcp",
     "official_page_reader_mcp",
     "osm_mcp",
@@ -115,6 +116,7 @@ EVIDENCE_PLANNING_AND_TOOL_USE_POLICY = StateNodePolicy(
     allowed_subagents=[
         "search_task_planner_agent",
         "keyword_search_agent",
+        "evidence_contradiction_decomposer_agent",
     ],
     max_steps=18,
     required_output_schema="EvidencePlanningResult",

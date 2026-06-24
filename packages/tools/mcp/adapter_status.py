@@ -126,7 +126,6 @@ POLICY_TO_UPSTREAM: dict[str, list[tuple[str, str]]] = {
 # S5 placeholder MCP policies — registered for domain planning but not implemented.
 PLACEHOLDER_MCP_POLICIES: frozenset[str] = frozenset(
     {
-        "ctrip_ticket_crawler_mcp",
         "fliggy_ticket_crawler_mcp",
         "meituan_ticket_crawler_mcp",
         "dianping_ticket_crawler_mcp",
@@ -135,7 +134,6 @@ PLACEHOLDER_MCP_POLICIES: frozenset[str] = frozenset(
         "platform_notice_crawler_mcp",
         "mafengwo_note_crawler_mcp",
         "xiaohongshu_note_crawler_mcp",
-        "ctrip_guide_crawler_mcp",
         "review_signal_mcp",
         "public_review_search_mcp",
         "meituan_review_crawler_mcp",
@@ -148,16 +146,12 @@ PLACEHOLDER_MCP_POLICIES: frozenset[str] = frozenset(
         "nearby_station_mcp",
         "nearby_attraction_mcp",
         "nearby_hotel_mcp",
-        "dianping_nearby_crawler_mcp",
         "meituan_nearby_crawler_mcp",
         "itinerary_planner_mcp",
         "route_feasibility_checker_mcp",
         "elderly_friendly_route_scorer_mcp",
         "family_trip_planner_mcp",
-        "crowd_estimation_mcp",
         "event_calendar_mcp",
-        "dianping_review_signal_mcp",
-        "ctrip_review_signal_mcp",
     }
 )
 
@@ -168,10 +162,12 @@ TICKET_PROVIDER_POLICIES: frozenset[str] = frozenset(
         "ticketlens_experience_review_signal_mcp",
         "ctrip_review_crawler_mcp",
         "ctrip_ticket_signal_crawler_mcp",
+        "ctrip_guide_crawler_mcp",
         "fliggy_ticket_snapshot_crawler_mcp",
         "fliggy_ticket_review_signal_mcp",
         "dianping_review_crawler_mcp",
         "dianping_ticket_signal_crawler_mcp",
+        "dianping_nearby_crawler_mcp",
         "ticket_snapshot_store",
         "ticket_price_history_query",
     }

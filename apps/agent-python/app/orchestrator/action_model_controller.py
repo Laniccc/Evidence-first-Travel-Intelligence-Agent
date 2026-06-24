@@ -57,6 +57,9 @@ class ActionModelController:
             if self._hard_fact_interleave_due(state, prompt_context):
                 prompt_context["_last_action_source"] = "hard_fact_interleave"
                 return self._hard_fact_interleave_action(state, prompt_context)
+            if self._contradiction_decompose_due(state, prompt_context):
+                prompt_context["_last_action_source"] = "contradiction_decompose"
+                return self._contradiction_decompose_action(state, prompt_context)
             if self._search_strategy_review_due(state, prompt_context):
                 prompt_context["_last_action_source"] = "search_strategy_review"
                 return await self._search_strategy_review_action(state, prompt_context)
@@ -497,6 +500,42 @@ class ActionModelController:
         if self._has_hard_fact_needs(state) and self._pending_hard_fact_tools(state, prompt_context):
             return False
         return True
+
+    def _contradiction_decompose_due(self, state: TravelAgentState, prompt_context: dict) -> bool:
+        from app.orchestrator.evidence_signal_utils import multi_value_signal_for_need
+
+        if int(prompt_context.get("_contradiction_decompose_round", 0)) >= 2:
+            return False
+        primary = ClaimSearchPlanner.primary_information_need(state)
+        if primary not in {"ticket_price", "opening_hours"}:
+            return False
+        kw = ClaimSearchPlanner.keyword_search_call_count(state)
+        if kw < 2 and len(state.evidence) < 4:
+            return False
+        structured = state.structured_result or {}
+        if structured.get("fact_decomposition") and structured.get("_decompose_evidence_count") == len(
+            state.evidence
+        ):
+            return False
+        return multi_value_signal_for_need(state, primary)
+
+    def _contradiction_decompose_action(
+        self,
+        state: TravelAgentState,
+        prompt_context: dict,
+    ) -> AgentAction:
+        prompt_context["_contradiction_decompose_round"] = (
+            int(prompt_context.get("_contradiction_decompose_round", 0)) + 1
+        )
+        return AgentAction(
+            action_type=AgentActionType.CALL_SUBAGENT,
+            target="evidence_contradiction_decomposer_agent",
+            arguments={},
+            reason_summary=(
+                "S5 多源数值分歧：查证票种/套餐口径并分拆呈现，避免笼统称价格不确定"
+            ),
+            confidence=0.9,
+        )
 
     async def _search_strategy_review_action(
         self,
@@ -1051,6 +1090,7 @@ class ActionModelController:
         elif any(n in needs for n in ("opening_hours", "ticket_price", "reservation_policy")):
             queue = [
                 "search_mcp",
+                "official_source_discovery_mcp",
                 "official_page_reader_mcp",
                 "browser_mcp",
                 "official",
@@ -1068,6 +1108,7 @@ class ActionModelController:
         elif frame and frame.decision_type == DecisionType.FACT_LOOKUP and frame.requires_exact_fact:
             queue = [
                 "search_mcp",
+                "official_source_discovery_mcp",
                 "official_page_reader_mcp",
                 "browser_mcp",
                 "official",
@@ -1112,6 +1153,20 @@ class ActionModelController:
                     args["query"] = f"{place} 官网 开放时间"
                 else:
                     args["query"] = f"{place} 官网"
+        if tool == "official_source_discovery_mcp":
+            args["prior_evidence"] = list(state.evidence)
+            need = ClaimSearchPlanner.primary_information_need(state)
+            if need:
+                args["claim_type"] = need
+                args["information_need"] = need
+            args["search_results"] = ClaimSearchPlanner.search_hits_from_evidence(state)
+            args["probe_top_n"] = 1
+            from tools.official_source.whitelist_resolver import resolve_official_whitelist_url
+
+            place = args.get("place_name") or ""
+            wl = resolve_official_whitelist_url(place)
+            if wl:
+                args.setdefault("urls", []).append(wl)
         if tool == "knowledge_prior":
             contract = state.response_contract
             if contract and any(

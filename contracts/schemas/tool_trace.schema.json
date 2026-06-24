@@ -40,6 +40,13 @@
     },
     "gap_filling": { "type": "boolean", "default": false },
     "gap_id": { "type": ["string", "null"] },
-    "gap_claim_type": { "type": ["string", "null"] }
+    "gap_claim_type": { "type": ["string", "null"] },
+    "official_source_discovery": { "type": "boolean", "default": false },
+    "urls_checked_count": { "type": ["integer", "null"] },
+    "official_candidates_count": { "type": ["integer", "null"] },
+    "top_source_classes": {
+      "type": ["array", "null"],
+      "items": { "type": "string" }
+    }
   }
 }

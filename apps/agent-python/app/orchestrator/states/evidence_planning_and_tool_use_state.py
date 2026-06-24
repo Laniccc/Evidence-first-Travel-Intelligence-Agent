@@ -147,6 +147,7 @@ class EvidencePlanningAndToolUseState:
             "preferred_tool on tasks is optional; keyword_search_agent picks MCP from whitelist.",
             "place_candidates in evidence are normal tool output — refine queries, do not ASK_CLARIFICATION in S5.",
             "Every 2 keyword_search completions triggers search_task_planner refine (max 10 searches per S5).",
+            "When multiple price/hour values appear, evidence_contradiction_decomposer_agent splits by ticket tier/season.",
             "CALL_TOOL only for one-off geo when subagents cannot cover.",
             "Do NOT generate final answer text in this state.",
         ]

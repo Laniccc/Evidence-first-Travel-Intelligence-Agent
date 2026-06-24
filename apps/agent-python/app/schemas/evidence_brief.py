@@ -20,6 +20,7 @@ class CuratedClaimRow(BaseModel):
 class EvidenceBrief(BaseModel):
     target_label: str = "目的地"
     curated_claims: list[CuratedClaimRow] = Field(default_factory=list)
+    fact_decompositions: list[dict] = Field(default_factory=list)
     excluded_evidence_ids: list[str] = Field(default_factory=list)
     coverage_gaps: list[str] = Field(default_factory=list)
     conflict_notes: list[str] = Field(default_factory=list)

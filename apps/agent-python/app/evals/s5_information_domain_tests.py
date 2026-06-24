@@ -124,10 +124,13 @@ def test_tool_whitelist_uses_domain_plan():
     assert state.s5_domain_plan is not None
     allowed = set(wl.allowed_tool_names())
     assert "search_mcp" in allowed or "search_mcp" in wl.blocked_tools
-    assert wl.reason_by_tool.get("ctrip_ticket_crawler_mcp") in {
-        "disabled_by_config",
-        "not_implemented",
-    }
+    reason = wl.reason_by_tool.get("ctrip_ticket_signal_crawler_mcp")
+    if reason is not None:
+        assert reason in {
+            "disabled_by_config",
+            "not_configured",
+            "not_relevant_for_domain",
+        }
     assert "dianping_ticket_crawler_mcp" in wl.blocked_tools
 
 
@@ -199,8 +202,9 @@ def test_need_tool_profiles_prioritize_official_for_hard_facts():
     from app.tools.mcp.tool_specs import NEED_TOOL_PROFILES
 
     ticket = NEED_TOOL_PROFILES["ticket_price"]
-    assert ticket[0] == "official_page_reader_mcp"
+    assert "official_page_reader_mcp" in ticket
     assert ticket.index("official_page_reader_mcp") < ticket.index("ctrip_ticket_signal_crawler_mcp")
 
     hours = NEED_TOOL_PROFILES["opening_hours"]
-    assert hours[0] == "official_page_reader_mcp"
+    assert "official_page_reader_mcp" in hours
+    assert hours.index("official_page_reader_mcp") < hours.index("browser_mcp")

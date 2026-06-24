@@ -214,6 +214,8 @@ class ResponseContractCompiler:
 
         if need in _HARD_FACT_NEEDS:
             ticket_price_preferred = [
+                "search_mcp",
+                "official_source_discovery_mcp",
                 "official_page_reader_mcp",
                 "browser_mcp",
                 "baidu_place_search_mcp",
@@ -226,6 +228,8 @@ class ResponseContractCompiler:
             preferred = {
                 "ticket_price": ticket_price_preferred,
                 "opening_hours": [
+                    "search_mcp",
+                    "official_source_discovery_mcp",
                     "baidu_place_search_mcp",
                     "baidu_place_detail_mcp",
                     "baidu_geocode_mcp",
@@ -236,11 +240,14 @@ class ResponseContractCompiler:
                 ],
                 "temporary_closure": [
                     "search_mcp",
+                    "official_source_discovery_mcp",
                     "official_page_reader_mcp",
                     "browser_mcp",
                     "official",
                 ],
                 "reservation_policy": [
+                    "search_mcp",
+                    "official_source_discovery_mcp",
                     "official_page_reader_mcp",
                     "browser_mcp",
                     "search_mcp",

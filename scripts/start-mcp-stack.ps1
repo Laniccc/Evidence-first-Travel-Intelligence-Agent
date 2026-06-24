@@ -48,7 +48,8 @@ Write-Host "=== MCP HTTP stack ===" -ForegroundColor Cyan
 
 function Read-AgentEnvValue {
     param([string]$Key, [string]$Default = "")
-    if ($env:$Key) { return $env:$Key }
+    $envVal = [Environment]::GetEnvironmentVariable($Key)
+    if ($envVal) { return $envVal }
     $envFile = Join-Path $PSScriptRoot "..\apps\agent-python\.env"
     if (-not (Test-Path $envFile)) { return $Default }
     $line = Get-Content $envFile | Where-Object { $_ -match "^\s*$Key\s*=" } | Select-Object -First 1

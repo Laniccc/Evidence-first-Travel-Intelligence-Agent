@@ -21,6 +21,7 @@ from app.tools.mcp.adapter_status import (
 )
 from tools.ticketing.provider_config import (
     TICKET_PROVIDER_TOOL_NAMES,
+    is_crowd_provider_tool,
     is_ticket_provider_tool,
     provider_configured_for_tool,
     provider_enabled_for_tool,
@@ -142,6 +143,11 @@ _TOOL_CATALOG: dict[str, dict] = {
         "description": "MCP official page reader for hard facts.",
         "capabilities": ["official_page_read", "opening_hours", "ticket_price"],
         "source_type": "mcp",
+    },
+    "official_source_discovery_mcp": {
+        "description": "Classify search hits for official source candidacy.",
+        "capabilities": ["official_source_candidate", "ticket_price", "opening_hours"],
+        "source_type": "local",
     },
     "osm_mcp": {
         "description": "MCP OSM geocode, POI, routes.",
@@ -278,7 +284,6 @@ _NEARBY_ME_PATTERNS = re.compile(r"我附近|从我这里|附近有什么|离我
 
 _TICKET_PLATFORM_TOOLS = frozenset(
     {
-        "ctrip_ticket_crawler_mcp",
         "fliggy_ticket_crawler_mcp",
         "meituan_ticket_crawler_mcp",
         "dianping_ticket_crawler_mcp",
@@ -292,15 +297,12 @@ _REVIEW_PLATFORM_TOOLS = frozenset(
         "meituan_review_crawler_mcp",
         "qunar_review_crawler_mcp",
         "tripadvisor_review_crawler_mcp",
-        "dianping_review_signal_mcp",
-        "ctrip_review_signal_mcp",
     }
 )
 _TRAVEL_NOTE_TOOLS = frozenset(
     {
         "mafengwo_note_crawler_mcp",
         "xiaohongshu_note_crawler_mcp",
-        "ctrip_guide_crawler_mcp",
         "tourism_board_notice_mcp",
         "platform_notice_crawler_mcp",
     }
@@ -314,7 +316,6 @@ _NEARBY_PLATFORM_TOOLS = frozenset(
         "nearby_station_mcp",
         "nearby_attraction_mcp",
         "nearby_hotel_mcp",
-        "dianping_nearby_crawler_mcp",
         "meituan_nearby_crawler_mcp",
     }
 )
@@ -644,7 +645,18 @@ class ToolWhitelistBuilder:
                 else:
                     blocked[tool_name] = "not_relevant_for_domain"
                 continue
-            if is_mcp_policy_placeholder(tool_name):
+            if is_crowd_provider_tool(tool_name):
+                settings = get_settings()
+                if not provider_enabled_for_tool(tool_name, settings):
+                    blocked[tool_name] = "disabled_by_config"
+                elif not provider_configured_for_tool(tool_name, settings):
+                    blocked[tool_name] = "not_configured"
+                elif domain_plan and tool_name not in relevant:
+                    blocked[tool_name] = "not_relevant_for_domain"
+                else:
+                    blocked[tool_name] = "not_relevant_for_domain"
+                continue
+            if is_mcp_policy_placeholder(resolve_tool_name(tool_name)):
                 if not self._placeholder_config_enabled(tool_name):
                     blocked[tool_name] = "disabled_by_config"
                 else:
@@ -689,17 +701,25 @@ class ToolWhitelistBuilder:
     ) -> str | None:
         if domain_plan and tool_name in domain_plan.effective_forbidden_tool_names():
             return "forbidden_by_claim_policy"
-        if is_mcp_policy_placeholder(tool_name):
+        if is_mcp_policy_placeholder(resolve_tool_name(tool_name)):
             if not self._placeholder_config_enabled(tool_name):
                 return "disabled_by_config"
             return "not_implemented"
-        if is_ticket_provider_tool(tool_name):
+        resolved = resolve_tool_name(tool_name)
+        if is_ticket_provider_tool(resolved):
             settings = get_settings()
-            if not provider_enabled_for_tool(tool_name, settings):
+            if not provider_enabled_for_tool(resolved, settings):
                 return "disabled_by_config"
-            if not provider_configured_for_tool(tool_name, settings):
-                if tool_name == "ticketlens_experience_mcp" and not settings.ticketlens_api_key:
-                    return "missing_api_key"
+            if not provider_configured_for_tool(resolved, settings):
+                if resolved in {"ticketlens_experience_mcp", "ticketlens_experience_review_signal_mcp"}:
+                    if not settings.ticketlens_api_key:
+                        return "missing_api_key"
+                return "not_configured"
+        if is_crowd_provider_tool(resolved):
+            settings = get_settings()
+            if not provider_enabled_for_tool(resolved, settings):
+                return "disabled_by_config"
+            if not provider_configured_for_tool(resolved, settings):
                 return "not_configured"
         if tool_name == "baidu_ip_location_mcp":
             return None
@@ -755,27 +775,48 @@ class ToolWhitelistBuilder:
         return client.server_block_reason(server_name)
 
     def _is_configured(self, policy_tool_name: str) -> tuple[bool, str | None]:
-        if is_ticket_provider_tool(policy_tool_name):
+        if policy_tool_name == "official_source_discovery_mcp":
             settings = get_settings()
-            if not provider_enabled_for_tool(policy_tool_name, settings):
+            if not getattr(settings, "official_source_discovery_enabled", True):
                 return False, "disabled_by_config"
-            if policy_tool_name == "ticketlens_experience_mcp" and not settings.ticketlens_api_key:
+            if self.tools_registry is not None and getattr(
+                self.tools_registry, "official_source_discovery_mcp", None
+            ) is None:
+                return False, "not_registered"
+            return True, None
+
+        resolved = resolve_tool_name(policy_tool_name)
+        if is_ticket_provider_tool(resolved):
+            settings = get_settings()
+            if not provider_enabled_for_tool(resolved, settings):
+                return False, "disabled_by_config"
+            if resolved == "ticketlens_experience_mcp" and not settings.ticketlens_api_key:
                 return False, "missing_api_key"
-            if provider_configured_for_tool(policy_tool_name, settings):
+            if provider_configured_for_tool(resolved, settings):
                 return True, None
-            if policy_tool_name in {
+            if resolved in {
                 "ctrip_review_crawler_mcp",
                 "ctrip_ticket_signal_crawler_mcp",
+                "ctrip_guide_crawler_mcp",
                 "fliggy_ticket_snapshot_crawler_mcp",
                 "dianping_review_crawler_mcp",
                 "dianping_ticket_signal_crawler_mcp",
+                "dianping_nearby_crawler_mcp",
             }:
                 return False, "not_configured"
-            if policy_tool_name in {"ticket_snapshot_store", "ticket_price_history_query"}:
+            if resolved in {"ticket_snapshot_store", "ticket_price_history_query"}:
                 return False, "not_configured"
             return False, "missing_api_key"
 
-        if is_mcp_policy_placeholder(policy_tool_name):
+        if is_crowd_provider_tool(resolved):
+            settings = get_settings()
+            if not provider_enabled_for_tool(resolved, settings):
+                return False, "disabled_by_config"
+            if provider_configured_for_tool(resolved, settings):
+                return True, None
+            return False, "not_configured"
+
+        if is_mcp_policy_placeholder(resolve_tool_name(policy_tool_name)):
             if not self._placeholder_config_enabled(policy_tool_name):
                 return False, "disabled_by_config"
             return False, mcp_policy_stub_reason(policy_tool_name) or "not_implemented"

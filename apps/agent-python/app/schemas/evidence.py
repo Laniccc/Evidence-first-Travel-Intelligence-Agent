@@ -81,6 +81,7 @@ class ClaimType(str, Enum):
     TICKET_PRICE_HISTORY = "ticket_price_history"
     PLATFORM_TICKET_URL = "platform_ticket_url"
     REVIEW_COUNT = "review_count"
+    OFFICIAL_SOURCE_CANDIDATE = "official_source_candidate"
 
 
 class Claim(BaseModel):

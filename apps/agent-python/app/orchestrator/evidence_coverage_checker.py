@@ -8,6 +8,7 @@ from app.schemas.coverage_report import CoverageItem, CoverageReport
 from app.schemas.evidence import ClaimType, Evidence, SourceType
 from app.schemas.response_contract import ClaimRequirement, ResponseContract
 from app.schemas.tool_trace import ToolTrace
+from app.orchestrator.official_source_judgement import best_official_support, parse_candidate_from_evidence
 from app.tools.tool_name_resolver import resolve_tool_name
 
 _GENERIC_TEMPLATE_PATTERNS = re.compile(
@@ -261,7 +262,9 @@ class EvidenceCoverageChecker:
             req.priority == "optional" and best_quality == "weak"
         )
         if req.priority == "required" and req.claim_type == "ticket_price" and best_quality != "strong":
-            covered = False
+            support = best_official_support(evidence, req.claim_type)
+            if support.tier != "strong":
+                covered = False
         elif req.priority == "required" and best_quality not in ("partial", "strong"):
             covered = False
 
@@ -303,7 +306,22 @@ class EvidenceCoverageChecker:
         }:
             return "partial"
         if req.claim_type == "ticket_price" and claim.claim_type.value == ClaimType.TICKET_PRICE.value:
-            return "strong"
+            support = best_official_support([ev], req.claim_type)
+            if support.tier == "strong":
+                return "strong"
+            if support.tier == "partial":
+                return "partial"
+            return "partial"
+        if req.claim_type == "ticket_price":
+            support = best_official_support([ev], req.claim_type)
+            if claim.claim_type.value == ClaimType.OFFICIAL_SOURCE_CANDIDATE.value:
+                if support.tier == "strong":
+                    return "strong"
+                if support.tier == "partial":
+                    return "partial"
+                if support.tier == "weak":
+                    return "weak"
+                return "none"
         if req.claim_type in _REVIEW_EXPERIENCE_CLAIMS and claim.claim_type.value == ClaimType.REVIEW_SUMMARY.value:
             return "strong"
         if req.claim_type == "booking_channel" and claim.claim_type.value == ClaimType.BOOKING_CHANNEL.value:

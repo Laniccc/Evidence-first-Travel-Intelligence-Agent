@@ -206,7 +206,12 @@ FAMILY_DEFAULTS: dict[str, dict] = {
     "hard_fact": {
         "requires_exact_fact": True,
         "model_prior_allowed": False,
-        "preferred_tools": ["official_page_reader_mcp", "search_mcp", "official"],
+        "preferred_tools": [
+            "official_source_discovery_mcp",
+            "official_page_reader_mcp",
+            "search_mcp",
+            "official",
+        ],
     },
     "live_fact": {
         "requires_live_data": True,
@@ -219,6 +224,7 @@ FAMILY_DEFAULTS: dict[str, dict] = {
     "ticket_booking": {
         "requires_exact_fact": True,
         "preferred_tools": [
+            "official_source_discovery_mcp",
             "official_page_reader_mcp",
             "browser_mcp",
             "baidu_place_search_mcp",
@@ -230,7 +236,7 @@ FAMILY_DEFAULTS: dict[str, dict] = {
     },
     "operation_status": {
         "requires_exact_fact": True,
-        "preferred_tools": ["search_mcp", "official_page_reader_mcp", "browser_mcp"],
+        "preferred_tools": ["search_mcp", "official_source_discovery_mcp", "official_page_reader_mcp", "browser_mcp"],
     },
     "seasonality_advice": {
         "model_prior_allowed": True,
