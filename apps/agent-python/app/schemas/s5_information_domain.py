@@ -12,6 +12,7 @@ from app.schemas.intent_profile import PrimaryIntent
 
 class InformationDomain(str, Enum):
     GEO_RESOLUTION = "geo_resolution"
+    GEO_FACT = "geo_fact"
     TICKET_BOOKING = "ticket_booking"
     OPERATION_STATUS = "operation_status"
     SEASONALITY = "seasonality"

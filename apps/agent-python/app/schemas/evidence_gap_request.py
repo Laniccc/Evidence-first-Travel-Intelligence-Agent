@@ -7,6 +7,8 @@ from uuid import uuid4
 
 from pydantic import BaseModel, Field
 
+from app.schemas.lookup_research_chain import LookupQueryObjective
+
 
 GapPriority = Literal["high", "medium", "low"]
 
@@ -21,6 +23,8 @@ class EvidenceGapRequest(BaseModel):
     suggested_domains: list[str] = Field(default_factory=list)
     suggested_tools: list[str] = Field(default_factory=list)
     query_templates: list[str] = Field(default_factory=list)
+    query_objectives: list[LookupQueryObjective] = Field(default_factory=list)
+    query_objective: str = ""
     forbidden_tools: list[str] = Field(default_factory=list)
     already_tried_tools: list[str] = Field(default_factory=list)
     failed_tools: list[str] = Field(default_factory=list)

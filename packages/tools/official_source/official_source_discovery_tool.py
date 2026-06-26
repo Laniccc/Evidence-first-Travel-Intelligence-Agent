@@ -63,15 +63,32 @@ class OfficialSourceDiscoveryTool(BaseTravelTool):
         hits = self._collect_hits(kwargs)
         limitations: list[str] = []
         if not hits:
-            limitations.append("No search results or URLs provided for official source discovery.")
             self._set_meta(0, 0, [])
-            return self._limitation_evidence(
-                place_name,
-                country=country,
-                city=city,
-                claim_type=claim_type,
-                limitations=limitations,
-            )
+            return []
+
+        anchor_terms = list(kwargs.get("anchor_terms") or kwargs.get("aliases") or [])
+        ticket_product = kwargs.get("ticket_product")
+        try:
+            from app.orchestrator.ticket_relevance_policy import discovery_hit_relevant
+
+            filtered = [
+                h
+                for h in hits
+                if discovery_hit_relevant(
+                    h,
+                    place_name=place_name,
+                    claim_type=str(claim_type) if claim_type else None,
+                    anchor_terms=anchor_terms,
+                    ticket_product=str(ticket_product) if ticket_product else None,
+                )
+            ]
+            if not filtered and hits:
+                limitations.append("skipped_reason=no_relevant_urls")
+                self._set_meta(0, 0, [])
+                return []
+            hits = filtered
+        except ImportError:
+            pass
 
         candidates = []
         seen_urls: set[str] = set()

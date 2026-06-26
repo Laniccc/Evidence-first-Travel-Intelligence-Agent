@@ -97,11 +97,16 @@ class EvidencePlanningAndToolUseState:
             gap = EvidenceGapRequest.model_validate(gap)
         gap.ensure_signature()
         state.current_evidence_gap_request = gap
+        from app.orchestrator.ticket_lookup_policy import apply_ticket_gap_phase_override
+
+        apply_ticket_gap_phase_override(state, gap)
         settings = get_settings()
         tool_whitelist = self.whitelist_builder.build_gap_whitelist(gap)
         prompt_context = {
             "gap_filling": True,
             "gap_request": gap.model_dump(),
+            "gap_query_objectives": [o.model_dump() for o in gap.query_objectives],
+            "gap_query_objective": gap.query_objective,
             "gap_max_extra_steps": min(gap.max_extra_steps, settings.evidence_gap_max_extra_steps),
             "reset_evidence": False,
             "place_name": (
@@ -234,6 +239,9 @@ class EvidencePlanningAndToolUseState:
 
         prompt_context.update(nearby_s5_planning_context(state))
         prompt_context.update(fact_s5_planning_context(state))
+        from app.orchestrator.lookup_research_chain import build_lookup_research_context
+
+        prompt_context["lookup_research_chain"] = build_lookup_research_context(state)
         structured = dict(state.structured_result or {})
         structured["_agent_tool_definitions"] = prompt_context["agent_tool_definitions"]
         state.structured_result = structured

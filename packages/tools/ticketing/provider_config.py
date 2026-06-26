@@ -11,6 +11,7 @@ TICKET_PROVIDER_TOOL_NAMES: frozenset[str] = frozenset(
         "ctrip_review_crawler_mcp",
         "ctrip_ticket_signal_crawler_mcp",
         "ctrip_guide_crawler_mcp",
+        "fliggy_ticket_api_mcp",
         "fliggy_ticket_snapshot_crawler_mcp",
         "dianping_review_crawler_mcp",
         "dianping_ticket_signal_crawler_mcp",
@@ -24,6 +25,7 @@ TICKET_CRAWLER_TOOLS: frozenset[str] = frozenset(
     {
         "ctrip_review_crawler_mcp",
         "ctrip_ticket_signal_crawler_mcp",
+        "fliggy_ticket_api_mcp",
         "fliggy_ticket_snapshot_crawler_mcp",
         "dianping_review_crawler_mcp",
         "dianping_ticket_signal_crawler_mcp",
@@ -100,24 +102,95 @@ def ctrip_crawler_configured(settings: Settings | None = None) -> bool:
     return ctrip_subprocess_configured(settings) or ctrip_websearch_signal_configured(settings)
 
 
-def fliggy_top_api_configured(settings: Settings | None = None) -> bool:
+def fliggy_ticket_api_enabled(settings: Settings | None = None) -> bool:
     s = settings or get_settings()
     return bool(
-        s.fliggy_top_api_enabled
-        and s.fliggy_ticket_crawler_enabled
-        and s.enable_ticket_crawler_providers
-        and s.fliggy_app_key
-        and s.fliggy_app_secret
+        s.fliggy_ticket_api_enabled
+        or (s.fliggy_ticket_crawler_enabled and s.fliggy_top_api_enabled)
+        or (s.fliggy_ticket_crawler_enabled and s.fliggy_flyai_enabled)
     )
 
 
-def fliggy_api_configured(settings: Settings | None = None) -> bool:
-    return fliggy_top_api_configured(settings)
+def effective_flyai_api_key(settings: Settings | None = None) -> str | None:
+    s = settings or get_settings()
+    return (s.fliggy_flyai_api_key or "").strip() or None
+
+
+def fliggy_flyai_configured(settings: Settings | None = None) -> bool:
+    s = settings or get_settings()
+    return bool(
+        s.fliggy_flyai_enabled
+        and s.fliggy_ticket_crawler_enabled
+        and s.enable_ticket_crawler_providers
+        and effective_flyai_api_key(s)
+    )
+
+
+def fliggy_subprocess_configured(settings: Settings | None = None) -> bool:
+    s = settings or get_settings()
+    return bool(
+        s.fliggy_ticket_crawler_enabled
+        and s.enable_ticket_crawler_providers
+        and (s.fliggy_ticket_crawler_command or "").strip()
+    )
+
+
+def fliggy_ticket_api_key(settings: Settings | None = None) -> str | None:
+    s = settings or get_settings()
+    return (s.fliggy_ticket_api_key or s.fliggy_app_key or "").strip() or None
+
+
+def fliggy_ticket_api_secret(settings: Settings | None = None) -> str | None:
+    s = settings or get_settings()
+    return (s.fliggy_ticket_api_secret or s.fliggy_app_secret or "").strip() or None
+
+
+def fliggy_ticket_api_endpoint(settings: Settings | None = None) -> str:
+    s = settings or get_settings()
+    return (s.fliggy_ticket_api_endpoint or s.fliggy_api_gateway_url or "").strip()
+
+
+def fliggy_top_api_configured(settings: Settings | None = None) -> bool:
+    s = settings or get_settings()
+    return bool(
+        (s.fliggy_ticket_api_enabled or (s.fliggy_ticket_crawler_enabled and s.fliggy_top_api_enabled))
+        and s.enable_ticket_crawler_providers
+        and fliggy_ticket_api_key(s)
+        and fliggy_ticket_api_secret(s)
+        and fliggy_ticket_api_endpoint(s)
+    )
 
 
 def fliggy_crawler_configured(settings: Settings | None = None) -> bool:
-    """Backward-compatible alias for Fliggy TOP API availability."""
-    return fliggy_api_configured(settings)
+    """Any working Fliggy path: FlyAI, TOP API, or subprocess CLI."""
+    return (
+        fliggy_flyai_configured(settings)
+        or fliggy_top_api_configured(settings)
+        or fliggy_subprocess_configured(settings)
+    )
+
+
+def fliggy_api_block_reason(settings: Settings | None = None) -> str:
+    s = settings or get_settings()
+    if not s.fliggy_ticket_crawler_enabled:
+        return "disabled_by_config"
+    if not s.enable_ticket_crawler_providers:
+        return "disabled_by_config"
+    if fliggy_flyai_configured(s) or fliggy_top_api_configured(s) or fliggy_subprocess_configured(s):
+        return ""
+    if s.fliggy_flyai_enabled and not effective_flyai_api_key(s):
+        return "missing_config"
+    if (s.fliggy_ticket_api_enabled or s.fliggy_top_api_enabled) and (
+        not fliggy_ticket_api_key(s) or not fliggy_ticket_api_secret(s)
+    ):
+        return "missing_config"
+    if s.fliggy_flyai_enabled:
+        return "missing_config"
+    return "disabled_by_config"
+
+
+def fliggy_api_configured(settings: Settings | None = None) -> bool:
+    return fliggy_crawler_configured(settings)
 
 
 def dianping_subprocess_configured(settings: Settings | None = None) -> bool:
@@ -153,8 +226,8 @@ def provider_enabled_for_tool(tool_name: str, settings: Settings | None = None) 
         )
     if tool_name == "ctrip_guide_crawler_mcp":
         return s.ctrip_crawler_enabled and s.enable_travel_note_crawlers
-    if tool_name == "fliggy_ticket_snapshot_crawler_mcp":
-        return s.fliggy_ticket_crawler_enabled and s.enable_ticket_crawler_providers
+    if tool_name in {"fliggy_ticket_api_mcp", "fliggy_ticket_snapshot_crawler_mcp"}:
+        return fliggy_ticket_api_enabled(s) and s.enable_ticket_crawler_providers
     if tool_name in {"dianping_review_crawler_mcp", "dianping_ticket_signal_crawler_mcp"}:
         return s.dianping_crawler_enabled and (
             s.enable_review_crawler_providers or s.enable_ticket_crawler_providers
@@ -178,8 +251,8 @@ def provider_configured_for_tool(tool_name: str, settings: Settings | None = Non
         return ctrip_crawler_configured(s)
     if tool_name == "ctrip_guide_crawler_mcp":
         return ctrip_crawler_configured(s)
-    if tool_name == "fliggy_ticket_snapshot_crawler_mcp":
-        return fliggy_api_configured(s)
+    if tool_name in {"fliggy_ticket_api_mcp", "fliggy_ticket_snapshot_crawler_mcp"}:
+        return fliggy_crawler_configured(s)
     if tool_name == "dianping_nearby_crawler_mcp":
         return dianping_nearby_configured(s)
     if tool_name.startswith("dianping_"):

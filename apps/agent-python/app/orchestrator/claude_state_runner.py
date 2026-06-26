@@ -51,6 +51,9 @@ class ClaudeStateRunner:
                 else:
                     self.policy_guard.validate(action, policy, state, tool_whitelist=tool_whitelist)
             except ValueError as exc:
+                if self._recover_policy_reject(state, action, exc, ctx):
+                    TraceRecorder.add(state, f"↻ [{policy.state_name}] policy recover: {exc}")
+                    continue
                 state.limitations.append(str(exc))
                 TraceRecorder.add(state, f"✗ [{policy.state_name}] policy 拒绝：{exc}")
                 break
@@ -95,6 +98,32 @@ class ClaudeStateRunner:
         state.limitations.append(f"{policy.state_name} reached max_steps")
         TraceRecorder.add(state, f"✓ [{policy.state_name}] 达到 max_steps={policy.max_steps}")
         return state
+
+    @staticmethod
+    def _recover_policy_reject(
+        state: TravelAgentState,
+        action: AgentAction,
+        exc: ValueError,
+        ctx: dict,
+    ) -> bool:
+        msg = str(exc)
+        if action.action_type == AgentActionType.CALL_SUBAGENT and action.target == "entity_resolution_agent":
+            if "canonical place already anchored" in msg:
+                from app.orchestrator.lookup_research_chain import advance_entity_anchor_if_satisfied
+
+                return advance_entity_anchor_if_satisfied(state)
+        if action.action_type == AgentActionType.CALL_TOOL and "ticket platform tool" in msg:
+            from app.orchestrator.ticket_lookup_policy import force_ticket_platform_phase
+
+            force_ticket_platform_phase(state)
+            return True
+        if ctx.get("gap_filling") and "ticket platform tool" in msg:
+            from app.orchestrator.ticket_lookup_policy import apply_ticket_gap_phase_override
+
+            gap = ctx.get("gap_request")
+            if gap and apply_ticket_gap_phase_override(state, gap):
+                return True
+        return False
 
 
 def action_executor_result_fail(action):

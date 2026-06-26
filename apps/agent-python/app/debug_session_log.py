@@ -81,6 +81,31 @@ def _format_lookup_orchestration(summary: dict) -> list[str]:
             f"task_id={last.get('task_id', '-')}"
         )
     pipeline_runs = summary.get("fact_lookup_pipeline_runs") or []
+    chain = summary.get("lookup_research_chain") or {}
+    if chain:
+        lines.append(
+            f"- **LookupResearchChain**: phase={chain.get('current_phase')}, "
+            f"completed={chain.get('completed_phases') or []}"
+        )
+        audit = chain.get("audit") or {}
+        if audit:
+            lines.append(
+                f"- **Retrieval audit**: recommended_next={audit.get('recommended_next')}, "
+                f"official_fact_found={audit.get('official_fact_found')}"
+            )
+        objectives = chain.get("query_objectives") or []
+        if objectives:
+            lines.append(
+                f"- **Query objectives**: {len(objectives)} active "
+                f"({objectives[0].get('source_family', '?') if objectives else '-'})"
+            )
+    if fact_rows:
+        phases = [r.get("lookup_phase") for r in fact_rows if r.get("lookup_phase")]
+        families = [r.get("source_family") for r in fact_rows if r.get("source_family")]
+        if phases or families:
+            lines.append(
+                f"- **fact_lookup runs**: phases={phases[-3:]}, families={families[-3:]}"
+            )
     if pipeline_runs:
         last_run = pipeline_runs[-1]
         queries = last_run.get("search_queries") or []

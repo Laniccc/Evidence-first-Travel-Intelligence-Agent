@@ -15,6 +15,7 @@ from app.orchestrator.nearby_recommendation_policy import (
     place_candidates_is_nearby_recommendation,
 )
 from app.orchestrator.official_source_judgement import best_official_support, parse_candidate_from_evidence
+from app.orchestrator.ticket_lookup_helpers import is_ticket_price_noise_evidence, ticket_platform_candidate_quality
 from app.tools.tool_name_resolver import resolve_tool_name
 
 _GENERIC_TEMPLATE_PATTERNS = re.compile(
@@ -113,6 +114,47 @@ _CLAIM_TYPE_ALIASES: dict[str, frozenset[str]] = {
     "nearby_parking": frozenset({ClaimType.GENERAL_FACT.value, ClaimType.ADDRESS.value}),
     "nearby_rest_area": frozenset({ClaimType.GENERAL_FACT.value, ClaimType.ADDRESS.value}),
     "nearby_station": frozenset({ClaimType.GENERAL_FACT.value, ClaimType.ADDRESS.value}),
+    "elevation": frozenset(
+        {
+            ClaimType.ELEVATION.value,
+            ClaimType.GENERAL_FACT.value,
+        }
+    ),
+}
+
+_ELEVATION_VALUE_PATTERN = re.compile(
+    r"海拔\s*[:：]?\s*\d{3,4}(?:\.\d+)?\s*米|"
+    r"\d{3,4}(?:\.\d+)?\s*米.{0,12}海拔|"
+    r"elevation\s*[:=]?\s*\d{3,4}",
+    re.I,
+)
+_ELEVATION_NOISE_PATTERN = re.compile(
+    r"平方千米|经纬度|总面积|南北长约|东西宽约|开放时间|门票|营业时间",
+    re.I,
+)
+
+_FINISH_OPTIONAL_TOOLS = frozenset(
+    {
+        "fallback",
+        "knowledge_prior",
+        "climate_mcp",
+        "ticket_price_history_query",
+        "ticket_snapshot_store",
+        "fliggy_ticket_snapshot_crawler_mcp",
+        "ticketlens_experience_mcp",
+        "ctrip_ticket_signal_crawler_mcp",
+        "dianping_ticket_signal_crawler_mcp",
+    }
+)
+
+_HARD_FACT_PRIMARY_TOOLS: dict[str, list[str]] = {
+    "elevation": ["wikidata_mcp", "wikipedia_mcp", "search_mcp", "browser_mcp"],
+    "ticket_price": [
+        "search_mcp",
+        "official_source_discovery_mcp",
+        "official_page_reader_mcp",
+    ],
+    "opening_hours": ["search_mcp", "official_page_reader_mcp", "official_source_discovery_mcp"],
 }
 
 _IRRELEVANT_FINISH_FOR_NEARBY = frozenset(
@@ -194,6 +236,18 @@ _IRRELEVANT_FOR: dict[str, frozenset[str]] = {
     "seasonal_operation_status": frozenset(
         {ClaimType.CROWD.value, ClaimType.GENERAL_SEASONAL_CONTEXT.value, *_GEO_ONLY_CLAIMS}
     ),
+    "elevation": frozenset(
+        {
+            ClaimType.TICKET_PRICE.value,
+            ClaimType.OPENING_HOURS.value,
+            ClaimType.CROWD.value,
+            ClaimType.WEATHER.value,
+            ClaimType.PLACE_CANDIDATES.value,
+            ClaimType.COORDINATES.value,
+            ClaimType.POI_UID.value,
+            ClaimType.RESOLVED_ADDRESS.value,
+        }
+    ),
     "forecast": frozenset({ClaimType.SEASONALITY.value, ClaimType.BEST_TIME_TO_VISIT.value}),
     "weather": frozenset({ClaimType.SEASONALITY.value, ClaimType.BEST_TIME_TO_VISIT.value}),
     "weather_today": frozenset({ClaimType.SEASONALITY.value, ClaimType.BEST_TIME_TO_VISIT.value}),
@@ -222,9 +276,11 @@ class EvidenceCoverageChecker:
 
         required = [i for i, r in zip(items, contract.claim_requirements) if r.priority == "required"]
         all_required = all(i.covered for i in required) if required else True
-        untried = self._untried_preferred_tools(contract, tool_traces)
-        can_finish = all_required or (not untried and bool(tool_traces))
-        if not all_required and untried:
+        untried = self._untried_required_primary_tools(contract, tool_traces, items)
+        can_finish = all_required
+        if not all_required and not untried and tool_traces:
+            can_finish = True
+        elif not all_required and untried:
             can_finish = False
 
         need_limits = any(
@@ -259,6 +315,8 @@ class EvidenceCoverageChecker:
         best_quality = "none"
         for ev in evidence:
             if not isinstance(ev, Evidence):
+                continue
+            if req.claim_type == "ticket_price" and is_ticket_price_noise_evidence(ev, claim_type=req.claim_type):
                 continue
             for claim in ev.claims:
                 ct = claim.claim_type.value if hasattr(claim.claim_type, "value") else str(claim.claim_type)
@@ -323,6 +381,19 @@ class EvidenceCoverageChecker:
                 covered = False
         elif req.priority == "required" and best_quality not in ("partial", "strong"):
             covered = False
+        elif req.claim_type == "elevation" and req.requires_exact_fact:
+            from app.orchestrator.peak_elevation_extraction import classify_elevation_text
+
+            if best_quality == "partial":
+                blob = " ".join(
+                    f"{getattr(c, 'value', '')} {getattr(c, 'raw_text', '')}"
+                    for ev in evidence
+                    if isinstance(ev, Evidence)
+                    for c in ev.claims
+                    if ev.evidence_id in matched_ids
+                )
+                if classify_elevation_text(blob) == "range_only":
+                    covered = False
 
         missing_reason = None
         if not covered:
@@ -360,8 +431,12 @@ class EvidenceCoverageChecker:
             ClaimType.PRICE_CANDIDATE.value,
             ClaimType.TICKET_PRICE_CANDIDATE.value,
         }:
-            return "partial"
+            if is_ticket_price_noise_evidence(ev, claim_type=req.claim_type):
+                return "none"
+            return ticket_platform_candidate_quality(ev) or "partial"
         if req.claim_type == "ticket_price" and claim.claim_type.value == ClaimType.TICKET_PRICE.value:
+            if is_ticket_price_noise_evidence(ev, claim_type=req.claim_type):
+                return "none"
             support = best_official_support([ev], req.claim_type)
             if support.tier == "strong":
                 return "strong"
@@ -389,6 +464,36 @@ class EvidenceCoverageChecker:
             ClaimType.TICKET_PRICE_HISTORY.value,
         }:
             return "strong"
+        if req.claim_type == "elevation":
+            from app.orchestrator.peak_elevation_extraction import classify_elevation_text
+
+            gran = classify_elevation_text(text)
+            if gran == "unrelated_geo":
+                return "none"
+            if gran == "range_only":
+                return "partial"
+            if gran == "exact_numeric":
+                source = (ev.source_name or "").lower()
+                if ev.source_type == SourceType.OFFICIAL:
+                    return "strong"
+                if any(x in source for x in ("wikidata", "wikipedia", "百科", "encyclopedia")):
+                    return "strong"
+                if claim.claim_type.value == ClaimType.ELEVATION.value:
+                    return "strong"
+                return "partial"
+            if _ELEVATION_NOISE_PATTERN.search(text) and not _ELEVATION_VALUE_PATTERN.search(text):
+                return "none"
+            if _ELEVATION_VALUE_PATTERN.search(text):
+                source = (ev.source_name or "").lower()
+                if ev.source_type == SourceType.OFFICIAL:
+                    return "strong"
+                if any(x in source for x in ("wikidata", "wikipedia", "百科", "encyclopedia")):
+                    return "strong"
+                if claim.claim_type.value == ClaimType.ELEVATION.value:
+                    return "strong"
+                return "partial"
+            if claim.claim_type.value == ClaimType.ELEVATION.value and re.search(r"\d{3,4}", text):
+                return "partial"
         if ev.source_type.value == "model_prior" and not req.model_prior_allowed:
             return "none"
         conf = getattr(claim, "confidence", 0.5) or 0.5
@@ -401,6 +506,44 @@ class EvidenceCoverageChecker:
     @staticmethod
     def _quality_rank(q: str) -> int:
         return {"none": 0, "weak": 1, "partial": 2, "strong": 3}.get(q, 0)
+
+    @staticmethod
+    def _untried_required_primary_tools(
+        contract: ResponseContract,
+        tool_traces: list[ToolTrace],
+        items: list[CoverageItem],
+    ) -> list[str]:
+        called = {resolve_tool_name(t.tool_name) for t in tool_traces}
+        pending: list[str] = []
+        for req, item in zip(contract.claim_requirements, items):
+            if req.priority != "required" or item.covered:
+                continue
+            primaries = _HARD_FACT_PRIMARY_TOOLS.get(req.claim_type)
+            if primaries:
+                if any(resolve_tool_name(tool) in called for tool in primaries):
+                    continue
+                for tool in primaries:
+                    resolved = resolve_tool_name(tool)
+                    if resolved not in called:
+                        pending.append(tool)
+                        break
+                continue
+            for tool in req.preferred_tools[:4]:
+                resolved = resolve_tool_name(tool)
+                if resolved in _FINISH_OPTIONAL_TOOLS:
+                    continue
+                if is_nearby_need(req.claim_type) and resolved in _IRRELEVANT_FINISH_FOR_NEARBY:
+                    continue
+                if resolved not in called:
+                    pending.append(tool)
+                    break
+        for tool in contract.entity_policy.preferred_tools:
+            resolved = resolve_tool_name(tool)
+            if resolved in _FINISH_OPTIONAL_TOOLS:
+                continue
+            if tool not in pending and resolved not in called:
+                pending.append(tool)
+        return pending
 
     @staticmethod
     def _untried_preferred_tools(

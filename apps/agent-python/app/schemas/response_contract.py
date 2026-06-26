@@ -37,6 +37,8 @@ class ClaimRequirement(BaseModel):
     missing_behavior: Literal[
         "ask_clarification", "answer_with_limitation", "omit_claim", "refuse_to_guess"
     ] = "answer_with_limitation"
+    answer_scope: str | None = None
+    parent_claim_type: str | None = None
 
 
 class ToolStrategy(BaseModel):

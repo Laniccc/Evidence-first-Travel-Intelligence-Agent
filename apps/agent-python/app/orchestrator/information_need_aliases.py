@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from app.orchestrator.lookup_need_aliases import resolve_lookup_need
 from app.orchestrator.nearby_category_registry import (
     CANONICAL_NEARBY_NEEDS,
     GENERIC_NEARBY_NEEDS,
@@ -53,7 +54,7 @@ def normalize_information_needs(needs: list[str] | None, *, text: str = "") -> l
         if is_nearby_need(raw):
             canonical = resolve_nearby_need(raw, text=text)
         else:
-            canonical = normalize_need(raw)
+            canonical = resolve_lookup_need(normalize_need(raw))
         if canonical in seen:
             continue
         seen.add(canonical)

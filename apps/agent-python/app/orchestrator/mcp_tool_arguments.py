@@ -16,6 +16,18 @@ from app.tools.tool_name_resolver import is_mcp_policy_tool
 from tools.ticketing.provider_config import is_ticket_provider_tool
 
 
+def _is_valid_baidu_uid(uid: str | None) -> bool:
+    from tools.mcp.adapters.baidu_response_parser import is_valid_baidu_uid
+
+    return is_valid_baidu_uid(uid)
+
+
+def _is_ticket_price_lookup(state: TravelAgentState) -> bool:
+    from app.orchestrator.fact_lookup_policy import is_fact_lookup_task, primary_fact_need_from_state
+
+    return is_fact_lookup_task(state) and primary_fact_need_from_state(state) == "ticket_price"
+
+
 def enrich_mcp_tool_arguments(
     tool_name: str,
     arguments: dict,
@@ -65,11 +77,87 @@ def enrich_mcp_tool_arguments(
             args.setdefault("country", country)
         if city:
             args.setdefault("city", city)
-        need = args.get("information_need") or ClaimSearchPlanner.primary_information_need(state)
-        if need:
-            args.setdefault("information_need", need)
-            args.setdefault("claim_type", need)
+        if frame and frame.entities and frame.entities.region:
+            args.setdefault("province", frame.entities.region)
+        if _is_ticket_price_lookup(state):
+            args["information_need"] = "ticket_price"
+            args["claim_type"] = "ticket_price"
+        else:
+            need = args.get("information_need") or ClaimSearchPlanner.primary_information_need(state)
+            if need:
+                args.setdefault("information_need", need)
+                args.setdefault("claim_type", need)
         args.setdefault("query", args.get("query") or state.raw_user_query)
+        from app.orchestrator.ticket_product_policy import ensure_ticket_product_context, ticket_product_keywords
+
+        product_ctx = ensure_ticket_product_context(state)
+        if product_ctx:
+            args.setdefault("ticket_product", product_ctx.get("ticket_product"))
+            kws = ticket_product_keywords(state)
+            if kws:
+                args.setdefault("ticket_product_keywords", kws)
+                args.setdefault("product_keywords", kws)
+                place = args.get("place_name") or resolved_place_label(state)
+                if place:
+                    args.setdefault("normalized_place", place)
+                aliases = list(dict.fromkeys([*(args.get("aliases") or []), *kws]))
+                args["aliases"] = aliases[:12]
+                product_query = " ".join(kws[:4])
+                if product_query and product_query not in (args.get("query") or ""):
+                    args["query"] = f"{args.get('query') or state.raw_user_query} {product_query}".strip()
+        from app.orchestrator.ticket_lookup_helpers import build_ticket_place_aliases
+        from app.orchestrator.fact_lookup_anchor_policy import resolved_place_label
+
+        aliases = build_ticket_place_aliases(state)
+        if aliases:
+            args.setdefault("aliases", aliases)
+
+    if tool_name == "official_source_discovery_mcp":
+        from app.orchestrator.ticket_lookup_helpers import collect_ticket_search_hits, collect_ticket_search_urls
+
+        hits = collect_ticket_search_hits(state)
+        urls = collect_ticket_search_urls(state)
+        if hits:
+            args.setdefault("search_results", hits)
+        if urls:
+            args.setdefault("urls", urls)
+        from app.orchestrator.ticket_product_policy import ensure_ticket_product_context
+        from app.orchestrator.ticket_relevance_policy import discovery_hit_relevant, place_anchor_terms
+
+        place = str(args.get("place_name") or "").strip()
+        claim = args.get("claim_type") or args.get("information_need")
+        anchors = place_anchor_terms(state)
+        product_ctx = ensure_ticket_product_context(state)
+        ticket_product = (product_ctx or {}).get("ticket_product") if product_ctx else None
+        if hits:
+            hits = [
+                h
+                for h in hits
+                if discovery_hit_relevant(
+                    h,
+                    place_name=place,
+                    claim_type=str(claim) if claim else None,
+                    anchor_terms=anchors,
+                    ticket_product=ticket_product,
+                )
+            ]
+            args["search_results"] = hits
+        if urls:
+            urls = [
+                u
+                for u in urls
+                if discovery_hit_relevant(
+                    {"url": u, "title": "", "snippet": ""},
+                    place_name=place,
+                    claim_type=str(claim) if claim else None,
+                    anchor_terms=anchors,
+                    ticket_product=ticket_product,
+                )
+            ]
+            args["urls"] = urls
+        args.setdefault("anchor_terms", anchors)
+        if state.evidence:
+            args.setdefault("prior_evidence", list(state.evidence))
 
     if tool_name in {"weather", "seasonality", "lodging"} or tool_name in {
         "openmeteo_mcp",
@@ -120,6 +208,15 @@ def enrich_mcp_tool_arguments(
                 args.setdefault("allowed_domains", domains)
             if state.evidence and "url" not in args and "source_url" not in args:
                 args.setdefault("prior_evidence", list(state.evidence))
+            from app.orchestrator.ticket_lookup_helpers import collect_ticket_search_urls
+
+            ticket_urls = collect_ticket_search_urls(state)
+            if ticket_urls and tool_name == "official_page_reader_mcp":
+                args.setdefault("urls", ticket_urls[:5])
+                args.setdefault("url", ticket_urls[0])
+            if tool_name == "official_page_reader_mcp" and _is_ticket_price_lookup(state):
+                args["information_need"] = "ticket_price"
+                args.setdefault("max_follow_urls", 5)
             if tool_name == "baidu_place_detail_mcp" and "uid" not in args:
                 from tools.mcp.adapters.baidu_response_parser import pick_baidu_uid_from_evidence
 
@@ -140,7 +237,33 @@ def enrich_mcp_tool_arguments(
         if tool_name == "baidu_ip_location_mcp":
             args["location_sensitive"] = True
 
+    _validate_mcp_tool_arguments(tool_name, args, state=state)
     return args
+
+
+def _validate_mcp_tool_arguments(tool_name: str, args: dict, *, state: TravelAgentState) -> None:
+    """Raise ValueError when required args cannot be satisfied (post-enrichment)."""
+    from app.orchestrator.ticket_lookup_helpers import collect_ticket_search_urls, has_ticket_url_inputs
+
+    if tool_name == "official_source_discovery_mcp":
+        urls = list(args.get("urls") or [])
+        hits = list(args.get("search_results") or [])
+        if not urls and not hits and not has_ticket_url_inputs(state):
+            raise ValueError(
+                "official_source_discovery_mcp requires urls or search_results; skip when none available"
+            )
+    if tool_name == "baidu_reverse_geocode_mcp":
+        if args.get("latitude") is None or args.get("longitude") is None:
+            raise ValueError("baidu_reverse_geocode_mcp requires latitude and longitude")
+    if tool_name == "baidu_place_detail_mcp":
+        uid = str(args.get("uid") or "").strip()
+        if uid and not _is_valid_baidu_uid(uid):
+            args.pop("uid", None)
+    if tool_name in {"official_page_reader_mcp", "browser_mcp"}:
+        url = str(args.get("url") or args.get("source_url") or "").strip()
+        urls = args.get("urls") or []
+        if not url and not urls and not collect_ticket_search_urls(state):
+            raise ValueError(f"{tool_name} requires a readable url")
 
 
 def nearby_coordinate_patch(

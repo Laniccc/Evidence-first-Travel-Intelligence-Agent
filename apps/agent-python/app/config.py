@@ -166,6 +166,21 @@ class Settings(BaseSettings):
     fliggy_api_sign_method: Literal["md5", "hmac"] = "md5"
     fliggy_api_timeout_seconds: float = 15.0
     fliggy_ticket_crawler_max_results: int = 20
+    # Canonical Fliggy ticket API env aliases (preferred in ops/docs)
+    fliggy_ticket_api_enabled: bool = False
+    fliggy_ticket_api_endpoint: str = "https://gw.api.taobao.com/router/rest"
+    fliggy_ticket_api_key: str | None = None
+    fliggy_ticket_api_secret: str | None = None
+    fliggy_ticket_api_timeout_seconds: float = 30.0
+    fliggy_ticket_api_max_results: int = 10
+    # Fliggy AI Open Platform (flyai.open.fliggy.com) — sk- API key + flyai-cli
+    fliggy_flyai_enabled: bool = False
+    fliggy_flyai_api_key: str | None = None
+    fliggy_flyai_cli_command: str = "npx --yes @fly-ai/flyai-cli@1.0.16"
+    fliggy_flyai_timeout_seconds: float = 30.0
+    fliggy_ticket_crawler_command: str = ""
+    fliggy_ticket_crawler_workdir: str = ""
+    fliggy_ticket_crawler_timeout_seconds: float = 30.0
 
     # Dianping
     dianping_crawler_enabled: bool = False
@@ -204,6 +219,9 @@ class Settings(BaseSettings):
         "fliggy_app_key",
         "fliggy_app_secret",
         "fliggy_session",
+        "fliggy_ticket_api_key",
+        "fliggy_ticket_api_secret",
+        "fliggy_flyai_api_key",
         mode="before",
     )
     @classmethod

@@ -1141,6 +1141,7 @@ class TravelAgentStateMachine:
             "subagent_results",
             "fact_lookup_pipeline_runs",
             "fact_anchor",
+            "lookup_research_chain",
             "nearby_enrichment_runs",
             "completed_search_task_ids",
             "subagent_evidence_gate_rejects",

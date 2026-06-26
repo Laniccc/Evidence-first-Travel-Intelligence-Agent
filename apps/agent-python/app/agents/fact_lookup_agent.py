@@ -1,145 +1,104 @@
-"""S5 sub-agent: strict fact lookup (anchor → official-first pipeline)."""
+"""fact_lookup_agent — phase/source_family runner for LookupResearchChain."""
 
 from __future__ import annotations
 
-import logging
-import uuid
+from typing import Any
 
-from app.agents.delegated_mcp_runner import pick_tool_from_priority, run_delegated_mcp
-from app.agents.fact_lookup_pipeline_runner import run_fact_lookup_pipeline
-from app.agents.s5_subagent_registry import S5_SUBAGENT_PROFILES
-from app.orchestrator.fact_lookup_anchor_policy import (
-    apply_fact_anchor_from_evidence,
-    interpret_place_for_fact_need,
-    needs_geo_anchor,
-    raw_place_label,
-    resolved_place_label,
+from app.agents.fact_lookup_phase_runner import run_lookup_phase
+from app.orchestrator.fact_lookup_policy import is_fact_lookup_task, primary_fact_need_from_state
+from app.orchestrator.lookup_research_chain import (
+    ensure_lookup_chain_initialized,
+    is_duplicate_lookup_attempt,
+    lookup_attempt_signature,
+    record_lookup_attempt,
 )
-from app.orchestrator.fact_lookup_policy import primary_fact_need_from_state
-from app.orchestrator.place_disambiguation_guard import extract_place_candidates
-from app.schemas.search_task import SearchTask
+from app.schemas.lookup_research_chain import LookupPhase, LookupQueryObjective, SourceFamily
 from app.schemas.user_query import TravelAgentState
 
-logger = logging.getLogger(__name__)
 
-_PROFILE = S5_SUBAGENT_PROFILES["fact_lookup_agent"]
-_ER_PROFILE = S5_SUBAGENT_PROFILES["entity_resolution_agent"]
+def _normalize_query_objectives(raw: Any) -> list[dict] | None:
+    if raw is None:
+        return None
+    if isinstance(raw, LookupQueryObjective):
+        return [raw.model_dump()]
+    if isinstance(raw, dict):
+        return [raw]
+    if isinstance(raw, str):
+        return [{"objective": raw, "source_family": "web_reference"}]
+    if not isinstance(raw, list):
+        return None
+    out: list[dict] = []
+    for item in raw:
+        if isinstance(item, LookupQueryObjective):
+            out.append(item.model_dump())
+        elif isinstance(item, dict):
+            out.append(item)
+        elif isinstance(item, str):
+            out.append({"objective": item})
+    return out or None
+
+
+def _objective_key(query_objectives: list[dict] | None, source_family: str) -> str:
+    if not query_objectives:
+        return source_family
+    first = query_objectives[0]
+    if isinstance(first, dict):
+        return str(first.get("objective") or first.get("query_intent") or source_family)
+    return str(first or source_family)
 
 
 class FactLookupAgent:
-    """LOOKUP task-class agent: geo anchor + deterministic official-first fact pipeline."""
-
     def __init__(self, tools_registry=None) -> None:
         self.tools = tools_registry
-
-    @staticmethod
-    def _task_from_arguments(arguments: dict, state: TravelAgentState) -> SearchTask:
-        need = arguments.get("information_need") or arguments.get("claim_target") or primary_fact_need_from_state(state)
-        place = resolved_place_label(state) or arguments.get("search_query") or state.raw_user_query[:64]
-        place = interpret_place_for_fact_need(place, need)
-        frame = state.semantic_frame
-        raw = {
-            "task_id": arguments.get("task_id") or f"fact-{uuid.uuid4().hex[:8]}",
-            "lookup_intent": arguments.get("lookup_intent") or f"核实{need}硬事实",
-            "claim_target": need,
-            "information_need": need,
-            "search_query": arguments.get("search_query") or place,
-            "anchor_keywords": arguments.get("anchor_keywords") or [place[:32]],
-            "preferred_tool": arguments.get("preferred_tool") or "search_mcp",
-            "tool_parameters": arguments.get("tool_parameters") or {},
-            "rationale": arguments.get("rationale") or "",
-        }
-        if frame and frame.entities:
-            raw["tool_parameters"] = {
-                **raw["tool_parameters"],
-                "city": frame.entities.city or raw["tool_parameters"].get("city"),
-                "region": frame.entities.region or raw["tool_parameters"].get("region"),
-                "country": frame.entities.country or raw["tool_parameters"].get("country") or "China",
-                "place_name": place,
-            }
-        return SearchTask.model_validate(raw)
 
     async def run(
         self,
         state: TravelAgentState,
-        arguments: dict,
+        arguments: dict | None = None,
         prompt_context: dict | None = None,
-    ) -> dict:
+    ) -> dict[str, Any]:
+        args = arguments or {}
+        if not is_fact_lookup_task(state):
+            return {"subagent": "fact_lookup_agent", "evidence": [], "tool_traces": []}
         if not self.tools:
-            raise RuntimeError("Tool registry unavailable for fact_lookup_agent")
+            return {
+                "subagent": "fact_lookup_agent",
+                "evidence": [],
+                "tool_traces": [],
+                "error": "tools_registry required",
+            }
 
-        prompt_context = prompt_context or {}
-        need = arguments.get("information_need") or arguments.get("claim_target") or primary_fact_need_from_state(state)
-        task = self._task_from_arguments(arguments, state)
-        whitelist = prompt_context.get("tool_whitelist")
-        all_evidence: list = []
-        all_traces: list = []
-        tool_call_count = 0
-        working_evidence = list(state.evidence or [])
+        ensure_lookup_chain_initialized(state)
+        lookup_phase: LookupPhase = args.get("lookup_phase") or "fact_acquisition"
+        source_family: SourceFamily = args.get("source_family") or "web_reference"
+        claim_target = args.get("claim_target") or primary_fact_need_from_state(state)
+        query_objectives = _normalize_query_objectives(args.get("query_objectives"))
 
-        anchor_query = raw_place_label(state) or task.search_query
-        if needs_geo_anchor(state) or not extract_place_candidates(working_evidence):
-            tool_name = pick_tool_from_priority(
-                _ER_PROFILE.tool_priority,
-                whitelist,
-                preferred="baidu_place_search_mcp",
-                state=state,
-                claim_type="entity_resolution",
-                subagent="fact_lookup_agent",
-            )
-            if tool_name:
-                anchor_task = task.model_copy(
-                    update={
-                        "task_id": f"{task.task_id}-anchor",
-                        "claim_target": "entity_resolution",
-                        "information_need": "entity_resolution",
-                        "search_query": anchor_query,
-                        "lookup_intent": f"锚定景区/山体：{anchor_query}",
-                    }
-                )
-                try:
-                    ev, tr = await run_delegated_mcp(
-                        self.tools,
-                        tool_name,
-                        anchor_task,
-                        state,
-                        prompt_context,
-                        subagent="fact_lookup_agent",
-                    )
-                    all_evidence.extend(ev)
-                    all_traces.extend(tr)
-                    working_evidence.extend(ev)
-                    tool_call_count += 1
-                    apply_fact_anchor_from_evidence(state, need)
-                    task = self._task_from_arguments(arguments, state)
-                except Exception as exc:
-                    logger.warning("fact_lookup anchor failed: %s", exc)
+        sig = lookup_attempt_signature(
+            subagent="fact_lookup_agent",
+            claim_type=claim_target,
+            phase=lookup_phase,
+            source_family=source_family,
+            objective=_objective_key(query_objectives, source_family),
+        )
+        if is_duplicate_lookup_attempt(state, sig):
+            return {
+                "subagent": "fact_lookup_agent",
+                "skipped": True,
+                "reason": "duplicate_lookup_attempt",
+                "evidence": [],
+                "tool_traces": [],
+            }
+        record_lookup_attempt(state, sig)
 
-        pipe_ev, pipe_tr, pipe_calls = await run_fact_lookup_pipeline(
+        return await run_lookup_phase(
             tools_registry=self.tools,
             state=state,
-            base_task=task,
-            working_evidence=working_evidence + all_evidence,
+            lookup_phase=lookup_phase,
+            source_family=source_family,
+            claim_target=claim_target,
+            query_objectives=query_objectives,
+            chain_updates=args.get("lookup_research_chain_update"),
             prompt_context=prompt_context,
-            parent_subagent="fact_lookup_agent",
+            task_id=str(args.get("task_id") or "fact-lookup"),
         )
-        all_evidence.extend(pipe_ev)
-        all_traces.extend(pipe_tr)
-        tool_call_count += pipe_calls
-
-        structured = dict(state.structured_result or {})
-        anchor = structured.get("fact_anchor")
-
-        return {
-            "subagent": "fact_lookup_agent",
-            "task_id": task.task_id,
-            "lookup_intent": task.lookup_intent,
-            "claim_target": task.claim_target,
-            "information_need": task.information_need,
-            "search_query": task.search_query,
-            "fact_anchor": anchor,
-            "place_candidates": extract_place_candidates(working_evidence + all_evidence),
-            "evidence": all_evidence,
-            "tool_traces": all_traces,
-            "tool_call_count": tool_call_count,
-        }

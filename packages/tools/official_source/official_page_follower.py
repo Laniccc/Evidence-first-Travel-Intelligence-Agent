@@ -27,7 +27,7 @@ _SUBPAGE_ANCHOR_KEYWORDS: dict[str, tuple[str, ...]] = {
         "hours",
         "opening",
     ),
-    "ticket_price": ("门票", "票价", "票务", "ticket", "price", "参观须知"),
+    "ticket_price": ("门票", "票价", "票务", "购票", "预约", "参观服务", "游客服务", "收费标准", "ticket", "price", "参观须知"),
     "reservation_policy": ("预约", "预订", "购票", "reservation", "booking", "参观须知"),
     "temporary_closure": ("公告", "闭园", "通知", "notice", "closure"),
 }

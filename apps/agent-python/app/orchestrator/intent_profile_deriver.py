@@ -27,6 +27,9 @@ _HARD_FACT_NEEDS = frozenset(
         "reservation_required",
         "seasonal_operation_status",
         "road_opening_period",
+        "elevation",
+        "altitude",
+        "height_elevation",
     }
 )
 

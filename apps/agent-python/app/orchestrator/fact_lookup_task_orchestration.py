@@ -1,4 +1,4 @@
-"""strict_fact_lookup task-class orchestration (S5 finish hints, S8 compose mode)."""
+"""strict_fact_lookup task-class orchestration (LookupResearchChain S5 hints, S8 compose)."""
 
 from __future__ import annotations
 
@@ -11,16 +11,29 @@ from app.orchestrator.fact_lookup_policy import (
     is_geographic_fact_need,
     primary_fact_need_from_state,
 )
+from app.orchestrator.lookup_research_chain import (
+    build_lookup_research_context,
+    build_retrieval_audit,
+    get_lookup_chain,
+    lookup_phase_order,
+    next_recommended_phase,
+)
 from app.schemas.intent_profile import PrimaryIntent
 from app.schemas.user_query import TravelAgentState
 
 
 def fact_lookup_completed(state: TravelAgentState) -> bool:
+    """True when at least one fact_lookup phase run completed (not full-chain done)."""
     structured = state.structured_result or {}
     for row in structured.get("subagent_results") or []:
-        if row.get("subagent") == "fact_lookup_agent":
+        if row.get("subagent") == "fact_lookup_agent" and not row.get("skipped"):
             return True
     return False
+
+
+def lookup_chain_audit(state: TravelAgentState):
+    chain = get_lookup_chain(state)
+    return chain.audit or build_retrieval_audit(state)
 
 
 def fact_s5_has_actionable_evidence(state: TravelAgentState) -> bool:
@@ -31,25 +44,42 @@ def fact_s5_has_actionable_evidence(state: TravelAgentState) -> bool:
 def fact_s5_may_finish_early(state: TravelAgentState, step: int) -> bool:
     if not is_fact_lookup_task(state) or step < 1:
         return False
-    if not fact_lookup_completed(state):
-        return False
     need = primary_fact_need_from_state(state)
-    actionable = count_actionable_fact_claims(list(state.evidence or []), need)
-    if actionable >= 1:
-        if has_official_fact_evidence(list(state.evidence or []), need):
+    if need == "ticket_price":
+        from app.orchestrator.ticket_lookup_policy import ticket_lookup_retrieval_complete
+
+        if ticket_lookup_retrieval_complete(state) and step >= 2:
             return True
-        return step >= 1
-    return step >= 3
+    actionable = count_actionable_fact_claims(list(state.evidence or []), need)
+    audit = lookup_chain_audit(state)
+    report = state.coverage_report
+    if report and report.all_required_covered:
+        return True
+    if audit.recommended_next == "finish" and actionable >= 1:
+        return True
+    if actionable >= 1 and has_official_fact_evidence(list(state.evidence or []), need):
+        return True
+    chain = get_lookup_chain(state)
+    if "retrieval_audit" in chain.completed_phases and step >= 3:
+        return actionable >= 1 or step >= 5
+    return step >= 6
 
 
 def fact_s5_skip_fact_search(state: TravelAgentState) -> bool:
-    """After fact_lookup_agent pipeline, avoid generic fact_search rotation."""
+    """Skip generic fact_search only when audit/coverage says research is sufficient."""
     if not is_fact_lookup_task(state):
         return False
-    if not fact_lookup_completed(state):
-        return False
     need = primary_fact_need_from_state(state)
-    return count_actionable_fact_claims(list(state.evidence or []), need) >= 1
+    actionable = count_actionable_fact_claims(list(state.evidence or []), need)
+    if not actionable:
+        return False
+    audit = lookup_chain_audit(state)
+    if audit.recommended_next == "finish":
+        return True
+    report = state.coverage_report
+    if report and report.all_required_covered:
+        return True
+    return False
 
 
 def fact_s5_system_append(state: TravelAgentState) -> str:
@@ -63,28 +93,37 @@ def fact_s5_system_append(state: TravelAgentState) -> str:
     official = has_official_fact_evidence(list(state.evidence or []), need)
     place = resolved_place_label(state)
     scope = place_scope_note(state, need)
+    chain_ctx = build_lookup_research_context(state)
+    phases = lookup_phase_order(need)
+    nxt = next_recommended_phase(state)
+    audit = chain_ctx.get("retrieval_audit") or {}
     geo_block = ""
     if is_geographic_fact_need(need):
         geo_block = """
 Geographic numeric facts (elevation, etc.):
-- Anchor entity via geo tools first; then use encyclopedia / structured geo / official reader.
-- If first pass lacks numeric claims, delegate follow-up searches (fact_search_agent) with refined queries from evidence gaps — do NOT hardcode peak names.
-- finish_state only when required claim is covered OR gap planner reports no productive tool left."""
+- Anchor entity via entity_resolution_agent when place ambiguous.
+- Use geo_authority source_family (wikidata/wikipedia/osm) in fact_acquisition phase.
+- Do NOT hardcode peak names; refine queries from evidence gaps only."""
     scope_line = f"\nPlace scope: {scope}" if scope else ""
     return f"""
-## Task class: strict_fact_lookup (hard fact / {need})
+## Task class: strict_fact_lookup — LookupResearchChain (hard fact / {need})
 
 Primary fact need: {need} ({label})
 Resolved place label: {place}{scope_line}
+Phase order: {' → '.join(phases)}
+Next recommended phase: {nxt}
+Retrieval audit: recommended_next={audit.get('recommended_next', 'continue')}
 
-Roles for this query:
-1. **Once** call `fact_lookup_agent` — geo anchor (if city/POI missing) → official-first pipeline.
-2. Do NOT rotate unrelated tools (route/weather/nearby/review) unless user explicitly asked.
-3. `finish_state` when fact_lookup_agent completed ({n} actionable {label} claims; official={official}).
-4. If no official evidence: S8 states「无法确认」; never invent prices/hours/elevation.
-5. Never re-call fact_lookup_agent after it appears in subagent_results.{geo_block}
+Roles:
+1. **entity_anchor** (if unanchored) → `entity_resolution_agent` once.
+2. **official_discovery** / **fact_acquisition** → `fact_lookup_agent` with ONE `lookup_phase` + ONE `source_family` per call.
+   Pass arguments: lookup_phase, source_family, claim_target, query_objectives (optional).
+3. **fact_search_agent** only when audit recommends continue AND objectives remain untried.
+4. `finish_state` when coverage satisfied OR audit.recommended_next=finish OR step budget.
+5. Never invent prices/hours/elevation; S8 states「无法确认」when evidence insufficient.
+6. Do NOT repeat the same (phase, source_family, objective) — check attempt_signatures.{geo_block}
 
-finish_state is appropriate when: fact_lookup_agent completed AND (actionable evidence exists OR elevation pipeline exhausted).
+Current actionable claims: {n} ({label}); official={official}
 """.strip()
 
 
@@ -95,6 +134,7 @@ def fact_s5_planning_context(state: TravelAgentState) -> dict:
 
     need = primary_fact_need_from_state(state)
     structured = state.structured_result or {}
+    ctx = build_lookup_research_context(state)
     return {
         "s5_task_class": "strict_fact_lookup",
         "primary_fact_need": need,
@@ -107,6 +147,7 @@ def fact_s5_planning_context(state: TravelAgentState) -> dict:
         "fact_has_official_evidence": has_official_fact_evidence(list(state.evidence or []), need),
         "fact_may_finish_early": fact_s5_may_finish_early(state, step=99),
         "fact_skip_fact_search": fact_s5_skip_fact_search(state),
+        **ctx,
     }
 
 

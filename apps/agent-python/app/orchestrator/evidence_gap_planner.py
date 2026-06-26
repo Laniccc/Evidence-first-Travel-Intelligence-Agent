@@ -11,6 +11,7 @@ from app.schemas.evidence_decision_report import ClaimDecision
 from app.schemas.evidence_gap_request import EvidenceGapRequest
 from app.schemas.response_contract import ClaimRequirement
 from app.schemas.user_query import TravelAgentState
+from app.orchestrator.ticket_lookup_helpers import TICKET_GAP_FILL_TOOLS
 from app.tools.tool_name_resolver import resolve_tool_name
 from app.tools.mcp.tool_specs import NEED_TOOL_PROFILES
 
@@ -117,6 +118,13 @@ class EvidenceGapPlanner:
                 return 999
 
         untried = sorted(untried, key=_tool_rank)
+        if claim.claim_type == "ticket_price":
+            ticket_pool = [
+                t
+                for t in TICKET_GAP_FILL_TOOLS
+                if resolve_tool_name(t) not in tried and t not in (policy.forbidden_tools or [])
+            ]
+            untried = ticket_pool or untried
         if not untried and decision.coverage_quality not in {"none", "weak"}:
             return None
         if decision.coverage_quality == "none" and not untried:
@@ -145,7 +153,27 @@ class EvidenceGapPlanner:
 
         planner_ctx = ClaimSearchPlanner.planning_context(state)
         rewriter = SearchQueryRewriter.from_planning_context(planner_ctx, state)
-        if claim.claim_type in _GAP_TEMPLATES:
+        if claim.claim_type == "ticket_price":
+            from app.orchestrator.ticket_product_policy import build_ticket_price_search_queries, ensure_ticket_product_context
+
+            ensure_ticket_product_context(state)
+            product_queries = build_ticket_price_search_queries(state)
+            if product_queries:
+                rendered = product_queries[:4]
+            else:
+                templates = _GAP_TEMPLATES[claim.claim_type]
+                rendered = [
+                    t.format(
+                        place_name=place,
+                        city=city,
+                        region=region,
+                        claim_type=claim.claim_type,
+                        user_query=state.raw_user_query,
+                        peer_place=peer,
+                    )
+                    for t in templates
+                ]
+        elif claim.claim_type in _GAP_TEMPLATES:
             templates = _GAP_TEMPLATES[claim.claim_type]
             rendered = [
                 t.format(
@@ -161,10 +189,11 @@ class EvidenceGapPlanner:
         else:
             rendered = rewriter.gap_query_templates(claim.claim_type, max_queries=4)
 
-        suggested_tools = untried[:4] or ["search_mcp"]
+        suggested_tools = untried[:9] if claim.claim_type == "ticket_price" else (untried[:4] or ["search_mcp"])
         if needs_official_source_gap(state.evidence, claim.claim_type, decision):
             if "official_source_discovery_mcp" not in suggested_tools:
-                suggested_tools = ["official_source_discovery_mcp", *suggested_tools][:4]
+                cap = 9 if claim.claim_type == "ticket_price" else 4
+                suggested_tools = ["official_source_discovery_mcp", *suggested_tools][:cap]
             reason = (
                 decision.reason
                 or f"missing official source support for {claim.claim_type}"
@@ -189,8 +218,64 @@ class EvidenceGapPlanner:
             max_extra_steps=3,
             priority="high" if claim.priority == "required" else "medium",
         )
+        lookup_objectives = self._lookup_gap_objectives(
+            state, claim.claim_type, needs_official_source_gap(state.evidence, claim.claim_type, decision)
+        )
+        if lookup_objectives:
+            gap.query_objectives = lookup_objectives
+            gap.query_objective = lookup_objectives[0].objective
+            if not gap.query_templates:
+                from app.orchestrator.lookup_query_objectives import objective_to_search_query
+
+                gap.query_templates = [objective_to_search_query(o) for o in lookup_objectives[:4]]
         gap.ensure_signature()
         return gap
+
+    @staticmethod
+    def _lookup_gap_objectives(
+        state: TravelAgentState,
+        claim_type: str,
+        needs_official: bool,
+    ) -> list:
+        from app.orchestrator.fact_lookup_policy import is_fact_lookup_task
+        from app.orchestrator.lookup_query_objectives import (
+            build_lookup_query_objectives,
+            objectives_from_gap,
+        )
+        from app.schemas.lookup_research_chain import SourceFamily
+
+        lookup_needs = {
+            "ticket_price",
+            "opening_hours",
+            "reservation_policy",
+            "seasonal_operation_status",
+            "elevation",
+            "highest_peak_elevation",
+            "main_peak_elevations",
+            "general_fact",
+        }
+        if claim_type not in lookup_needs and not is_fact_lookup_task(state):
+            return []
+        family: SourceFamily = "official_operator" if needs_official else "web_reference"
+        if claim_type in {"elevation", "highest_peak_elevation", "main_peak_elevations"}:
+            from app.orchestrator.lookup_query_objectives import build_peak_elevation_objectives
+            from app.orchestrator.peak_elevation_extraction import discover_peak_names_from_evidence
+
+            place = active_place_name(state) or ""
+            peaks = discover_peak_names_from_evidence(list(state.evidence or []))
+            return build_peak_elevation_objectives(state, place=place, peak_names=peaks, max_objectives=4)
+        objs = build_lookup_query_objectives(state, claim_type, family, max_objectives=2)
+        if not objs:
+            place = active_place_name(state) or ""
+            objs = [
+                objectives_from_gap(
+                    claim_type=claim_type,
+                    source_family=family,
+                    anchor_terms=[place] if place else [],
+                    query_intent=f"补证缺口：{claim_type}",
+                )
+            ]
+        return objs
 
     @staticmethod
     def _tried_tools(state: TravelAgentState) -> list[str]:

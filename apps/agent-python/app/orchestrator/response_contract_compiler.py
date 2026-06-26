@@ -17,6 +17,12 @@ from app.orchestrator.information_need_aliases import (
     normalize_need,
     resolve_nearby_need,
 )
+from app.orchestrator.lookup_need_aliases import (
+    infer_lookup_needs_from_intent_subtypes,
+    infer_lookup_needs_from_text,
+    is_elevation_lookup_text,
+    resolve_lookup_need,
+)
 from app.schemas.normalized_user_request import NormalizedUserRequest
 from app.schemas.response_contract import (
     ClaimRequirement,
@@ -92,6 +98,7 @@ _PLACE_ENTITY_LABELS = frozenset(
 
 _TICKET_PRICE_PROVIDER_TOOLS = [
     "ticketlens_experience_mcp",
+    "fliggy_ticket_api_mcp",
     "fliggy_ticket_snapshot_crawler_mcp",
     "ctrip_ticket_signal_crawler_mcp",
     "dianping_ticket_signal_crawler_mcp",
@@ -144,6 +151,15 @@ class ResponseContractCompiler:
             claims.append(self._general_seasonal_context_claim())
         else:
             normalized_needs = normalize_information_needs(list(frame.information_needs or []), text=text)
+            if intent_profile and intent_profile.primary_intent == PrimaryIntent.LOOKUP:
+                for subtype_need in infer_lookup_needs_from_intent_subtypes(
+                    intent_profile.intent_subtypes
+                ):
+                    if subtype_need not in normalized_needs:
+                        normalized_needs.append(subtype_need)
+                for inferred in infer_lookup_needs_from_text(text):
+                    if inferred not in normalized_needs:
+                        normalized_needs.append(inferred)
             for need in normalized_needs:
                 claim = self._claim_for_need(need, frame)
                 if claim and not any(c.claim_type == claim.claim_type for c in claims):
@@ -168,7 +184,18 @@ class ResponseContractCompiler:
                     if claim and not any(c.claim_type == claim.claim_type for c in claims):
                         claims.append(claim)
             if not claims:
-                claims.append(self._general_advice_claim(frame))
+                if intent_profile and intent_profile.primary_intent == PrimaryIntent.LOOKUP:
+                    lookup_needs = infer_lookup_needs_from_intent_subtypes(
+                        intent_profile.intent_subtypes
+                    ) or infer_lookup_needs_from_text(text)
+                    if is_elevation_lookup_text(text) and "elevation" not in lookup_needs:
+                        lookup_needs.append("elevation")
+                    for need in lookup_needs:
+                        claim = self._claim_for_need(need, frame)
+                        if claim and not any(c.claim_type == claim.claim_type for c in claims):
+                            claims.append(claim)
+                if not claims:
+                    claims.append(self._general_advice_claim(frame))
         elif intent_profile and intent_profile.primary_intent == PrimaryIntent.NEARBY:
             if all(c.claim_type == "general_travel_advice" for c in claims):
                 claims = []
@@ -181,7 +208,14 @@ class ResponseContractCompiler:
                 if not claims:
                     claims.append(self._general_advice_claim(frame))
 
+        claims = self._append_elevation_subclaims(claims, frame)
         claims = self._apply_intent_claim_hints(claims, intent_profile)
+        if intent_profile and intent_profile.primary_intent == PrimaryIntent.LOOKUP:
+            claims = [c for c in claims if c.claim_type != "general_travel_advice"]
+            if is_elevation_lookup_text(text) and not any(c.claim_type == "elevation" for c in claims):
+                elev = self._claim_for_need("elevation", frame)
+                if elev:
+                    claims.append(elev)
         if intent_profile and intent_profile.primary_intent == PrimaryIntent.COMPARISON:
             claims = self._ensure_comparison_claims(claims, frame)
         claims = self._append_provider_preferred_tools(claims)
@@ -308,8 +342,15 @@ class ResponseContractCompiler:
                     "official",
                 ],
             }.get(need, ["search_mcp", "official_page_reader_mcp"])
+            claim_family = {
+                "ticket_price": "ticket_booking",
+                "opening_hours": "seasonal_operation",
+                "reservation_policy": "ticket_booking",
+                "seasonal_operation_status": "seasonal_operation",
+            }.get(need, "hard_fact")
             return ClaimRequirement(
                 claim_type=need,
+                claim_family=claim_family,
                 priority="required",
                 requires_exact_fact=True,
                 requires_live_data=policy.requires_live_data,
@@ -429,31 +470,127 @@ class ResponseContractCompiler:
             )
 
         if need in {"elevation", "altitude", "area", "general_fact"}:
-            claim_type = "elevation" if need == "altitude" else need
+            claim_type = "elevation" if need in {"elevation", "altitude"} else need
+            if claim_type == "elevation":
+                return self._elevation_claim_bundle(frame)
             return ClaimRequirement(
                 claim_type=claim_type,
+                claim_family="geo_fact",
                 priority="required" if frame.requires_exact_fact else "important",
                 requires_exact_fact=bool(frame.requires_exact_fact),
                 requires_live_data=False,
                 freshness="stable",
-                allowed_source_types=["public_web", "encyclopedia", "map", "official", "model_prior"],
+                allowed_source_types=["encyclopedia", "map", "official", "public_web"],
                 preferred_tools=[
-                    "search_mcp",
-                    "wikipedia_mcp",
                     "wikidata_mcp",
+                    "wikipedia_mcp",
+                    "search_mcp",
+                    "browser_mcp",
+                    "baidu_place_detail_mcp",
+                    "official_page_reader_mcp",
                     "osm_mcp",
-                    "baidu_place_search_mcp",
-                    "knowledge_prior",
-                    "fallback",
                 ],
-                forbidden_tools=["knowledge_prior"] if frame.requires_exact_fact else [],
-                model_prior_allowed=frame.can_answer_with_model_prior and not frame.requires_exact_fact,
-                estimation_allowed=not frame.requires_exact_fact,
-                coverage_rule=f"must cite explicit {need} value (e.g. meters) from web or encyclopedia",
+                forbidden_tools=["knowledge_prior"],
+                model_prior_allowed=False,
+                estimation_allowed=False,
+                coverage_rule="must cite explicit elevation value in meters from encyclopedia/geo/official sources",
                 missing_behavior="answer_with_limitation",
             )
 
         return None
+
+    @staticmethod
+    def _elevation_geo_tools() -> list[str]:
+        return [
+            "wikidata_mcp",
+            "wikipedia_mcp",
+            "search_mcp",
+            "browser_mcp",
+            "baidu_place_detail_mcp",
+            "official_page_reader_mcp",
+            "official_source_discovery_mcp",
+            "osm_mcp",
+        ]
+
+    def _elevation_claim_bundle(self, frame: SemanticFrame) -> ClaimRequirement:
+        return ClaimRequirement(
+            claim_type="elevation",
+            claim_family="geo_fact",
+            answer_scope="mountain_or_scenic_area",
+            priority="required" if frame.requires_exact_fact else "important",
+            requires_exact_fact=bool(frame.requires_exact_fact),
+            requires_live_data=False,
+            freshness="stable",
+            allowed_source_types=["encyclopedia", "map", "official", "public_web"],
+            preferred_tools=self._elevation_geo_tools(),
+            forbidden_tools=[
+                "knowledge_prior",
+                "dianping_ticket_signal_crawler_mcp",
+                "dianping_review_crawler_mcp",
+                "ctrip_ticket_signal_crawler_mcp",
+                "ticket_price_history_query",
+                "ticket_snapshot_store",
+            ],
+            model_prior_allowed=False,
+            estimation_allowed=False,
+            coverage_rule="must cite explicit elevation in meters; range-only is partial",
+            missing_behavior="answer_with_limitation",
+        )
+
+    @staticmethod
+    def _elevation_subclaims(frame: SemanticFrame) -> list[ClaimRequirement]:
+        tools = ResponseContractCompiler._elevation_geo_tools()
+        forbidden = [
+            "knowledge_prior",
+            "dianping_ticket_signal_crawler_mcp",
+            "dianping_review_crawler_mcp",
+            "ctrip_ticket_signal_crawler_mcp",
+            "ticket_price_history_query",
+            "ticket_snapshot_store",
+        ]
+        exact = bool(frame.requires_exact_fact)
+        return [
+            ClaimRequirement(
+                claim_type="highest_peak_elevation",
+                claim_family="geo_fact",
+                parent_claim_type="elevation",
+                answer_scope="highest_peak_elevation",
+                priority="important",
+                requires_exact_fact=exact,
+                preferred_tools=tools,
+                forbidden_tools=forbidden,
+                model_prior_allowed=False,
+                coverage_rule="identify highest peak and its elevation in meters",
+                missing_behavior="answer_with_limitation",
+            ),
+            ClaimRequirement(
+                claim_type="main_peak_elevations",
+                claim_family="geo_fact",
+                parent_claim_type="elevation",
+                answer_scope="main_peak_elevations",
+                priority="important",
+                requires_exact_fact=exact,
+                preferred_tools=tools,
+                forbidden_tools=forbidden,
+                model_prior_allowed=False,
+                coverage_rule="per-main-peak elevation values when evidence names peaks",
+                missing_behavior="answer_with_limitation",
+            ),
+        ]
+
+    @staticmethod
+    def _append_elevation_subclaims(
+        claims: list[ClaimRequirement],
+        frame: SemanticFrame,
+    ) -> list[ClaimRequirement]:
+        if not any(c.claim_type == "elevation" for c in claims):
+            return claims
+        existing = {c.claim_type for c in claims}
+        for sub in ResponseContractCompiler._elevation_subclaims(frame):
+            if sub.claim_type not in existing:
+                claims.append(sub)
+                existing.add(sub.claim_type)
+        return claims
 
     @staticmethod
     def _best_time_claim(

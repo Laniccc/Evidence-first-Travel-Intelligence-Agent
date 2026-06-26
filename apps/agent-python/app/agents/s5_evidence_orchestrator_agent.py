@@ -39,7 +39,7 @@ Your THREE roles each step:
 Available subagents (see subagent_definitions):
 - entity_resolution_agent: anchor place/POI, resolve 同名地点 (Baidu geo inside agent).
 - route_feasibility_agent: distance/duration/traffic (Baidu route inside agent).
-- fact_lookup_agent: anchor + official-first hard facts (ticket, hours, reservation).
+- fact_lookup_agent: phase/source_family runner for LOOKUP (official_discovery, fact_acquisition).
 - fact_search_agent: fallback web search when fact_lookup insufficient.
 - weather_context_agent: short-term weather when need forecast/weather.
 - evidence_contradiction_decomposer_agent: split conflicting claim tiers.
@@ -52,7 +52,8 @@ Delegation arguments (pass in "arguments"):
 Ordering heuristics:
 - China place without city → entity_resolution_agent before route/fact.
 - 一天够吗/多远/多久 → route_feasibility_agent (needs origin+destination in tool_parameters).
-- ticket/opening_hours/elevation → fact_lookup_agent first (LOOKUP task); fact_search_agent only if pipeline insufficient.
+- ticket/opening_hours/elevation → LookupResearchChain: entity_resolution_agent if unanchored;
+  then fact_lookup_agent per phase+source_family; fact_search_agent only when audit says continue.
 - place_candidates ambiguous → entity_resolution_agent (handles branch searches internally).
 - multi-value conflict → evidence_contradiction_decomposer_agent.
 
@@ -74,11 +75,14 @@ class S5EvidenceOrchestratorAgent:
         prompt_context: dict,
         step: int,
     ) -> AgentAction:
+        from app.orchestrator.lookup_research_chain import advance_entity_anchor_if_satisfied
+
+        advance_entity_anchor_if_satisfied(state)
         poi_action = self._mandatory_poi_entity_action(state, step)
         if poi_action is not None:
             return poi_action
 
-        fact_action = self._mandatory_fact_lookup_action(state, step)
+        fact_action = self._mandatory_lookup_entity_action(state, step)
         if fact_action is not None:
             return fact_action
 
@@ -106,33 +110,20 @@ class S5EvidenceOrchestratorAgent:
             f"POI anchor gate (nearby task): resolve {place}",
         )
 
-    def _mandatory_fact_lookup_action(self, state: TravelAgentState, step: int) -> AgentAction | None:
-        """LOOKUP task class: force fact_lookup_agent before generic fact_search rotation."""
-        from app.orchestrator.fact_lookup_policy import primary_fact_need_from_state
-        from app.orchestrator.fact_lookup_task_orchestration import (
-            fact_lookup_completed,
-            is_fact_lookup_task,
-        )
+    def _mandatory_lookup_entity_action(self, state: TravelAgentState, step: int) -> AgentAction | None:
+        """LOOKUP: force entity_resolution when entity_anchor phase incomplete."""
+        from app.orchestrator.fact_lookup_policy import is_fact_lookup_task
+        from app.orchestrator.lookup_research_chain import lookup_mandatory_entity_anchor
+        from app.orchestrator.s5_poi_anchor_policy import build_entity_resolution_arguments
 
-        if step >= 1 or not is_fact_lookup_task(state) or fact_lookup_completed(state):
+        if not is_fact_lookup_task(state) or not lookup_mandatory_entity_anchor(state, step):
             return None
-        need = primary_fact_need_from_state(state)
-        frame = state.semantic_frame
-        place = ""
-        if frame and frame.entities and frame.entities.places:
-            place = frame.entities.places[0]
-        if not place:
-            place = state.raw_user_query[:64]
+        args = build_entity_resolution_arguments(state)
+        place = args.get("search_query") or "place"
         return self._subagent_action(
-            "fact_lookup_agent",
-            {
-                "lookup_intent": f"核实{need}：{place}",
-                "claim_target": need,
-                "information_need": need,
-                "search_query": place,
-                "anchor_keywords": [place[:32]],
-            },
-            f"Fact lookup gate: official-first {need} for {place}",
+            "entity_resolution_agent",
+            args,
+            f"Lookup chain entity_anchor: resolve {place}",
         )
 
     async def _llm_next_action(
@@ -172,6 +163,10 @@ class S5EvidenceOrchestratorAgent:
 
         payload.update(nearby_s5_planning_context(state))
         payload.update(fact_s5_planning_context(state))
+        chain_ctx = payload.get("lookup_research_chain")
+        if chain_ctx:
+            payload["completed_phases"] = chain_ctx.get("completed_phases")
+            payload["query_objectives"] = chain_ctx.get("query_objectives")
         system = _SYSTEM
         nearby_append = nearby_s5_system_append(state)
         fact_append = fact_s5_system_append(state)
@@ -191,6 +186,7 @@ class S5EvidenceOrchestratorAgent:
         if action.action_type == AgentActionType.CALL_SUBAGENT:
             if action.target not in ORCHESTRATOR_SUBAGENT_NAMES:
                 raise ValueError(f"unknown subagent {action.target!r}")
+            action = self._gate_lookup_entity_resolution(state, action, step)
         return action
 
     def _deterministic_fallback(
@@ -207,8 +203,19 @@ class S5EvidenceOrchestratorAgent:
         strategy = state.intent_strategy
 
         if self._should_finish(state, prompt_context, step):
+            args: dict = {}
+            from app.orchestrator.fact_lookup_policy import is_fact_lookup_task, primary_fact_need_from_state
+            from app.orchestrator.ticket_lookup_policy import ticket_lookup_retrieval_complete
+
+            if (
+                is_fact_lookup_task(state)
+                and primary_fact_need_from_state(state) == "ticket_price"
+                and ticket_lookup_retrieval_complete(state)
+            ):
+                args["evidence_gap_acknowledged"] = True
             return AgentAction(
                 action_type=AgentActionType.FINISH_STATE,
+                arguments=args,
                 reason_summary="S5 orchestrator: evidence sufficient or step budget",
                 confidence=0.78,
             )
@@ -218,6 +225,10 @@ class S5EvidenceOrchestratorAgent:
         )
         if intent_action is not None:
             return intent_action
+
+        lookup_action = self._lookup_chain_fallback_action(state, step)
+        if lookup_action is not None:
+            return lookup_action
 
         country = ""
         if frame and frame.entities:
@@ -233,18 +244,26 @@ class S5EvidenceOrchestratorAgent:
             and "entity_resolution_agent" not in done_subagents
             and step < 8
         ):
-            place = frame.entities.places[0]
-            return self._subagent_action(
-                "entity_resolution_agent",
-                {
-                    "lookup_intent": f"锚定用户所指地点：{place}",
-                    "claim_target": "entity_resolution",
-                    "search_query": place,
-                    "anchor_keywords": [place],
-                    "information_need": "entity_resolution",
-                },
-                f"Fallback: resolve place {place}",
+            from app.orchestrator.fact_lookup_policy import is_fact_lookup_task
+            from app.orchestrator.lookup_entity_resolution_policy import (
+                entity_resolution_allowed_for_lookup,
             )
+
+            if is_fact_lookup_task(state) and not entity_resolution_allowed_for_lookup(state):
+                pass
+            else:
+                place = frame.entities.places[0]
+                return self._subagent_action(
+                    "entity_resolution_agent",
+                    {
+                        "lookup_intent": f"锚定用户所指地点：{place}",
+                        "claim_target": "entity_resolution",
+                        "search_query": place,
+                        "anchor_keywords": [place],
+                        "information_need": "entity_resolution",
+                    },
+                    f"Fallback: resolve place {place}",
+                )
 
         route_needs = {
             "route_plan",
@@ -334,6 +353,16 @@ class S5EvidenceOrchestratorAgent:
         report = state.coverage_report
         if report and report.all_required_covered:
             return True
+        from app.orchestrator.fact_lookup_policy import is_fact_lookup_task, primary_fact_need_from_state
+        from app.orchestrator.ticket_lookup_policy import ticket_lookup_retrieval_complete
+
+        if (
+            is_fact_lookup_task(state)
+            and primary_fact_need_from_state(state) == "ticket_price"
+            and ticket_lookup_retrieval_complete(state)
+            and step >= 2
+        ):
+            return True
         structured = state.structured_result or {}
         results = structured.get("subagent_results") or []
         if len(results) >= 8 and step >= 4:
@@ -346,6 +375,68 @@ class S5EvidenceOrchestratorAgent:
         if int(prompt_context.get("tool_call_count", 0)) >= max_calls:
             return True
         return False
+
+    def _gate_lookup_entity_resolution(
+        self,
+        state: TravelAgentState,
+        action: AgentAction,
+        step: int,
+    ) -> AgentAction:
+        if action.target != "entity_resolution_agent":
+            return action
+        from app.orchestrator.fact_lookup_policy import is_fact_lookup_task
+        from app.orchestrator.lookup_entity_resolution_policy import entity_resolution_allowed_for_lookup
+
+        if not is_fact_lookup_task(state) or entity_resolution_allowed_for_lookup(state):
+            return action
+        fallback = self._lookup_chain_fallback_action(state, step)
+        return fallback or action
+
+    def _lookup_chain_fallback_action(
+        self,
+        state: TravelAgentState,
+        step: int,
+    ) -> AgentAction | None:
+        from app.orchestrator.fact_lookup_policy import is_fact_lookup_task, primary_fact_need_from_state
+        from app.orchestrator.lookup_query_objectives import build_lookup_query_objectives
+        from app.orchestrator.lookup_research_chain import (
+            is_duplicate_lookup_attempt,
+            lookup_attempt_signature,
+            next_recommended_phase,
+            source_families_for_phase,
+        )
+
+        if not is_fact_lookup_task(state) or step >= 12:
+            return None
+        phase = next_recommended_phase(state)
+        if not phase or phase in {"research_frame", "source_plan", "retrieval_audit"}:
+            return None
+        if phase == "entity_anchor":
+            return None
+        need = primary_fact_need_from_state(state)
+        for family in source_families_for_phase(phase, need):
+            objectives = build_lookup_query_objectives(state, need, family)
+            obj_key = objectives[0].objective if objectives else family
+            sig = lookup_attempt_signature(
+                subagent="fact_lookup_agent",
+                claim_type=need,
+                phase=phase,
+                source_family=family,
+                objective=obj_key,
+            )
+            if is_duplicate_lookup_attempt(state, sig):
+                continue
+            return self._subagent_action(
+                "fact_lookup_agent",
+                {
+                    "lookup_phase": phase,
+                    "source_family": family,
+                    "claim_target": need,
+                    "query_objectives": [o.model_dump() for o in objectives],
+                },
+                f"Lookup chain fallback: {phase}/{family}",
+            )
+        return None
 
     def _intent_subagent_action(
         self,
@@ -372,6 +463,13 @@ class S5EvidenceOrchestratorAgent:
 
             if agent == "entity_resolution_agent":
                 if step >= 8:
+                    continue
+                from app.orchestrator.fact_lookup_policy import is_fact_lookup_task
+                from app.orchestrator.lookup_entity_resolution_policy import (
+                    entity_resolution_allowed_for_lookup,
+                )
+
+                if is_fact_lookup_task(state) and not entity_resolution_allowed_for_lookup(state):
                     continue
                 if not frame or not frame.entities or not frame.entities.places:
                     continue

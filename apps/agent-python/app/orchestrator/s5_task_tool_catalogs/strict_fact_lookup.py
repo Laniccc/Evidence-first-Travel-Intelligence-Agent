@@ -1,4 +1,4 @@
-"""S5 strict_fact_lookup task catalog — tickets, hours, hard facts."""
+"""S5 strict_fact_lookup task catalog — LookupResearchChain phases."""
 
 from __future__ import annotations
 
@@ -7,19 +7,28 @@ from app.orchestrator.s5_task_tool_catalogs.types import AgentToolDefinition
 STRICT_FACT_LOOKUP_TOOL_CATALOG: dict[str, AgentToolDefinition] = {
     "fact_lookup_agent": AgentToolDefinition(
         name="fact_lookup_agent",
-        summary="S5 子代理：硬事实官方优先流水线（LOOKUP 任务首选）。",
+        summary="S5 子代理：按 lookup_phase + source_family 执行单轮检索（LOOKUP chain）。",
         when_to_use=[
-            "门票多少钱、开放时间、预约政策",
-            "strict_fact_lookup 任务第一步",
+            "official_discovery 或 fact_acquisition 阶段",
+            "每次调用仅一个 source_family",
         ],
-        when_not_to_use=["周边美食列表", "路线距离", "天气"],
+        when_not_to_use=["entity_anchor（用 entity_resolution_agent）", "周边美食", "路线"],
         parameters={
-            "lookup_intent": "证据目标",
-            "claim_target": "ticket_price|opening_hours|…",
-            "search_query": "景区名",
+            "lookup_phase": "official_discovery|fact_acquisition",
+            "source_family": "official_operator|government_tourism|ticket_platform|geo_authority|web_reference",
+            "claim_target": "ticket_price|opening_hours|elevation|…",
+            "query_objectives": "LookupQueryObjective[]",
         },
         satisfies_needs=["ticket_price", "opening_hours", "reservation_policy", "elevation"],
-        call_order_hint="LOOKUP：先本代理，再 contradiction_decomposer",
+        call_order_hint="LOOKUP：entity_anchor → official_discovery → fact_acquisition → retrieval_audit",
+    ),
+    "entity_resolution_agent": AgentToolDefinition(
+        name="entity_resolution_agent",
+        summary="锚定景区/POI，消歧同名地点（LOOKUP entity_anchor 阶段）。",
+        when_to_use=["LOOKUP 且地点未锚定", "同名行政区 vs 景区"],
+        when_not_to_use=["已 fact_anchor 或 city+候选齐全"],
+        satisfies_needs=["entity_resolution"],
+        call_order_hint="LOOKUP chain L1：在 fact_lookup 之前",
     ),
     "official_source_discovery_mcp": AgentToolDefinition(
         name="official_source_discovery_mcp",
@@ -28,7 +37,7 @@ STRICT_FACT_LOOKUP_TOOL_CATALOG: dict[str, AgentToolDefinition] = {
         when_not_to_use=["周边推荐、路线距离"],
         prerequisites=["search_mcp 或已有 URL 线索"],
         satisfies_needs=["opening_hours", "ticket_price", "seasonal_operation_status"],
-        call_order_hint="硬事实任务：search → official_discovery → official_reader",
+        call_order_hint="official_discovery phase 内由 fact_lookup_agent 调度",
     ),
     "official_page_reader_mcp": AgentToolDefinition(
         name="official_page_reader_mcp",
@@ -40,19 +49,26 @@ STRICT_FACT_LOOKUP_TOOL_CATALOG: dict[str, AgentToolDefinition] = {
     ),
     "fact_search_agent": AgentToolDefinition(
         name="fact_search_agent",
-        summary="S5 子代理：网页/官方/票务硬事实检索。",
-        when_to_use=["门票、开放时间、海拔、季节运营状态"],
+        summary="S5 子代理：缺口/补充网页检索（audit 建议 continue 时）。",
+        when_to_use=["LOOKUP audit 建议继续且 fact_lookup 阶段已尝试"],
         parameters={
             "lookup_intent": "证据目标描述",
             "claim_target": "claim 类型",
         },
         satisfies_needs=["ticket_price", "opening_hours", "elevation", "general_fact"],
-        call_order_hint="strict_fact_lookup 主控子代理",
+        call_order_hint="LOOKUP：fact_lookup 多轮之后；gap-fill 定向 objective",
+    ),
+    "evidence_contradiction_decomposer_agent": AgentToolDefinition(
+        name="evidence_contradiction_decomposer_agent",
+        summary="拆分官方/平台/攻略等多层证据冲突。",
+        when_to_use=["LOOKUP 出现票价/海拔口径冲突"],
+        when_not_to_use=["尚无候选证据"],
+        call_order_hint="LOOKUP：fact_acquisition 之后若 conflict_possible",
     ),
     "baidu_place_detail_mcp": AgentToolDefinition(
         name="baidu_place_detail_mcp",
         summary="百度 POI 详情：营业时间/地址候选（非官方终证）。",
-        when_to_use=["官方页不可用时的营业时间候选"],
+        when_to_use=["map_candidate source_family"],
         when_not_to_use=["票价终证——优先官方页"],
         satisfies_needs=["opening_hours_candidate", "address_lookup"],
     ),

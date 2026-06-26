@@ -216,8 +216,21 @@ class StateReducer:
                     "selected_tool": output.get("selected_tool"),
                     "evidence_count": len(evidence),
                     "resolution_status": output.get("resolution_status"),
+                    "lookup_phase": output.get("lookup_phase"),
+                    "source_family": output.get("source_family"),
                 }
             )
+            if output.get("lookup_research_chain"):
+                structured["lookup_research_chain"] = output["lookup_research_chain"]
+            from app.orchestrator.lookup_research_chain import merge_chain_updates
+
+            merge_chain_updates(state, output.get("lookup_research_chain_update"))
+            if target == "entity_resolution_agent":
+                from app.orchestrator.fact_lookup_policy import is_fact_lookup_task
+                from app.orchestrator.lookup_research_chain import mark_phase_complete
+
+                if is_fact_lookup_task(state):
+                    mark_phase_complete(state, "entity_anchor")
             structured["subagent_results"] = sub_results[-16:]
             state.structured_result = structured
             query_preview = str(output.get("search_query", ""))[:48]

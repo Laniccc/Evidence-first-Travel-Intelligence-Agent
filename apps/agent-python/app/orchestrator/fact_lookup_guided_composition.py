@@ -27,6 +27,17 @@ def build_fact_lookup_presentation(state: TravelAgentState) -> dict:
     candidates = extract_place_candidates(list(state.evidence or []))
     official = has_official_fact_evidence(list(state.evidence or []), need)
     scope_note = place_scope_note(state, need)
+    peak_table = None
+    if is_geographic_fact_need(need):
+        from app.orchestrator.peak_elevation_extraction import extract_peak_elevation_table
+
+        structured = state.structured_result or {}
+        if structured.get("peak_elevation_table"):
+            peak_table = structured["peak_elevation_table"]
+        else:
+            peak_table = extract_peak_elevation_table(
+                list(state.evidence or []), place_name=place
+            ).model_dump()
 
     disambiguation = None
     if len(candidates) >= 2:
@@ -40,9 +51,34 @@ def build_fact_lookup_presentation(state: TravelAgentState) -> dict:
         "若证据不足或互相矛盾，明确说明缺口，不要写「常见官方引用」类常识。",
         "末尾写 limitations：检索日期、是否官方、缺口说明。",
     ]
+    if need == "ticket_price":
+        from app.orchestrator.ticket_product_policy import ensure_ticket_product_context
+
+        product_ctx = ensure_ticket_product_context(state)
+        compose_instructions.insert(
+            1,
+            "票价类：先说明是否取得官方票价；若仅有飞猪/携程/TicketLens/点评候选价，"
+            "须写「官方票价未确认；平台候选价为 X 元，可能随日期/套餐变化」。"
+            "不得把平台价写成官方票价；不要把 gov 首页/百科/知乎攻略列为票价线索。",
+        )
+        if product_ctx and product_ctx.get("ticket_product") == "boat_ticket":
+            compose_instructions.insert(
+                2,
+                "游船/船票类：用户问的是船票而非景区大门票。若无票价证据，应写"
+                "「未查到游船票价证据」，可注明可能涉及码头/游船服务点（如双湖游船），"
+                "不要要求用户在同一景区内多个 POI 之间做地点消歧；"
+                "不要把世界杯/联赛/住宿预算等无关搜索命中列为线索，应概括为「已排除无关页面」。",
+            )
+        compose_instructions.append(
+            "若 official_source_discovery 找到政府/景区背景页但 supports_claim_types 不含 ticket_price "
+            "或 has_ticket_info=false，应写「已找到官方背景页，但该页不含票价，不能确认官方票价」，"
+            "不得将其列为票价线索。"
+        )
     if is_geographic_fact_need(need):
         compose_instructions.append(
-            "地理数值类问题：只采纳证据中带明确米制/数值的陈述；景区面积、经纬度、局部海拔不等于用户所问主峰高度。"
+            "地理数值类问题：先说明口径（最高峰/主峰/景区整体），再列具体米数；"
+            "若有 peak_elevation_table 则按表格列出各峰海拔；"
+            "仅「均逾/超过某范围」时须明确未查到精确米数，不得当作已回答「多少米」。"
         )
     if scope_note:
         compose_instructions.insert(1, f"地点范围：{scope_note}")
@@ -58,6 +94,7 @@ def build_fact_lookup_presentation(state: TravelAgentState) -> dict:
         "place_scope_note": scope_note,
         "disambiguation_presentation": disambiguation,
         "candidate_count": len(candidates),
+        "peak_elevation_table": peak_table,
         "compose_instructions": compose_instructions,
     }
 
@@ -88,6 +125,7 @@ def build_fact_lookup_draft(
     need = pres.get("primary_fact_need") or "general_fact"
     clues = pres.get("fact_clues") or []
     official = pres.get("has_official_evidence")
+    peak_table = pres.get("peak_elevation_table") or {}
     limitations = list(state.limitations or [])
     cited: list[str] = []
 
@@ -107,6 +145,31 @@ def build_fact_lookup_draft(
         if not official:
             headline += " 尚未检索到明确官方口径，以下仅供核对参考。"
         sections.append(FinalAnswerSection(title=f"{place}{label}", bullets=[headline, *bullets]))
+        peaks = peak_table.get("peaks") or []
+        if peaks:
+            peak_lines = []
+            highest = peak_table.get("highest_peak")
+            if highest:
+                peak_lines.append(f"最高峰候选：{highest}")
+            for row in peaks[:6]:
+                name = row.get("peak_name") or "山峰"
+                elev = row.get("elevation_m")
+                if elev is not None:
+                    peak_lines.append(f"- {name}：约 {elev} 米")
+            if peak_lines:
+                sections.append(
+                    FinalAnswerSection(title=f"{place}主峰海拔", bullets=peak_lines)
+                )
+        elif peak_table.get("value_granularity") == "range_only":
+            sections.append(
+                FinalAnswerSection(
+                    title="海拔精度说明",
+                    bullets=[
+                        "当前证据仅包含海拔范围描述（如「均逾某高度」），未能确认各主峰的具体米数。",
+                        "如需精确数值，建议查阅百科/景区官方地理说明。",
+                    ],
+                )
+            )
     else:
         sections.append(
             FinalAnswerSection(
@@ -121,6 +184,10 @@ def build_fact_lookup_draft(
 
     if not official and clues:
         limitations.append(f"{label}暂无官方来源证据，请勿将第三方信息当作最终硬事实。")
+
+    from app.orchestrator.ticket_lookup_policy import filter_ticket_price_limitations
+
+    limitations = filter_ticket_price_limitations(limitations, need=need)
 
     disambiguation = pres.get("disambiguation_presentation")
     options = [

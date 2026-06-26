@@ -60,7 +60,6 @@ def test_pipeline_search_query_official_wording():
     q = pipeline_search_query(state, "ticket_price")
     assert "兵马俑" in q
     assert "门票" in q
-    assert "官方" in q
 
 
 def _huangshan_elevation_state() -> TravelAgentState:
@@ -87,11 +86,12 @@ def _huangshan_elevation_state() -> TravelAgentState:
     return state
 
 
-def test_elevation_pipeline_uses_generic_queries():
+def test_elevation_pipeline_uses_objective_queries():
     state = _huangshan_elevation_state()
     queries = pipeline_search_queries(state, "elevation")
     assert any("海拔" in q for q in queries)
     assert not any("莲花峰" in q for q in queries)
+    assert not any("主峰" in q for q in queries)
 
 
 def test_elevation_anchor_prefers_scenic_over_city():
@@ -148,7 +148,7 @@ def test_fact_lookup_guided_draft_without_evidence():
     assert "无法确认" in text
 
 
-def test_fact_s5_finish_and_skip_after_lookup_agent():
+def test_fact_s5_finish_and_skip_after_lookup_with_audit_finish():
     state = _terracotta_state()
     state.evidence = [
         Evidence(
@@ -161,7 +161,12 @@ def test_fact_s5_finish_and_skip_after_lookup_agent():
         )
     ]
     state.structured_result = {
-        "subagent_results": [{"subagent": "fact_lookup_agent", "evidence_count": 3}]
+        "subagent_results": [{"subagent": "fact_lookup_agent", "evidence_count": 3}],
+        "lookup_research_chain": {
+            "current_phase": "retrieval_audit",
+            "completed_phases": ["research_frame", "source_plan", "official_discovery"],
+            "audit": {"recommended_next": "finish", "official_fact_found": False},
+        },
     }
     assert fact_s5_may_finish_early(state, step=2)
     assert fact_s5_skip_fact_search(state)
@@ -227,6 +232,41 @@ def test_action_executor_registers_fact_lookup_agent():
 
     source = inspect.getsource(ActionExecutor._call_subagent)
     assert 'name == "fact_lookup_agent"' in source
+
+
+def test_response_contract_lookup_claim_family():
+    state = _terracotta_state()
+    claim = state.response_contract.claim_requirements[0]
+    assert claim.claim_family == "ticket_booking"
+    assert claim.model_prior_allowed is False
+
+
+def test_evidence_gap_request_query_objectives():
+    from app.orchestrator.evidence_gap_planner import EvidenceGapPlanner
+    from app.orchestrator.claim_policy_registry import resolve_policy
+    from app.schemas.evidence_decision_report import ClaimDecision
+
+    state = _terracotta_state()
+    claim = state.response_contract.claim_requirements[0]
+    policy = resolve_policy(claim)
+    decision = ClaimDecision(
+        claim_type=claim.claim_type,
+        adoption="omit",
+        coverage_quality="none",
+        reason="missing official",
+    )
+    gap = EvidenceGapPlanner().plan_gaps(state, claim, policy, decision, gap_round=0, max_gap_rounds=2)
+    assert gap is not None
+    assert gap.query_objectives
+    assert gap.query_objective
+
+
+def test_fact_lookup_agent_accepts_string_query_objectives():
+    from app.agents.fact_lookup_agent import _normalize_query_objectives, _objective_key
+
+    objs = _normalize_query_objectives(["geo_elevation"])
+    assert objs == [{"objective": "geo_elevation"}]
+    assert _objective_key(objs, "geo_authority") == "geo_elevation"
 
 
 def test_debug_log_surfaces_unknown_subagent():

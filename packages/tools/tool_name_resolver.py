@@ -18,6 +18,9 @@ POLICY_TOOL_ALIASES: dict[str, str] = {
     "ctrip_ticket_crawler_mcp": "ctrip_ticket_signal_crawler_mcp",
     "ctrip_review_signal_mcp": "ctrip_review_crawler_mcp",
     "dianping_review_signal_mcp": "dianping_review_crawler_mcp",
+    "fliggy_ticket_snapshot_crawler_mcp": "fliggy_ticket_api_mcp",
+    "fliggy_ticket_signal_mcp": "fliggy_ticket_api_mcp",
+    "feizhu_ticket_api_mcp": "fliggy_ticket_api_mcp",
 }
 
 

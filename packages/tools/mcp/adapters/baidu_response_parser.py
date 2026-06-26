@@ -8,6 +8,18 @@ from app.schemas.evidence import Claim, ClaimType
 
 _POI_NAME_RE = re.compile(r'"name"\s*:\s*"((?:\\.|[^"\\])*)"')
 _POI_UID_RE = re.compile(r'"uid"\s*:\s*"([^"]+)"')
+_BAIDU_UID_RE = re.compile(r"^[a-f0-9]{10,40}$", re.I)
+
+
+def is_valid_baidu_uid(uid: str | None) -> bool:
+    text = str(uid or "").strip()
+    if not text or len(text) > 64:
+        return False
+    if re.search(r"[\u4e00-\u9fff]", text):
+        return False
+    if " " in text or "http" in text.lower():
+        return False
+    return bool(_BAIDU_UID_RE.match(text))
 _POI_LAT_RE = re.compile(r'"(?:lat|latitude)"\s*:\s*([-\d.]+)')
 _POI_LNG_RE = re.compile(r'"(?:lng|lon|longitude)"\s*:\s*([-\d.]+)')
 _POI_CITY_RE = re.compile(r'"city"\s*:\s*"((?:\\.|[^"\\])*)"')
@@ -444,7 +456,7 @@ def pick_baidu_uid_from_evidence(
                     if not _candidate_matches_region(item, region=region, city=city):
                         continue
                     uid = item.get("uid")
-                    if uid:
+                    if uid and is_valid_baidu_uid(str(uid)):
                         return str(uid)
                 if not (region or city) and bucket and isinstance(bucket[0], dict):
                     uid = bucket[0].get("uid")
@@ -746,8 +758,9 @@ def _uid_from_claim_value(val: Any) -> str | None:
     if isinstance(val, str) and val.strip():
         if val.startswith("{") and "uid" in val:
             matches = _POI_UID_RE.findall(val)
-            return matches[0] if matches else None
-        return val.strip()
+            return matches[0] if matches and is_valid_baidu_uid(matches[0]) else None
+        text = val.strip()
+        return text if is_valid_baidu_uid(text) else None
     return None
 
 

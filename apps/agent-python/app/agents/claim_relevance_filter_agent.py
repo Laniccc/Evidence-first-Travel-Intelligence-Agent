@@ -29,7 +29,7 @@ class ClaimRelevanceFilterAgent:
         if is_comparison_mode(state):
             needs = ["crowd_level", "route_plan", "review_summary"]
 
-        curated, excluded = self._rule_filter(state.evidence, needs)
+        curated, excluded = self._rule_filter(state, needs)
 
         if self.llm._should_use_anthropic() and curated:
             try:
@@ -46,13 +46,18 @@ class ClaimRelevanceFilterAgent:
 
     def _rule_filter(
         self,
-        evidence: list,
+        state: TravelAgentState,
         needs: list[str],
     ) -> tuple[list[CuratedClaimRow], list[str]]:
+        evidence = state.evidence
         need_set = set(needs)
         curated: list[CuratedClaimRow] = []
         excluded_ids: list[str] = []
         seen: set[str] = set()
+        from app.orchestrator.fact_lookup_policy import primary_fact_need_from_state
+        from app.orchestrator.ticket_relevance_policy import ticket_relevance_score
+
+        ticket_mode = primary_fact_need_from_state(state) == "ticket_price" or "ticket_price" in need_set
 
         for ev in evidence:
             if not isinstance(ev, Evidence):
@@ -63,9 +68,20 @@ class ClaimRelevanceFilterAgent:
                 if not value or is_search_miss_value(value):
                     continue
                 ct = claim.claim_type.value
-                relevance = self._relevance_score(ct, need_set, value)
-                if relevance < 0.25:
-                    continue
+                if ticket_mode:
+                    relevance = ticket_relevance_score(
+                        state,
+                        ct,
+                        value,
+                        source_name=str(ev.source_name or ""),
+                        source_url=str(ev.source_url or ""),
+                    )
+                    if relevance < 0.5:
+                        continue
+                else:
+                    relevance = self._relevance_score(ct, need_set, value)
+                    if relevance < 0.25:
+                        continue
                 actionable = True
                 key = f"{ev.evidence_id}:{ct}:{value[:80]}"
                 if key in seen:

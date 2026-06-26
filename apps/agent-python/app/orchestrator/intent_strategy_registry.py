@@ -113,6 +113,7 @@ _TICKET_TOOLS = [
     "search_mcp",
     "browser_mcp",
     "ticketlens_experience_mcp",
+    "fliggy_ticket_api_mcp",
     "fliggy_ticket_snapshot_crawler_mcp",
     "ctrip_ticket_signal_crawler_mcp",
     "dianping_ticket_signal_crawler_mcp",
@@ -166,7 +167,8 @@ INTENT_STRATEGY_REGISTRY: dict[PrimaryIntent, IntentStrategyTemplate] = {
             fallback=["search_mcp", "wikidata_mcp", "osm_mcp"],
             forbidden=[
                 "ticketlens_experience_mcp",
-                "fliggy_ticket_snapshot_crawler_mcp",
+                "fliggy_ticket_api_mcp",
+    "fliggy_ticket_snapshot_crawler_mcp",
                 "ctrip_ticket_signal_crawler_mcp",
                 "dianping_ticket_signal_crawler_mcp",
                 "dianping_review_crawler_mcp",
@@ -189,9 +191,9 @@ INTENT_STRATEGY_REGISTRY: dict[PrimaryIntent, IntentStrategyTemplate] = {
         s7_policy="hard_fact_strict",
         domain_priority=[
             D.GEO_RESOLUTION,
+            D.GEO_FACT,
             D.OPERATION_STATUS,
             D.TICKET_BOOKING,
-            D.ROUTE_PLANNING,
         ],
         tool_tiers=IntentToolTiers(
             primary=[*_GEO_TOOLS[:4], *_OFFICIAL_TOOLS[:4]],

@@ -18,6 +18,7 @@ from app.orchestrator.information_need_aliases import (
     query_text_from_state,
     resolve_nearby_need,
 )
+from app.orchestrator.lookup_need_aliases import resolve_lookup_need
 from app.orchestrator.intent_strategy_registry import IntentStrategy, resolve_intent_strategy
 
 D = InformationDomain
@@ -88,6 +89,15 @@ CLAIM_TO_DOMAINS: dict[str, list[InformationDomain]] = {
     "place_lookup": [D.GEO_RESOLUTION],
     "coordinates": [D.GEO_RESOLUTION],
     "disambiguation": [D.GEO_RESOLUTION],
+    "elevation": [D.GEO_FACT, D.GEO_RESOLUTION],
+    "altitude": [D.GEO_FACT, D.GEO_RESOLUTION],
+    "height_elevation": [D.GEO_FACT, D.GEO_RESOLUTION],
+    "mountain_height": [D.GEO_FACT, D.GEO_RESOLUTION],
+    "peak_height": [D.GEO_FACT, D.GEO_RESOLUTION],
+    "area": [D.GEO_FACT, D.GEO_RESOLUTION],
+    "highest_peak_elevation": [D.GEO_FACT, D.GEO_RESOLUTION],
+    "main_peak_elevations": [D.GEO_FACT, D.GEO_RESOLUTION],
+    "general_fact": [D.GEO_FACT, D.GEO_RESOLUTION],
 }
 
 _GEO_CLAIM_TYPES = frozenset(
@@ -201,7 +211,7 @@ class S5DomainPlanner:
                 if is_nearby_need(need):
                     canonical = resolve_nearby_need(need, text=frame_text)
                 else:
-                    canonical = normalize_need(need)
+                    canonical = resolve_lookup_need(normalize_need(need))
                 if canonical not in claims:
                     claims.append(canonical)
         return claims

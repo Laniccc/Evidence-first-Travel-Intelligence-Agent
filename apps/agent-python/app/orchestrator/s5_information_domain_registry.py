@@ -54,10 +54,28 @@ _GEO_BINDINGS: list[S5DomainToolBinding] = [
     _b(D.GEO_RESOLUTION, P.BAIDU_LBS_PROVIDER, "baidu_place_detail_mcp", R.PRIMARY, _GEO_CLAIMS),
     _b(D.GEO_RESOLUTION, P.BAIDU_LBS_PROVIDER, "baidu_geocode_mcp", R.PRIMARY, _GEO_CLAIMS),
     _b(D.GEO_RESOLUTION, P.BAIDU_LBS_PROVIDER, "baidu_reverse_geocode_mcp", R.PRIMARY, _GEO_CLAIMS),
-    _b(D.GEO_RESOLUTION, P.ROUTE_PROVIDER, "osm_mcp", R.FALLBACK, _GEO_CLAIMS),
-    _b(D.GEO_RESOLUTION, P.SEARCH_PROVIDER, "wikidata_mcp", R.FALLBACK, _GEO_CLAIMS),
-    _b(D.GEO_RESOLUTION, P.SEARCH_PROVIDER, "wikipedia_mcp", R.FALLBACK, _GEO_CLAIMS),
     _b(D.GEO_RESOLUTION, P.SEARCH_PROVIDER, "search_mcp", R.FALLBACK, _GEO_CLAIMS),
+]
+
+_GEO_FACT_CLAIMS = [
+    "elevation",
+    "altitude",
+    "height_elevation",
+    "mountain_height",
+    "peak_height",
+    "area",
+    "coordinates",
+    "general_fact",
+]
+
+_GEO_FACT_BINDINGS: list[S5DomainToolBinding] = [
+    _b(D.GEO_FACT, P.SEARCH_PROVIDER, "wikidata_mcp", R.PRIMARY, _GEO_FACT_CLAIMS),
+    _b(D.GEO_FACT, P.SEARCH_PROVIDER, "wikipedia_mcp", R.PRIMARY, _GEO_FACT_CLAIMS),
+    _b(D.GEO_FACT, P.SEARCH_PROVIDER, "search_mcp", R.PRIMARY, _GEO_FACT_CLAIMS),
+    _b(D.GEO_FACT, P.CRAWLER_PROVIDER, "browser_mcp", R.PRIMARY, _GEO_FACT_CLAIMS),
+    _b(D.GEO_FACT, P.BAIDU_LBS_PROVIDER, "baidu_place_detail_mcp", R.CANDIDATE, _GEO_FACT_CLAIMS),
+    _b(D.GEO_FACT, P.OFFICIAL_WEB_PROVIDER, "official_page_reader_mcp", R.CANDIDATE, _GEO_FACT_CLAIMS),
+    _b(D.GEO_FACT, P.ROUTE_PROVIDER, "osm_mcp", R.FALLBACK, _GEO_FACT_CLAIMS),
 ]
 
 _TICKET_CLAIMS = [
@@ -70,10 +88,19 @@ _TICKET_CLAIMS = [
 ]
 
 _TICKET_BINDINGS: list[S5DomainToolBinding] = [
+    _b(D.TICKET_BOOKING, P.OFFICIAL_WEB_PROVIDER, "official_source_discovery_mcp", R.PRIMARY, _TICKET_CLAIMS),
     _b(D.TICKET_BOOKING, P.OFFICIAL_WEB_PROVIDER, "official_page_reader_mcp", R.PRIMARY, _TICKET_CLAIMS),
     _b(D.TICKET_BOOKING, P.SEARCH_PROVIDER, "search_mcp", R.PRIMARY, _TICKET_CLAIMS),
     _b(D.TICKET_BOOKING, P.CRAWLER_PROVIDER, "browser_mcp", R.PRIMARY, _TICKET_CLAIMS),
     _b(D.TICKET_BOOKING, P.TICKET_PLATFORM_PROVIDER, "ticketlens_experience_mcp", R.PRIMARY, _TICKET_CLAIMS),
+    _b(
+        D.TICKET_BOOKING,
+        P.TICKET_PLATFORM_PROVIDER,
+        "fliggy_ticket_api_mcp",
+        R.PRIMARY,
+        _TICKET_CLAIMS,
+        limitations=["平台候选价，不等同于官方票价；价格随日期/套餐变化"],
+    ),
     _b(D.TICKET_BOOKING, P.TICKET_PLATFORM_PROVIDER, "fliggy_ticket_snapshot_crawler_mcp", R.CANDIDATE, _TICKET_CLAIMS),
     _b(D.TICKET_BOOKING, P.TICKET_PLATFORM_PROVIDER, "ctrip_ticket_signal_crawler_mcp", R.CANDIDATE, _TICKET_CLAIMS),
     _b(D.TICKET_BOOKING, P.TICKET_PLATFORM_PROVIDER, "dianping_ticket_signal_crawler_mcp", R.CANDIDATE, _TICKET_CLAIMS),
@@ -280,6 +307,7 @@ _REALTIME_BINDINGS: list[S5DomainToolBinding] = [
 
 S5_INFORMATION_DOMAIN_REGISTRY: dict[InformationDomain, list[S5DomainToolBinding]] = {
     D.GEO_RESOLUTION: _GEO_BINDINGS,
+    D.GEO_FACT: _GEO_FACT_BINDINGS,
     D.TICKET_BOOKING: _TICKET_BINDINGS,
     D.OPERATION_STATUS: _OPERATION_BINDINGS,
     D.SEASONALITY: _SEASONALITY_BINDINGS,

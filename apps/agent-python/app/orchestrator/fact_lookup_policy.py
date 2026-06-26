@@ -187,6 +187,19 @@ def collect_fact_clues(state: TravelAgentState, *, limit: int = 8) -> list[dict]
     for ev in state.evidence or []:
         if not isinstance(ev, Evidence):
             continue
+        if need == "ticket_price":
+            from app.orchestrator.ticket_lookup_helpers import is_ticket_price_noise_evidence
+            from app.orchestrator.ticket_relevance_policy import ticket_relevance_score
+
+            if is_ticket_price_noise_evidence(ev):
+                continue
+            blob = ""
+            for c in ev.claims:
+                if c.claim_type.value in focus:
+                    blob = str(c.value or "")
+                    break
+            if blob and ticket_relevance_score(state, "ticket_price", blob, source_name=str(ev.source_name or "")) < 0.5:
+                continue
         for claim in ev.claims:
             ct = claim.claim_type.value if hasattr(claim.claim_type, "value") else str(claim.claim_type)
             if ct not in focus:
@@ -231,21 +244,24 @@ def _place_label(state: TravelAgentState) -> str:
 
 
 def pipeline_search_queries(state: TravelAgentState, need: str) -> list[str]:
-    place = interpret_place_for_fact_need(_place_label(state), need)
-    if need == "ticket_price":
-        return [f"{place} 门票 价格 官方"]
-    if need == "opening_hours":
-        return [f"{place} 开放时间 营业时间 官方"]
-    if need == "reservation_policy":
-        return [f"{place} 预约 购票 官方"]
-    if need == "seasonal_operation_status":
-        return [f"{place} 开放 闭园 公告"]
+    from app.orchestrator.lookup_query_objectives import (
+        build_lookup_query_objectives,
+        objective_to_search_query,
+    )
+    from app.orchestrator.lookup_research_chain import ensure_lookup_chain_initialized
+    from app.schemas.lookup_research_chain import SourceFamily
+
+    ensure_lookup_chain_initialized(state)
+    families: list[SourceFamily] = ["official_operator", "web_reference"]
     if need == "elevation":
-        return [
-            f"{place} 海拔",
-            f"{place} 主峰 海拔",
-            f"{place} 最高峰",
-        ]
+        families = ["geo_authority", "official_operator", "web_reference"]
+    queries: list[str] = []
+    for family in families:
+        for obj in build_lookup_query_objectives(state, need, family, max_objectives=1):
+            queries.append(objective_to_search_query(obj))
+    if queries:
+        return queries[:4]
+    place = interpret_place_for_fact_need(_place_label(state), need)
     return [f"{place} {fact_need_label(need)}"]
 
 

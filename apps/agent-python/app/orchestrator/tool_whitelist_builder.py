@@ -22,6 +22,7 @@ from app.tools.mcp.adapter_status import (
 )
 from tools.ticketing.provider_config import (
     TICKET_PROVIDER_TOOL_NAMES,
+    fliggy_api_block_reason,
     is_crowd_provider_tool,
     is_ticket_provider_tool,
     provider_configured_for_tool,
@@ -47,6 +48,42 @@ _HARD_FACT_NEEDS = frozenset(
 _PLACE_VALIDATION_TOOLS = frozenset(
     {"osm_mcp", "places_mcp", "wikidata_mcp", "baidu_place_search_mcp"}
 )
+
+_GEO_FACT_ELEVATION_ALLOWLIST = frozenset(
+    {
+        "search_mcp",
+        "browser_mcp",
+        "wikipedia_mcp",
+        "wikidata_mcp",
+        "official_page_reader_mcp",
+        "official_source_discovery_mcp",
+        "baidu_place_detail_mcp",
+        "baidu_place_search_mcp",
+        "baidu_geocode_mcp",
+        "osm_mcp",
+        "entity_resolution_agent",
+        "fact_lookup_agent",
+        "fact_search_agent",
+    }
+)
+
+_ELEVATION_CLAIM_TYPES = frozenset(
+    {
+        "elevation",
+        "altitude",
+        "height_elevation",
+        "highest_peak_elevation",
+        "main_peak_elevations",
+    }
+)
+
+
+def _contract_is_geo_fact_elevation(contract) -> bool:
+    types = {c.claim_type for c in contract.claim_requirements}
+    if not types & _ELEVATION_CLAIM_TYPES:
+        return False
+    non_geo = types - _ELEVATION_CLAIM_TYPES - {"entity_resolution"}
+    return not non_geo
 
 _BAIDU_DISAMBIGUATION_NEEDS = frozenset(
     {"best_time_to_visit", "seasonality", "entity_resolution"}
@@ -392,48 +429,60 @@ class ToolWhitelistBuilder:
 
     def build_gap_whitelist(self, gap) -> ToolWhitelist:
         from app.schemas.evidence_gap_request import EvidenceGapRequest
+        from app.orchestrator.ticket_lookup_helpers import TICKET_GAP_FILL_TOOLS
 
         if isinstance(gap, dict):
             gap = EvidenceGapRequest.model_validate(gap)
         forbidden = set(gap.forbidden_tools or [])
         forbidden.add("knowledge_prior")
         failed = set(gap.failed_tools or [])
-        tried = set(gap.already_tried_tools or [])
-        names = [
-            resolve_tool_name(t)
-            for t in gap.suggested_tools
-            if resolve_tool_name(t) not in forbidden
-            and resolve_tool_name(t) not in failed
-            and resolve_tool_name(t) not in tried
-        ]
-        names = [n for n in names if n in EVIDENCE_PLANNING_TOOL_NAMES]
-        profile = NEED_TOOL_PROFILES.get(gap.claim_type, [])
+        tried = {resolve_tool_name(t) for t in (gap.already_tried_tools or [])}
 
-        def _rank(name: str) -> int:
-            try:
-                return profile.index(name)
-            except ValueError:
-                return 999
+        if gap.claim_type == "ticket_price":
+            pool = [resolve_tool_name(t) for t in TICKET_GAP_FILL_TOOLS]
+        else:
+            pool = [
+                resolve_tool_name(t)
+                for t in gap.suggested_tools
+                if resolve_tool_name(t) not in forbidden
+            ]
 
-        configured: list[str] = []
-        for name in sorted(names, key=_rank):
-            ok, _ = self._is_configured(name)
+        allowed: list[ToolDescriptor] = []
+        blocked: dict[str, str] = {}
+        for name in pool:
+            if name in forbidden or name in failed or name in tried:
+                continue
+            if name not in EVIDENCE_PLANNING_TOOL_NAMES:
+                continue
+            ok, reason = self._is_configured(name)
             if ok:
-                configured.append(name)
-        if "search_mcp" not in configured:
-            ok, _ = self._is_configured("search_mcp")
+                allowed.append(
+                    ToolDescriptor(name=name, description=f"gap-fill for {gap.claim_type}", configured=True)
+                )
+            else:
+                blocked[name] = reason or "not_configured"
+
+        if not allowed and "search_mcp" not in blocked:
+            ok, reason = self._is_configured("search_mcp")
             if ok:
-                configured.insert(0, "search_mcp")
-        names = configured or ["search_mcp"]
-        allowed = [
-            ToolDescriptor(name=n, description=f"gap-fill for {gap.claim_type}", configured=True)
-            for n in dict.fromkeys(names)
-        ]
+                allowed.append(
+                    ToolDescriptor(name="search_mcp", description=f"gap-fill for {gap.claim_type}", configured=True)
+                )
+            else:
+                blocked["search_mcp"] = reason or "not_configured"
+
+        notes = [f"S5 gap-filling whitelist for {gap.claim_type}"]
+        if blocked:
+            notes.append(
+                "blocked_tools: "
+                + "; ".join(f"{k}: {v}" for k, v in sorted(blocked.items())[:12])
+            )
         return ToolWhitelist(
             state_name="evidence_planning_and_tool_use",
             allowed_tools=allowed,
-            blocked_tools=[],
-            policy_notes=[f"S5 gap-filling whitelist for {gap.claim_type}"],
+            blocked_tools=sorted(blocked.keys()),
+            reason_by_tool=blocked,
+            policy_notes=notes,
         )
 
     def _build_from_contract(self, state: TravelAgentState, prompt_context: dict | None = None) -> ToolWhitelist:
@@ -476,9 +525,30 @@ class ToolWhitelistBuilder:
         candidates &= set(EVIDENCE_PLANNING_TOOL_NAMES)
 
         settings = get_settings()
-        for tool_name in TICKET_PROVIDER_TOOL_NAMES:
-            if provider_configured_for_tool(tool_name, settings):
-                candidates.add(tool_name)
+        elevation_only = _contract_is_geo_fact_elevation(contract)
+        has_ticket = any(c.claim_type == "ticket_price" for c in contract.claim_requirements)
+        if has_ticket:
+            from app.orchestrator.ticket_lookup_helpers import TICKET_BOOKING_PRIMARY_TOOLS
+
+            candidates |= set(TICKET_BOOKING_PRIMARY_TOOLS)
+        if not elevation_only:
+            for tool_name in TICKET_PROVIDER_TOOL_NAMES:
+                if provider_configured_for_tool(tool_name, settings):
+                    candidates.add(tool_name)
+        else:
+            for tool in (
+                "dianping_ticket_signal_crawler_mcp",
+                "dianping_review_crawler_mcp",
+                "ctrip_ticket_signal_crawler_mcp",
+                "ctrip_review_crawler_mcp",
+                "ticket_price_history_query",
+                "ticket_snapshot_store",
+                "fliggy_ticket_api_mcp",
+                "fliggy_ticket_snapshot_crawler_mcp",
+                "ticketlens_experience_mcp",
+            ):
+                forbidden.add(tool)
+            candidates &= _GEO_FACT_ELEVATION_ALLOWLIST | candidates
 
         allow_prior = any(c.model_prior_allowed for c in contract.claim_requirements)
         blocked: dict[str, str] = {}
@@ -757,6 +827,9 @@ class ToolWhitelistBuilder:
                 if resolved in {"ticketlens_experience_mcp", "ticketlens_experience_review_signal_mcp"}:
                     if not settings.ticketlens_api_key:
                         return "missing_api_key"
+                if resolved in {"fliggy_ticket_api_mcp", "fliggy_ticket_snapshot_crawler_mcp"}:
+                    reason = fliggy_api_block_reason(settings)
+                    return reason or "not_configured"
                 return "not_configured"
         if is_crowd_provider_tool(resolved):
             settings = get_settings()
@@ -841,11 +914,14 @@ class ToolWhitelistBuilder:
                 "ctrip_review_crawler_mcp",
                 "ctrip_ticket_signal_crawler_mcp",
                 "ctrip_guide_crawler_mcp",
+                "fliggy_ticket_api_mcp",
                 "fliggy_ticket_snapshot_crawler_mcp",
                 "dianping_review_crawler_mcp",
                 "dianping_ticket_signal_crawler_mcp",
                 "dianping_nearby_crawler_mcp",
             }:
+                if resolved in {"fliggy_ticket_api_mcp", "fliggy_ticket_snapshot_crawler_mcp"}:
+                    return False, fliggy_api_block_reason(settings) or "not_configured"
                 return False, "not_configured"
             if resolved in {"ticket_snapshot_store", "ticket_price_history_query"}:
                 return False, "not_configured"

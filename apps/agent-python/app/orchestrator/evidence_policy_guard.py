@@ -109,6 +109,9 @@ class EvidencePolicyGuard(PolicyGuard):
         if is_mcp_policy_placeholder(resolved):
             raise ValueError(f"not_implemented: MCP policy tool {tool!r} is a placeholder (provider not wired)")
 
+        args = dict(action.arguments or {})
+        self._validate_tool_argument_requirements(resolved, args, state)
+
         if is_ticket_provider_tool(resolved):
             settings = get_settings()
             if not provider_enabled_for_tool(resolved, settings):
@@ -118,6 +121,16 @@ class EvidencePolicyGuard(PolicyGuard):
                     if not settings.ticketlens_api_key:
                         raise ValueError(f"missing_api_key: TicketLens API key required for {tool!r}")
                 raise ValueError(f"not_configured: ticket provider {tool!r}")
+            from app.orchestrator.ticket_lookup_policy import ticket_platform_tool_allowed, force_ticket_platform_phase
+
+            if not ticket_platform_tool_allowed(state, resolved):
+                if state.current_evidence_gap_request and state.current_evidence_gap_request.claim_type == "ticket_price":
+                    force_ticket_platform_phase(state)
+                if not ticket_platform_tool_allowed(state, resolved):
+                    raise ValueError(
+                        f"ticket platform tool {tool!r} not allowed in current lookup phase "
+                        f"(use platform_ticket_candidate after entity anchor)"
+                    )
             if tool_whitelist and not tool_whitelist.is_allowed(tool) and not tool_whitelist.is_allowed(resolved):
                 reason = tool_whitelist.reason_by_tool.get(tool, f"ticket provider {tool} blocked")
                 raise ValueError(reason)
@@ -262,6 +275,13 @@ class EvidencePolicyGuard(PolicyGuard):
             return
 
         if target == "entity_resolution_agent":
+            from app.orchestrator.lookup_entity_resolution_policy import entity_resolution_allowed_for_lookup
+
+            if not entity_resolution_allowed_for_lookup(state):
+                raise ValueError(
+                    "entity_resolution_agent blocked: canonical place already anchored "
+                    "or max entity_resolution calls reached for LOOKUP"
+                )
             if not (task.search_query.strip() or task.anchor_keywords):
                 raise ValueError("entity_resolution_agent requires search_query or anchor_keywords")
             if tool_whitelist and not tool_whitelist.is_allowed("baidu_place_search_mcp"):
@@ -300,15 +320,30 @@ class EvidencePolicyGuard(PolicyGuard):
                 contract, state.evidence, state.tool_traces
             )
             if not report.can_finish_evidence_planning:
+                from app.orchestrator.fact_lookup_policy import primary_fact_need_from_state
                 from app.orchestrator.s5_diversified_tool_selector import untried_must_attempt_tools
+                from app.orchestrator.ticket_lookup_policy import ticket_lookup_retrieval_complete
+
+                ticket_gap_finish = (
+                    primary_fact_need_from_state(state) == "ticket_price"
+                    and ticket_lookup_retrieval_complete(state)
+                )
 
                 configured_untried = untried_must_attempt_tools(state, tool_whitelist)
+                if configured_untried:
+                    configured_untried = [
+                        t
+                        for t in configured_untried
+                        if t not in {"fallback", "knowledge_prior", "osm_mcp"}
+                    ]
                 if not configured_untried:
-                    configured_untried = checker._untried_preferred_tools(contract, state.tool_traces)
+                    configured_untried = checker._untried_required_primary_tools(
+                        contract, state.tool_traces, report.items
+                    )
                     configured_untried = [
                         t for t in configured_untried if tool_whitelist and tool_whitelist.is_allowed(t)
                     ]
-                if configured_untried:
+                if configured_untried and not report.all_required_covered and not ticket_gap_finish:
                     raise ValueError(
                         "Cannot FINISH evidence planning: configured tools not yet attempted: "
                         + ", ".join(configured_untried)
@@ -322,6 +357,10 @@ class EvidencePolicyGuard(PolicyGuard):
                     )
                 ]
                 if missing:
+                    from app.orchestrator.ticket_lookup_policy import ticket_lookup_retrieval_complete
+
+                    if "ticket_price" in missing and ticket_lookup_retrieval_complete(state):
+                        return
                     raise ValueError(
                         "Cannot FINISH evidence planning without required claim coverage for: "
                         + ", ".join(missing)
@@ -374,6 +413,39 @@ class EvidencePolicyGuard(PolicyGuard):
                 if tool in allowed and resolved not in called and tool not in pending:
                     pending.append(tool)
         return pending
+
+    @staticmethod
+    def _validate_tool_argument_requirements(tool: str, args: dict, state: TravelAgentState) -> None:
+        resolved = resolve_tool_name(tool)
+        if resolved == "baidu_reverse_geocode_mcp":
+            lat = args.get("latitude")
+            lng = args.get("longitude")
+            if lat is None or lng is None:
+                raise ValueError("baidu_reverse_geocode_mcp requires latitude and longitude")
+        if resolved == "baidu_place_detail_mcp":
+            uid = str(args.get("uid") or "").strip()
+            if uid:
+                from tools.mcp.adapters.baidu_response_parser import is_valid_baidu_uid
+
+                if not is_valid_baidu_uid(uid):
+                    raise ValueError("baidu_place_detail_mcp uid must come from baidu place candidate.uid")
+        if resolved == "official_source_discovery_mcp":
+            from app.orchestrator.ticket_lookup_helpers import collect_ticket_search_urls, has_ticket_url_inputs
+
+            urls = list(args.get("urls") or [])
+            hits = list(args.get("search_results") or [])
+            if not urls and not hits and not has_ticket_url_inputs(state):
+                raise ValueError(
+                    "official_source_discovery_mcp requires urls or search_results; skip when none available"
+                )
+        if resolved in {"official_page_reader_mcp", "browser_mcp"}:
+            url = str(args.get("url") or args.get("source_url") or "").strip()
+            urls = args.get("urls") or []
+            if not url and not urls:
+                from app.orchestrator.ticket_lookup_helpers import collect_ticket_search_urls
+
+                if not collect_ticket_search_urls(state):
+                    raise ValueError(f"{resolved} requires a readable url")
 
     @staticmethod
     def _primary_need(state: TravelAgentState) -> str | None:
