@@ -80,7 +80,7 @@ class EvidencePlanningAndToolUseState:
 
         state = await self.runner.run(state, EVIDENCE_PLANNING_AND_TOOL_USE_POLICY, prompt_context)
         state = await self._supplement_answer_mode_tools(state, prompt_context, tool_whitelist)
-        if self.tools:
+        if self.tools and not state.tool_traces:
             state.tool_traces = list(self.tools.traces)
         if not state.evidence_planning_completed:
             state.evidence_planning_completed = True
@@ -115,13 +115,16 @@ class EvidencePlanningAndToolUseState:
         }
         prompt_context["tool_whitelist"] = tool_whitelist
         prompt_context["allowed_tools"] = [t.model_dump() for t in tool_whitelist.allowed_tools]
+        from app.orchestrator.s5_diversified_tool_selector import store_retrieval_plans
+
+        store_retrieval_plans(state, tool_whitelist)
         TraceRecorder.add(
             state,
             f"✓ S5 gap-filling：{gap.claim_type} tools={tool_whitelist.allowed_tool_names()}",
         )
         before = len(state.evidence)
         state = await self.runner.run(state, EVIDENCE_PLANNING_AND_TOOL_USE_POLICY, prompt_context)
-        if self.tools:
+        if self.tools and not state.tool_traces:
             state.tool_traces = list(self.tools.traces)
             for trace in state.tool_traces[-settings.evidence_gap_max_extra_steps :]:
                 trace.gap_filling = True
@@ -149,23 +152,29 @@ class EvidencePlanningAndToolUseState:
         # LLM-facing context: only dynamic allowed_tools (no static state-policy tool catalog).
         prompt_context.pop("candidate_tool_plan", None)
         prompt_context["s5_prompt_rules"] = [
-            "Return ONLY one AgentAction JSON per step.",
-            "Primary path: CALL_SUBAGENT search_task_planner_agent then keyword_search_agent.",
-            "keyword_search_agent is the first-party MCP executor — pass full SearchTask fields "
-            "(lookup_intent, claim_target, tool_parameters), not bare keywords.",
-            "search_task_planner must emit lookup_intent describing what evidence to obtain after S5 context.",
-            "Day-trip / distance tasks: tool_parameters.origin + destination + preferred_tool=baidu_route_mcp.",
-            "place_candidates in evidence are normal tool output — refine queries, do not ASK_CLARIFICATION in S5.",
-            "Every 2 keyword_search completions triggers search_task_planner refine (max 10 searches per S5).",
-            "When multiple price/hour values appear, evidence_contradiction_decomposer_agent splits by ticket tier/season.",
-            "CALL_TOOL directly only when no subagent covers (rare); prefer delegating via keyword_search_agent.",
+            "S5 orchestrator LLM plans each step — CALL_SUBAGENT only (no direct CALL_TOOL).",
+            "Functional subagents: entity_resolution_agent, route_feasibility_agent, "
+            "fact_search_agent, weather_context_agent, evidence_contradiction_decomposer_agent.",
+            "Each subagent executes MCP from the shared whitelist using its tool_priority profile.",
+            "Pass lookup_intent, claim_target, search_query, anchor_keywords, tool_parameters in arguments.",
+            "China place without city → entity_resolution_agent first (handles 同名消歧 internally).",
+            "Distance/day-trip → route_feasibility_agent with origin+destination in tool_parameters.",
+            "Hard facts → fact_search_agent after entity anchored when possible.",
+            "Read subagent_results each step; finish_state when user purpose met or coverage sufficient.",
             "Do NOT generate final answer text in this state.",
-            "user_need_residual describes what the user wants to know — NOT verified facts.",
-            "Tailor search tasks to user_need_residual.information_needs and claim_requirements.",
-            "When time_scope=current or requires_live_data=true, prioritize official/recent sources.",
-            "Sub-agents read agent_tool_definitions for MCP when_to_use, parameters, prerequisites.",
         ]
-        prompt_context["tool_diversity_hints"] = self._tool_diversity_hints(state, tool_whitelist)
+        from app.agents.s5_subagent_registry import subagent_definitions_for_prompt
+
+        prompt_context["subagent_definitions"] = subagent_definitions_for_prompt()
+        from app.orchestrator.s5_diversified_tool_selector import (
+            diversity_hints_for_state,
+            store_retrieval_plans,
+        )
+
+        store_retrieval_plans(state, tool_whitelist)
+        diversified = diversity_hints_for_state(state, tool_whitelist)
+        legacy = self._tool_diversity_hints(state, tool_whitelist)
+        prompt_context["tool_diversity_hints"] = diversified + [h for h in legacy if h not in diversified]
 
         if state.travel_task:
             candidate_needs = InformationNeedPlanner.plan(state.travel_task)
@@ -211,10 +220,20 @@ class EvidencePlanningAndToolUseState:
         if state.user_need_residual:
             prompt_context["user_need_residual"] = state.user_need_residual.model_dump()
 
-        from app.orchestrator.agent_tool_catalog import agent_tool_definitions_for_allowed
+        from app.orchestrator.agent_tool_catalog import agent_tool_definitions_for_allowed, resolve_s5_task_class
 
         allowed_names = tool_whitelist.allowed_tool_names()
-        prompt_context["agent_tool_definitions"] = agent_tool_definitions_for_allowed(allowed_names)
+        task_class = resolve_s5_task_class(state)
+        prompt_context["s5_task_class"] = task_class
+        prompt_context["agent_tool_definitions"] = agent_tool_definitions_for_allowed(
+            allowed_names,
+            task_class=task_class,
+        )
+        from app.orchestrator.nearby_task_orchestration import nearby_s5_planning_context
+        from app.orchestrator.fact_lookup_task_orchestration import fact_s5_planning_context
+
+        prompt_context.update(nearby_s5_planning_context(state))
+        prompt_context.update(fact_s5_planning_context(state))
         structured = dict(state.structured_result or {})
         structured["_agent_tool_definitions"] = prompt_context["agent_tool_definitions"]
         state.structured_result = structured
@@ -362,7 +381,7 @@ class EvidencePlanningAndToolUseState:
             return state
 
         called = {resolve_tool_name(t.tool_name) for t in state.tool_traces}
-        pending = self._supplement_tool_order(state, decision)
+        pending = self._supplement_tool_order(state, decision, tool_whitelist)
         executor = ActionExecutor(self.llm_client, self.tools)
         reducer = StateReducer()
         allowed_names = set(tool_whitelist.allowed_tool_names())
@@ -420,8 +439,17 @@ class EvidencePlanningAndToolUseState:
 
         return state
 
-    def _supplement_tool_order(self, state: TravelAgentState, decision) -> list[str]:
-        """Order supplement tools by NEED_TOOL_PROFILES priority for hard-fact needs."""
+    def _supplement_tool_order(
+        self,
+        state: TravelAgentState,
+        decision,
+        tool_whitelist: ToolWhitelist,
+    ) -> list[str]:
+        """Order supplement tools by diversified selector queue, then NEED_TOOL_PROFILES."""
+        from app.orchestrator.s5_diversified_tool_selector import S5DiversifiedToolSelector
+
+        selector = S5DiversifiedToolSelector(state)
+        diversified = selector.non_search_tool_queue(tool_whitelist)
         frame = state.semantic_frame
         hard_needs = []
         if frame:
@@ -434,8 +462,10 @@ class EvidencePlanningAndToolUseState:
                     profile_order.append(tool)
 
         raw = list(decision.required_tools or []) + list(decision.optional_tools or [])
-        if profile_order:
-            ordered = [t for t in profile_order if t in raw]
-            ordered += [t for t in raw if t not in ordered]
-            return ordered
-        return raw
+        merged = diversified + profile_order + raw
+        ordered: list[str] = []
+        for tool in merged:
+            resolved = resolve_tool_name(tool)
+            if resolved not in ordered:
+                ordered.append(resolved)
+        return ordered

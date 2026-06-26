@@ -59,3 +59,4 @@ class TravelQueryResponse(BaseModel):
     query_id: str | None = None
     semantic_frame_summary: dict | None = None
     answer_mode: str | None = None
+    orchestration_summary: dict | None = None

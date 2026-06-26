@@ -19,6 +19,7 @@ class CtripReviewCrawlerTool(PlatformSignalCrawlerMixin, BaseCrawlerTool):
     policy_name = "ctrip_review_crawler_mcp"
     platform = "ctrip"
     websearch_flag_attr = "ctrip_websearch_signal_enabled"
+    crawler_mode = "review"
 
     def __init__(self, settings: Settings | None = None) -> None:
         super().__init__(settings)

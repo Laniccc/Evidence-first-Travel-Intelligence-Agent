@@ -4,11 +4,15 @@ from __future__ import annotations
 
 from app.orchestrator.claim_policy_registry import ClaimPolicyView
 from app.orchestrator.evidence_scorer import EvidenceScore
+from app.orchestrator.intent_s7_policy import apply_intent_s7_policy
 from app.orchestrator.intent_strategy_registry import IntentStrategy
 from app.orchestrator.official_source_judgement import best_official_support
 from app.schemas.evidence import ClaimType, SourceType
 from app.schemas.evidence_decision_report import ClaimDecision, EvidenceConflict, RejectedEvidence
 from app.schemas.intent_profile import EvidenceSensitivity
+
+
+_GEO_ATTRIBUTE_CLAIMS = frozenset({"elevation", "area", "general_fact"})
 
 
 class ClaimAdoptionPolicy:
@@ -59,6 +63,14 @@ class ClaimAdoptionPolicy:
         adoption = self._adoption_for_quality(
             policy, quality, scores, conflicts, intent_strategy=intent_strategy
         )
+        if intent_strategy and intent_strategy.s7_policy:
+            adoption = apply_intent_s7_policy(
+                intent_strategy.s7_policy,
+                policy,
+                quality,
+                adoption,
+                intent_strategy=intent_strategy,
+            )
         if policy.claim_type == "ticket_price":
             adoption = self._ticket_price_adoption(
                 scores,
@@ -67,11 +79,16 @@ class ClaimAdoptionPolicy:
                 evidence=evidence,
                 fact_decomposition=fact_decomposition,
             )
+        if policy.claim_type in _GEO_ATTRIBUTE_CLAIMS:
+            adoption = self._geo_attribute_adoption(scores, quality, adoption, conflicts)
         if intent_strategy and intent_strategy.evidence_sensitivity == EvidenceSensitivity.HARD_FACT:
             if quality == "partial" and policy.requires_exact_fact:
                 adoption = "adopt_with_limitation" if adoption == "adopt" else adoption
                 if adoption == "adopt" and conflicts:
-                    adoption = "refuse_to_guess"
+                    if policy.claim_type in _GEO_ATTRIBUTE_CLAIMS:
+                        adoption = "candidate_only"
+                    else:
+                        adoption = "refuse_to_guess"
         if intent_strategy and intent_strategy.partial_review_ok and quality == "partial":
             if adoption == "refuse_to_guess":
                 adoption = "adopt_with_limitation"
@@ -164,6 +181,12 @@ class ClaimAdoptionPolicy:
                 quality = "partial"
             elif quality == "partial" and policy.claim_type == "ticket_price":
                 quality = "partial"
+        if (
+            policy.claim_family == "nearby_recommendation"
+            and scores
+            and quality == "none"
+        ):
+            quality = "weak"
         return quality
 
     @staticmethod
@@ -218,6 +241,24 @@ class ClaimAdoptionPolicy:
         if behavior == "refuse_to_guess":
             return "refuse_to_guess"
         return "adopt_with_limitation"
+
+    @staticmethod
+    def _geo_attribute_adoption(
+        scores: list[EvidenceScore],
+        quality: str,
+        current: str,
+        conflicts: list[EvidenceConflict],
+    ) -> str:
+        if not scores:
+            return current
+        if current in {"refuse_to_guess", "omit", "ask_clarification"} and quality in {
+            "weak",
+            "partial",
+        }:
+            return "candidate_only"
+        if conflicts and current in {"refuse_to_guess", "adopt"}:
+            return "candidate_only"
+        return current
 
     @staticmethod
     def _ticket_price_adoption(

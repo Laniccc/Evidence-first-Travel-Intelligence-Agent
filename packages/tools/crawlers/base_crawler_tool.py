@@ -5,10 +5,12 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import subprocess
 from typing import Any
 
 from app.config import Settings, get_settings
+from tools.crawlers.cli_mode import resolve_crawler_cli_mode
 from tools.subprocess_argv import resolve_executable_argv
 
 logger = logging.getLogger(__name__)
@@ -57,11 +59,30 @@ class BaseCrawlerTool:
             "{country}": country or "",
             "{query}": query or place_name or "",
             "{claim_type}": claim_type or "",
-            "{mode}": getattr(self, "crawler_mode", "") or claim_type or "",
+            "{mode}": resolve_crawler_cli_mode(
+                crawler_mode=getattr(self, "crawler_mode", None),
+                claim_type=claim_type,
+            ),
         }
         for key, val in replacements.items():
             cmd = cmd.replace(key, val)
         return cmd.split()
+
+    def _crawler_subprocess_env(self) -> dict[str, str]:
+        env = os.environ.copy()
+        s = self.settings
+        if s.ctrip_spider_root:
+            env["CTRIP_SPIDER_ROOT"] = s.ctrip_spider_root
+        if s.dianping_crawler_root:
+            env["DIANPING_CRAWLER_ROOT"] = s.dianping_crawler_root
+        if s.dianping_spider_command:
+            env["DIANPING_SPIDER_COMMAND"] = s.dianping_spider_command
+        if s.dianping_spider_workdir:
+            env["DIANPING_SPIDER_WORKDIR"] = s.dianping_spider_workdir
+        if s.crawler_proxy_url:
+            env["CRAWLER_PROXY_URL"] = s.crawler_proxy_url
+        env["CRAWLER_FETCH_TIMEOUT_SECONDS"] = str(s.crawler_fetch_timeout_seconds)
+        return env
 
     def parse_output(self, raw: str) -> tuple[dict[str, Any] | list | None, str]:
         text = (raw or "").strip()
@@ -112,6 +133,7 @@ class BaseCrawlerTool:
                 errors="replace",
                 timeout=self.timeout_seconds,
                 cwd=self.workdir or None,
+                env=self._crawler_subprocess_env(),
             )
         except subprocess.TimeoutExpired:
             self.last_run_meta["output_parse_status"] = "parse_error"

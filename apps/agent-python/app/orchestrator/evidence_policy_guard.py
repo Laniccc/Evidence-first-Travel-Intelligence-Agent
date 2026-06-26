@@ -208,31 +208,81 @@ class EvidencePolicyGuard(PolicyGuard):
         state: TravelAgentState,
         tool_whitelist: ToolWhitelist | None,
     ) -> None:
-        target = action.target or ""
-        if target == "keyword_search_agent":
-            from app.agents.keyword_search_agent import KeywordSearchAgent
-            from app.schemas.search_task import SearchTask
+        from app.agents.s5_subagent_registry import ORCHESTRATOR_SUBAGENT_NAMES
+        from app.schemas.search_task import SearchTask
 
-            args = action.arguments or {}
-            task = SearchTask.model_validate(
-                {
-                    "task_id": args.get("task_id") or "keyword-search",
-                    "anchor_keywords": args.get("anchor_keywords") or [],
-                    "search_query": args.get("search_query") or args.get("query") or "",
-                    "information_need": args.get("information_need") or self._primary_need(state),
-                    "preferred_tool": args.get("preferred_tool") or "search_mcp",
-                }
+        target = action.target or ""
+        from app.orchestrator.s5_poi_anchor_policy import blocks_subagent_until_poi_anchor
+
+        if blocks_subagent_until_poi_anchor(state, target):
+            raise ValueError(
+                f"{target} blocked for nearby-style task until entity_resolution_agent anchors POI"
             )
-            KeywordSearchAgent.validate_task(task)
-            tool = resolve_tool_name(task.preferred_tool)
-            if tool_whitelist and not tool_whitelist.is_allowed(tool):
-                raise ValueError(f"keyword_search_agent tool {tool!r} not in whitelist")
-        elif target == "search_task_planner_agent":
-            return
-        elif target == "evidence_contradiction_decomposer_agent":
-            return
-        else:
+
+        if target not in ORCHESTRATOR_SUBAGENT_NAMES and target not in {
+            "search_task_planner_agent",
+            "keyword_search_agent",
+        }:
             raise ValueError(f"Subagent {target!r} not allowed in evidence_planning_and_tool_use")
+
+        if target == "search_task_planner_agent":
+            return
+        if target == "evidence_contradiction_decomposer_agent":
+            return
+
+        args = action.arguments or {}
+        need = str(args.get("information_need") or args.get("claim_target") or self._primary_need(state) or "unknown")
+        task = SearchTask.model_validate(
+            {
+                "task_id": args.get("task_id") or f"{target}-task",
+                "lookup_intent": args.get("lookup_intent") or args.get("rationale") or "",
+                "claim_target": str(args.get("claim_target") or need),
+                "anchor_keywords": args.get("anchor_keywords") or [],
+                "search_query": args.get("search_query") or args.get("query") or "",
+                "information_need": need,
+                "preferred_tool": args.get("preferred_tool") or "search_mcp",
+                "tool_parameters": args.get("tool_parameters") or {},
+            }
+        )
+
+        if target in {"keyword_search_agent", "fact_search_agent"}:
+            from app.agents.keyword_search_agent import KeywordSearchAgent
+
+            KeywordSearchAgent.validate_task(task)
+            tool = KeywordSearchAgent._preferred_tool_is_usable(task, tool_whitelist)
+            if not tool:
+                if target == "fact_search_agent":
+                    from app.agents.fact_search_agent import FactSearchAgent
+
+                    tool = FactSearchAgent.pick_tool(task, tool_whitelist, state=state)
+                else:
+                    tool = KeywordSearchAgent.pick_tool(task, tool_whitelist)
+            if tool_whitelist and not tool_whitelist.is_allowed(tool):
+                raise ValueError(f"{target} tool {tool!r} not in whitelist")
+            return
+
+        if target == "entity_resolution_agent":
+            if not (task.search_query.strip() or task.anchor_keywords):
+                raise ValueError("entity_resolution_agent requires search_query or anchor_keywords")
+            if tool_whitelist and not tool_whitelist.is_allowed("baidu_place_search_mcp"):
+                raise ValueError("entity_resolution_agent requires baidu_place_search_mcp in whitelist")
+            return
+
+        if target == "route_feasibility_agent":
+            params = task.tool_parameters or {}
+            if tool_whitelist and not any(
+                tool_whitelist.is_allowed(t)
+                for t in ("baidu_route_mcp", "baidu_traffic_mcp", "baidu_place_search_mcp")
+            ):
+                raise ValueError("route_feasibility_agent requires baidu route tools in whitelist")
+            return
+
+        if target == "weather_context_agent":
+            if tool_whitelist and not any(
+                tool_whitelist.is_allowed(t) for t in ("baidu_weather_mcp", "openmeteo_mcp", "weather_mcp")
+            ):
+                raise ValueError("weather_context_agent requires weather tools in whitelist")
+            return
 
     def _validate_finish(
         self,
@@ -250,10 +300,14 @@ class EvidencePolicyGuard(PolicyGuard):
                 contract, state.evidence, state.tool_traces
             )
             if not report.can_finish_evidence_planning:
-                untried = checker._untried_preferred_tools(contract, state.tool_traces)
-                configured_untried = [
-                    t for t in untried if tool_whitelist and tool_whitelist.is_allowed(t)
-                ]
+                from app.orchestrator.s5_diversified_tool_selector import untried_must_attempt_tools
+
+                configured_untried = untried_must_attempt_tools(state, tool_whitelist)
+                if not configured_untried:
+                    configured_untried = checker._untried_preferred_tools(contract, state.tool_traces)
+                    configured_untried = [
+                        t for t in configured_untried if tool_whitelist and tool_whitelist.is_allowed(t)
+                    ]
                 if configured_untried:
                     raise ValueError(
                         "Cannot FINISH evidence planning: configured tools not yet attempted: "

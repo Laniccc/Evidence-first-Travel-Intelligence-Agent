@@ -52,6 +52,27 @@ def test_s5_prompt_includes_agent_tool_definitions():
         assert route_def.get("when_to_use")
 
 
+def test_agent_tool_definitions_include_task_class_when_resolved():
+    from app.orchestrator.agent_tool_catalog import resolve_s5_task_class
+
+    state = TravelAgentState(session_id="s", query_id="q", raw_user_query="戏马台附近有什么好吃的？")
+    state.semantic_frame = SemanticFrame(
+        raw_query="戏马台附近有什么好吃的？",
+        task_family=TaskFamily.ADVISORY,
+        entities=SemanticEntities(country="China", city="徐州", places=["戏马台"]),
+        information_needs=["nearby_food"],
+    )
+    state.response_contract = ResponseContractCompiler().compile(state.semantic_frame)
+    task_class = resolve_s5_task_class(state)
+    assert task_class == "poi_recommendation"
+    defs = agent_tool_definitions_for_allowed(
+        ["dianping_nearby_crawler_mcp"],
+        task_class=task_class,
+    )
+    assert defs[0]["s5_task_class"] == "poi_recommendation"
+    assert any("美食" in line for line in defs[0].get("when_to_use") or [])
+
+
 def test_route_tools_injected_for_day_trip_contract_queue():
     state = TravelAgentState(session_id="s", query_id="q", raw_user_query="可可托海一天够玩吗？")
     state.semantic_frame = SemanticFrame(

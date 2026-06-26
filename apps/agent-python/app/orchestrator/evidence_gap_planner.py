@@ -5,6 +5,7 @@ from __future__ import annotations
 from app.orchestrator.claim_policy_registry import ClaimPolicyView
 from app.config import get_settings
 from app.orchestrator.comparison_helpers import active_place_name, is_comparison_mode
+from app.orchestrator.information_need_aliases import is_nearby_need
 from app.orchestrator.official_source_judgement import needs_official_source_gap
 from app.schemas.evidence_decision_report import ClaimDecision
 from app.schemas.evidence_gap_request import EvidenceGapRequest
@@ -13,6 +14,10 @@ from app.schemas.user_query import TravelAgentState
 from app.tools.tool_name_resolver import resolve_tool_name
 from app.tools.mcp.tool_specs import NEED_TOOL_PROFILES
 
+
+_GAP_IRRELEVANT_ROUTE_TOOLS = frozenset(
+    {"baidu_route_mcp", "baidu_route_matrix_mcp", "baidu_traffic_mcp", "baidu_reverse_geocode_mcp"}
+)
 
 _GAP_TEMPLATES: dict[str, list[str]] = {
     "photo_costume_suitability": [
@@ -96,6 +101,12 @@ class EvidenceGapPlanner:
         tried = self._tried_tools(state)
         failed = self._failed_tools(state)
         untried = [t for t in policy.preferred_tools if resolve_tool_name(t) not in tried]
+        if is_nearby_need(claim.claim_type):
+            untried = [
+                t
+                for t in untried
+                if resolve_tool_name(t) not in _GAP_IRRELEVANT_ROUTE_TOOLS
+            ]
         profile = NEED_TOOL_PROFILES.get(claim.claim_type, [])
 
         def _tool_rank(tool: str) -> int:
@@ -128,24 +139,27 @@ class EvidenceGapPlanner:
         city = self._city(state)
         region = self._region(state)
         peer = self._peer_place(state, place)
-        templates = _GAP_TEMPLATES.get(
-            claim.claim_type,
-            [
-                f"{{place_name}} {claim.claim_description or claim.claim_type}",
-                f"{{city}} {{place_name}} {claim.claim_type.replace('_', ' ')}",
-            ],
-        )
-        rendered = [
-            t.format(
-                place_name=place,
-                city=city,
-                region=region,
-                claim_type=claim.claim_type,
-                user_query=state.raw_user_query,
-                peer_place=peer,
-            )
-            for t in templates
-        ]
+
+        from app.orchestrator.claim_search_planner import ClaimSearchPlanner
+        from app.orchestrator.search_query_rewriter import SearchQueryRewriter
+
+        planner_ctx = ClaimSearchPlanner.planning_context(state)
+        rewriter = SearchQueryRewriter.from_planning_context(planner_ctx, state)
+        if claim.claim_type in _GAP_TEMPLATES:
+            templates = _GAP_TEMPLATES[claim.claim_type]
+            rendered = [
+                t.format(
+                    place_name=place,
+                    city=city,
+                    region=region,
+                    claim_type=claim.claim_type,
+                    user_query=state.raw_user_query,
+                    peer_place=peer,
+                )
+                for t in templates
+            ]
+        else:
+            rendered = rewriter.gap_query_templates(claim.claim_type, max_queries=4)
 
         suggested_tools = untried[:4] or ["search_mcp"]
         if needs_official_source_gap(state.evidence, claim.claim_type, decision):

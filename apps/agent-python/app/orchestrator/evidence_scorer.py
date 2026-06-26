@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 
 from app.orchestrator.claim_policy_registry import (
@@ -12,6 +13,10 @@ from app.orchestrator.claim_policy_registry import (
     source_type_key,
 )
 from app.orchestrator.claim_search_planner import is_search_miss_value
+from app.orchestrator.nearby_recommendation_policy import (
+    claim_aliases_for_need,
+    place_candidates_is_nearby_recommendation,
+)
 from app.orchestrator.official_source_judgement import (
     OfficialSupportSummary,
     best_official_support,
@@ -93,7 +98,17 @@ class EvidenceScorer:
                 return True
             return "review" in ct or "suitability" in policy.claim_type
         if ct in GEO_ONLY_CLAIMS and policy.claim_family != "geo_fact":
+            if policy.claim_family == "nearby_recommendation" and ct == ClaimType.PLACE_CANDIDATES.value:
+                return place_candidates_is_nearby_recommendation(claim)
             return False
+        if policy.claim_family == "nearby_recommendation":
+            aliases = claim_aliases_for_need(policy.claim_type)
+            if ct in aliases:
+                if ct == ClaimType.PLACE_CANDIDATES.value:
+                    return place_candidates_is_nearby_recommendation(claim)
+                return True
+        if policy.claim_type == "elevation" and ct == ClaimType.TRAVEL_ADVICE.value:
+            return bool(re.search(r"海拔|高度|\d{3,5}\s*米", str(claim.value), re.I))
         if ct in policy.claim_aliases or policy.claim_type in ct:
             return True
         if policy.claim_type in ct:
@@ -114,6 +129,8 @@ class EvidenceScorer:
         source_rel = SOURCE_RELIABILITY.get(src_key, 0.45)
         ct = claim.claim_type.value if hasattr(claim.claim_type, "value") else str(claim.claim_type)
         relevance = 0.9 if ct in policy.claim_aliases else 0.55
+        if policy.claim_family == "nearby_recommendation" and ct in claim_aliases_for_need(policy.claim_type):
+            relevance = 0.88
 
         if ct == ClaimType.OFFICIAL_SOURCE_CANDIDATE.value:
             cand = parse_candidate_from_evidence(ev)

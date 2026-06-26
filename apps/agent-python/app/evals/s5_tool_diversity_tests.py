@@ -1,4 +1,4 @@
-"""S5 tool diversity: priority tools + LLM review checkpoint after 2 searches."""
+"""S5 orchestrator: functional sub-agents replace direct MCP + search_task_planner loop."""
 
 import json
 
@@ -31,25 +31,20 @@ class _ReviewLLM:
     def _should_use_anthropic(self) -> bool:
         return True
 
-    async def complete(self, system: str, user: str, max_tokens: int = 900) -> str:
+    async def complete(self, system: str, user: str, max_tokens: int = 900, **kwargs) -> str:
         return json.dumps(
             {
-                "review_summary": "搜索无票价，改查官方页",
-                "next_actions": [
-                    {
-                        "action_type": "call_tool",
-                        "target": "official_page_reader_mcp",
-                        "arguments": {},
-                        "reason_summary": "读取官方页面",
-                    },
-                    {
-                        "action_type": "call_tool",
-                        "target": "baidu_place_detail_mcp",
-                        "arguments": {},
-                        "reason_summary": "补充 POI 详情",
-                    },
-                ],
-                "finish_recommended": False,
+                "action_type": "call_subagent",
+                "target": "fact_search_agent",
+                "arguments": {
+                    "lookup_intent": "查巴音布鲁克官方门票",
+                    "search_query": "巴音布鲁克 官网 门票",
+                    "anchor_keywords": ["巴音布鲁克"],
+                    "claim_target": "ticket_price",
+                    "information_need": "ticket_price",
+                },
+                "reason_summary": "搜索无票价，委派 fact_search 查官方",
+                "confidence": 0.85,
             },
             ensure_ascii=False,
         )
@@ -105,25 +100,8 @@ def _whitelist_with_ticket_tools() -> ToolWhitelist:
     )
 
 
-def _ctx_with_searches(completed: int) -> dict:
-    wl = _whitelist_with_ticket_tools()
-    tasks = [
-        {"task_id": f"t{i}", "search_query": f"巴音布鲁克 门票{i}", "anchor_keywords": ["巴音布鲁克"]}
-        for i in range(1, 5)
-    ]
-    return {
-        "tool_whitelist": wl,
-        "allowed_tools": [{"name": t} for t in wl.allowed_tool_names()],
-        "_search_task_planner_called": True,
-        "_last_review_search_count": 0,
-        "max_tool_calls": 10,
-        "tool_call_count": 0,
-        "tool_diversity_hints": ["ticket_price: try official_page_reader_mcp"],
-    }, tasks, [f"t{i}" for i in range(1, completed + 1)]
-
-
 @pytest.mark.asyncio
-async def test_ticket_price_calls_search_planner_first():
+async def test_ticket_price_orchestrator_delegates_entity_resolution_first():
     controller = ActionModelController(llm_client=_NoLLM())
     state = _ticket_state()
     ctx = {
@@ -135,47 +113,58 @@ async def test_ticket_price_calls_search_planner_first():
         state, EVIDENCE_PLANNING_AND_TOOL_USE_POLICY, ctx, step=1
     )
     assert action.action_type == AgentActionType.CALL_SUBAGENT
-    assert action.target == "search_task_planner_agent"
+    assert action.target == "entity_resolution_agent"
 
 
 @pytest.mark.asyncio
-async def test_review_checkpoint_interleaves_official_after_two_searches():
+async def test_orchestrator_llm_delegates_fact_search_after_entity():
     controller = ActionModelController(llm_client=_ReviewLLM())
     state = _ticket_state()
-    ctx, tasks, completed = _ctx_with_searches(2)
-    state.structured_result = {"search_tasks": tasks, "completed_search_task_ids": completed}
-    from app.schemas.tool_trace import ToolTrace
-
-    state.tool_traces = [
-        ToolTrace(tool_name="search_mcp", input={"query": "q1"}, status="ok"),
-        ToolTrace(tool_name="search_mcp", input={"query": "q2"}, status="ok"),
-    ]
-
+    state.structured_result = {
+        "subagent_results": [
+            {
+                "subagent": "entity_resolution_agent",
+                "evidence_count": 1,
+                "resolution_status": "resolved",
+            }
+        ],
+    }
+    ctx = {
+        "tool_whitelist": _whitelist_with_ticket_tools(),
+        "allowed_tools": [{"name": t} for t in _whitelist_with_ticket_tools().allowed_tool_names()],
+        "max_tool_calls": 10,
+    }
     action = await controller.next_action(
-        state, EVIDENCE_PLANNING_AND_TOOL_USE_POLICY, ctx, step=5
+        state, EVIDENCE_PLANNING_AND_TOOL_USE_POLICY, ctx, step=3
     )
-    assert action.action_type == AgentActionType.CALL_TOOL
-    assert action.target == "official_page_reader_mcp"
+    assert action.action_type == AgentActionType.CALL_SUBAGENT
+    assert action.target == "fact_search_agent"
 
 
 @pytest.mark.asyncio
-async def test_deterministic_interleave_without_llm():
+async def test_orchestrator_fallback_fact_search_after_entity_done():
     controller = ActionModelController(llm_client=_NoLLM())
     state = _ticket_state()
-    ctx, tasks, completed = _ctx_with_searches(2)
-    state.structured_result = {"search_tasks": tasks, "completed_search_task_ids": completed}
-    from app.schemas.tool_trace import ToolTrace
-
-    state.tool_traces = [
-        ToolTrace(tool_name="search_mcp", input={"query": "q1"}, status="ok"),
-        ToolTrace(tool_name="search_mcp", input={"query": "q2"}, status="ok"),
-    ]
-
+    state.semantic_frame.entities.city = "巴音郭楞"
+    state.structured_result = {
+        "subagent_results": [
+            {"subagent": "entity_resolution_agent", "evidence_count": 1},
+        ],
+    }
+    ctx = {
+        "tool_whitelist": _whitelist_with_ticket_tools(),
+        "allowed_tools": [{"name": t} for t in _whitelist_with_ticket_tools().allowed_tool_names()],
+        "max_tool_calls": 10,
+    }
     action = await controller.next_action(
-        state, EVIDENCE_PLANNING_AND_TOOL_USE_POLICY, ctx, step=5
+        state, EVIDENCE_PLANNING_AND_TOOL_USE_POLICY, ctx, step=3
     )
-    assert action.action_type == AgentActionType.CALL_TOOL
-    assert action.target == "official_page_reader_mcp"
+    assert action.action_type == AgentActionType.CALL_SUBAGENT
+    assert action.target == "fact_search_agent"
+
+
+def test_s5_max_steps_is_30():
+    assert EVIDENCE_PLANNING_AND_TOOL_USE_POLICY.max_steps == 30
 
 
 def test_configured_ticket_providers_in_whitelist(monkeypatch):

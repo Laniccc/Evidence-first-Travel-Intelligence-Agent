@@ -526,6 +526,20 @@ NEED_TOOL_PROFILES: dict[str, list[str]] = {
         "knowledge_prior",
         "fallback",
     ],
+    "elevation": [
+        "search_mcp",
+        "wikipedia_mcp",
+        "wikidata_mcp",
+        "knowledge_prior",
+        "fallback",
+    ],
+    "general_fact": [
+        "search_mcp",
+        "wikipedia_mcp",
+        "wikidata_mcp",
+        "knowledge_prior",
+        "fallback",
+    ],
     "fallback_web_lookup": ["search_mcp", "browser_mcp", "wikipedia_mcp", "fallback", "knowledge_prior"],
     "route_plan": [
         "baidu_route_mcp",

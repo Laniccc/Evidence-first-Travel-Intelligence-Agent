@@ -8,6 +8,15 @@ from typing import Any
 from app.config import get_settings
 from app.policies.evidence_policy import EvidencePolicy
 from app.orchestrator.claim_policy_registry import enrich_claim_requirement
+from app.orchestrator.information_need_aliases import (
+    infer_all_nearby_needs_from_text,
+    infer_nearby_need_from_text,
+    is_nearby_need,
+    nearby_claims_for_retrieval,
+    normalize_information_needs,
+    normalize_need,
+    resolve_nearby_need,
+)
 from app.schemas.normalized_user_request import NormalizedUserRequest
 from app.schemas.response_contract import (
     ClaimRequirement,
@@ -60,6 +69,16 @@ _WEATHER_NEEDS = frozenset({"today_weather", "forecast", "weather", "weather_tod
 _CROWD_NEEDS = frozenset({"current_crowd", "queue_time", "crowd_level"})
 
 _ADVISORY_NEEDS = frozenset({"best_time_to_visit", "seasonality"})
+
+_NEARBY_PROVIDER_TOOLS = [
+    "baidu_place_search_mcp",
+    "baidu_place_detail_mcp",
+    "dianping_nearby_crawler_mcp",
+    "dianping_review_crawler_mcp",
+    "ctrip_review_crawler_mcp",
+    "search_mcp",
+    "browser_mcp",
+]
 
 _PLACE_ENTITY_LABELS = frozenset(
     {
@@ -124,7 +143,8 @@ class ResponseContractCompiler:
             claims.append(self._seasonal_operation_status_claim())
             claims.append(self._general_seasonal_context_claim())
         else:
-            for need in frame.information_needs:
+            normalized_needs = normalize_information_needs(list(frame.information_needs or []), text=text)
+            for need in normalized_needs:
                 claim = self._claim_for_need(need, frame)
                 if claim and not any(c.claim_type == claim.claim_type for c in claims):
                     claims.append(claim)
@@ -135,7 +155,31 @@ class ResponseContractCompiler:
                 claims.append(self._best_time_claim(frame))
 
         if not claims:
-            claims.append(self._general_advice_claim(frame))
+            if intent_profile and intent_profile.primary_intent == PrimaryIntent.NEARBY:
+                fallback_needs = infer_all_nearby_needs_from_text(text)
+                extras = list(dict.fromkeys(fallback_needs + ["review_summary"]))
+                for extra in extras:
+                    claim = self._claim_for_need(extra, frame)
+                    if claim and not any(c.claim_type == claim.claim_type for c in claims):
+                        claims.append(claim)
+            elif frame.decision_type == DecisionType.NEARBY_SEARCH:
+                for need in infer_all_nearby_needs_from_text(text):
+                    claim = self._claim_for_need(need, frame)
+                    if claim and not any(c.claim_type == claim.claim_type for c in claims):
+                        claims.append(claim)
+            if not claims:
+                claims.append(self._general_advice_claim(frame))
+        elif intent_profile and intent_profile.primary_intent == PrimaryIntent.NEARBY:
+            if all(c.claim_type == "general_travel_advice" for c in claims):
+                claims = []
+                fallback_needs = infer_all_nearby_needs_from_text(text)
+                extras = list(dict.fromkeys(fallback_needs + ["review_summary"]))
+                for extra in extras:
+                    claim = self._claim_for_need(extra, frame)
+                    if claim:
+                        claims.append(claim)
+                if not claims:
+                    claims.append(self._general_advice_claim(frame))
 
         claims = self._apply_intent_claim_hints(claims, intent_profile)
         if intent_profile and intent_profile.primary_intent == PrimaryIntent.COMPARISON:
@@ -365,6 +409,49 @@ class ResponseContractCompiler:
 
         if need in _ADVISORY_NEEDS:
             return self._best_time_claim(frame, priority="important")
+
+        if is_nearby_need(need):
+            claim_type = resolve_nearby_need(need, text=f"{frame.raw_query} {frame.normalized_request}")
+            return ClaimRequirement(
+                claim_type=claim_type,
+                claim_family="nearby_recommendation",
+                priority="required",
+                requires_exact_fact=False,
+                requires_live_data=False,
+                freshness="recent",
+                allowed_source_types=["map", "review", "public_web"],
+                preferred_tools=list(_NEARBY_PROVIDER_TOOLS),
+                forbidden_tools=["knowledge_prior"],
+                model_prior_allowed=False,
+                estimation_allowed=False,
+                coverage_rule="must list named POIs with distance or walk/drive time when available",
+                missing_behavior="answer_with_limitation",
+            )
+
+        if need in {"elevation", "altitude", "area", "general_fact"}:
+            claim_type = "elevation" if need == "altitude" else need
+            return ClaimRequirement(
+                claim_type=claim_type,
+                priority="required" if frame.requires_exact_fact else "important",
+                requires_exact_fact=bool(frame.requires_exact_fact),
+                requires_live_data=False,
+                freshness="stable",
+                allowed_source_types=["public_web", "encyclopedia", "map", "official", "model_prior"],
+                preferred_tools=[
+                    "search_mcp",
+                    "wikipedia_mcp",
+                    "wikidata_mcp",
+                    "osm_mcp",
+                    "baidu_place_search_mcp",
+                    "knowledge_prior",
+                    "fallback",
+                ],
+                forbidden_tools=["knowledge_prior"] if frame.requires_exact_fact else [],
+                model_prior_allowed=frame.can_answer_with_model_prior and not frame.requires_exact_fact,
+                estimation_allowed=not frame.requires_exact_fact,
+                coverage_rule=f"must cite explicit {need} value (e.g. meters) from web or encyclopedia",
+                missing_behavior="answer_with_limitation",
+            )
 
         return None
 

@@ -43,6 +43,16 @@ CLAIM_TYPE_TO_FAMILY: dict[str, str] = {
     "photo_costume_suitability": "suitability_advice",
     "pet_friendly_suitability": "suitability_advice",
     "nearby_poi": "nearby_recommendation",
+    "nearby_food": "nearby_recommendation",
+    "nearby_dining": "nearby_recommendation",
+    "nearby_restaurant": "nearby_recommendation",
+    "nearby_hotel": "nearby_recommendation",
+    "nearby_lodging": "nearby_recommendation",
+    "nearby_rest_area": "nearby_recommendation",
+    "nearby_parking": "nearby_recommendation",
+    "nearby_toilet": "nearby_recommendation",
+    "nearby_station": "nearby_recommendation",
+    "restaurant_recommendation": "nearby_recommendation",
     "comparison": "comparison",
 }
 
@@ -77,7 +87,11 @@ CLAIM_TYPE_ALIASES: dict[str, frozenset[str]] = {
     "entity_resolution": frozenset(
         {ClaimType.PLACE_CANDIDATES.value, ClaimType.COORDINATES.value, ClaimType.POI_UID.value}
     ),
+    "elevation": frozenset({ClaimType.ELEVATION.value, ClaimType.TRAVEL_ADVICE.value}),
+    "general_fact": frozenset({ClaimType.GENERAL_FACT.value, ClaimType.TRAVEL_ADVICE.value}),
 }
+
+# Nearby recommendation needs: aliases registered via nearby_recommendation_policy.claim_aliases_for_need
 
 GEO_ONLY_CLAIMS = frozenset(
     {
@@ -249,7 +263,13 @@ FAMILY_DEFAULTS: dict[str, dict] = {
         "preferred_tools": ["ctrip_review_crawler_mcp", "dianping_review_crawler_mcp", "search_mcp"],
     },
     "nearby_recommendation": {
-        "preferred_tools": ["baidu_place_search_mcp", "places_mcp", "search_mcp"],
+        "preferred_tools": [
+            "baidu_place_search_mcp",
+            "baidu_place_detail_mcp",
+            "dianping_nearby_crawler_mcp",
+            "dianping_review_crawler_mcp",
+            "search_mcp",
+        ],
     },
     "suitability_advice": {
         "model_prior_allowed": True,
@@ -281,7 +301,15 @@ def enrich_claim_requirement(claim: ClaimRequirement) -> ClaimRequirement:
 
 def resolve_policy(claim: ClaimRequirement) -> ClaimPolicyView:
     claim = enrich_claim_requirement(claim)
-    aliases = CLAIM_TYPE_ALIASES.get(claim.claim_type, frozenset({claim.claim_type}))
+    from app.orchestrator.nearby_recommendation_policy import (
+        claim_aliases_for_need,
+        is_nearby_information_need,
+    )
+
+    if is_nearby_information_need(claim.claim_type):
+        aliases = claim_aliases_for_need(claim.claim_type)
+    else:
+        aliases = CLAIM_TYPE_ALIASES.get(claim.claim_type, frozenset({claim.claim_type}))
     irrelevant = IRRELEVANT_FOR.get(claim.claim_type, frozenset())
 
     if claim.claim_type in KNOWN_CLAIM_TYPES or claim.claim_type in CLAIM_POLICIES:

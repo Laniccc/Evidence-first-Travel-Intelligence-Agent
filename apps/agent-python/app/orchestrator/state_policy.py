@@ -114,11 +114,16 @@ EVIDENCE_PLANNING_AND_TOOL_USE_POLICY = StateNodePolicy(
     ],
     allowed_tools=EVIDENCE_PLANNING_TOOL_NAMES,
     allowed_subagents=[
+        "fact_lookup_agent",
+        "entity_resolution_agent",
+        "route_feasibility_agent",
+        "fact_search_agent",
+        "weather_context_agent",
         "search_task_planner_agent",
         "keyword_search_agent",
         "evidence_contradiction_decomposer_agent",
     ],
-    max_steps=18,
+    max_steps=30,
     required_output_schema="EvidencePlanningResult",
     allow_final_answer=False,
 )

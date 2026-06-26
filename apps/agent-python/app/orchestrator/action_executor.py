@@ -148,13 +148,61 @@ class ActionExecutor:
             whitelist_checked = bool(prompt_context.get("tool_whitelist") is not None)
             for trace in output.get("tool_traces", []):
                 if isinstance(trace, dict):
-                    trace.setdefault("requested_by_state", loop_state)
-                    trace.setdefault("selected_by_llm", selected_by_llm)
-                    trace.setdefault("whitelist_checked", whitelist_checked)
+                    trace["requested_by_state"] = loop_state
+                    trace["selected_by_llm"] = selected_by_llm
+                    trace["whitelist_checked"] = whitelist_checked
                     trace["subagent"] = "keyword_search_agent"
             return ActionResult(output=output)
 
+        if name == "entity_resolution_agent":
+            from app.agents.entity_resolution_agent import EntityResolutionAgent
+
+            output = await EntityResolutionAgent(self.tools).run(state, arguments, prompt_context)
+            return self._annotate_subagent_output(output, name, prompt_context)
+
+        if name == "nearby_anchor_strategy_agent":
+            from app.agents.nearby_anchor_strategy_agent import NearbyAnchorStrategyAgent
+
+            output = await NearbyAnchorStrategyAgent().run(state, arguments, prompt_context)
+            return self._annotate_subagent_output(output, name, prompt_context)
+
+        if name == "route_feasibility_agent":
+            from app.agents.route_feasibility_agent import RouteFeasibilityAgent
+
+            output = await RouteFeasibilityAgent(self.tools).run(state, arguments, prompt_context)
+            return self._annotate_subagent_output(output, name, prompt_context)
+
+        if name == "fact_search_agent":
+            from app.agents.fact_search_agent import FactSearchAgent
+
+            output = await FactSearchAgent(self.tools).run(state, arguments, prompt_context)
+            return self._annotate_subagent_output(output, name, prompt_context)
+
+        if name == "fact_lookup_agent":
+            from app.agents.fact_lookup_agent import FactLookupAgent
+
+            output = await FactLookupAgent(self.tools).run(state, arguments, prompt_context)
+            return self._annotate_subagent_output(output, name, prompt_context)
+
+        if name == "weather_context_agent":
+            from app.agents.weather_context_agent import WeatherContextAgent
+
+            output = await WeatherContextAgent(self.tools).run(state, arguments, prompt_context)
+            return self._annotate_subagent_output(output, name, prompt_context)
+
         return ActionResult(ok=False, error=f"Unknown subagent: {name}")
+
+    def _annotate_subagent_output(self, output: dict, name: str, prompt_context: dict) -> ActionResult:
+        loop_state = prompt_context.get("loop_state_name", "evidence_planning_and_tool_use")
+        selected_by_llm = bool(prompt_context.get("selected_by_llm", True))
+        whitelist_checked = bool(prompt_context.get("tool_whitelist") is not None)
+        for trace in output.get("tool_traces", []):
+            if isinstance(trace, dict):
+                trace["requested_by_state"] = loop_state
+                trace["selected_by_llm"] = selected_by_llm
+                trace["whitelist_checked"] = whitelist_checked
+                trace["subagent"] = name
+        return ActionResult(output=output)
 
     async def _call_tool(
         self,
@@ -169,6 +217,14 @@ class ActionExecutor:
         resolved = resolve_tool_name(tool_name)
         payload = self._build_tool_arguments(resolved, arguments, state, prompt_context)
         trace_before = len(self.tools.traces)
+        phase = "gap_fill" if prompt_context.get("gap_filling") else (
+            "supplement" if not prompt_context.get("selected_by_llm", True) else "main"
+        )
+        claim = (
+            arguments.get("claim_target")
+            or arguments.get("information_need")
+            or (prompt_context.get("gap_request") or {}).get("claim_type")
+        )
 
         try:
             from app.tool_gateway.integration import try_java_tool_gateway
@@ -186,6 +242,16 @@ class ActionExecutor:
             evidence = await self.tools.run_tool(resolved, **payload)
             self._annotate_traces(trace_before, tool_name, prompt_context)
             new_traces = self.tools.traces[trace_before:]
+            from app.orchestrator.s5_tool_attempt_ledger import record_tool_attempt
+
+            record_tool_attempt(
+                state,
+                tool_name=resolved,
+                claim_type=str(claim) if claim else None,
+                phase=phase,
+                status="ok" if evidence else "zero_evidence",
+                evidence_count=len(evidence),
+            )
             return ActionResult(
                 output={
                     "evidence": evidence,
@@ -199,6 +265,17 @@ class ActionExecutor:
             self.tools.record_error(resolved, input=payload, error=str(exc))
             self._annotate_traces(trace_before, tool_name, prompt_context)
             new_traces = self.tools.traces[trace_before:]
+            from app.orchestrator.s5_tool_attempt_ledger import record_tool_attempt
+
+            record_tool_attempt(
+                state,
+                tool_name=resolved,
+                claim_type=str(claim) if claim else None,
+                phase=phase,
+                status="error",
+                evidence_count=0,
+                error=str(exc),
+            )
             return ActionResult(
                 ok=False,
                 error=str(exc),

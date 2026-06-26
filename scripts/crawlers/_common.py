@@ -22,6 +22,30 @@ _SEASON_RE = re.compile(
 )
 _HEAT_RE = re.compile(r"热度\s*[:：]?\s*([\d.]+)|heat[_\s]?score[\"']?\s*[:=]\s*([\d.]+)", re.I)
 
+_CLAIM_TO_CLI_MODE: dict[str, str] = {
+    "review_summary": "review",
+    "reputation": "review",
+    "value_rating": "review",
+    "ticket_price": "ticket",
+    "ticket_price_candidate": "ticket",
+    "nearby_food": "nearby",
+    "nearby_poi": "nearby",
+    "nearby_hotel": "nearby",
+    "seasonality": "guide",
+    "best_time_to_visit": "guide",
+    "crowd_level": "crowd",
+    "current_crowd_estimate": "crowd",
+    "queue_risk": "crowd",
+}
+_VALID_CLI_MODES = frozenset({"review", "ticket", "nearby", "guide", "crowd"})
+
+
+def normalize_crawler_mode(mode: str | None) -> str:
+    raw = (mode or "").strip().lower()
+    if raw in _VALID_CLI_MODES:
+        return raw
+    return _CLAIM_TO_CLI_MODE.get(raw, raw or "review")
+
 
 def merge_stdin_payload(args: dict[str, Any]) -> dict[str, Any]:
     """Merge BaseCrawlerTool stdin JSON over CLI args."""
@@ -43,7 +67,7 @@ def merge_stdin_payload(args: dict[str, Any]) -> dict[str, Any]:
         out["place"] = payload["query"]
     mode = payload.get("mode") or payload.get("claim_type")
     if mode and not out.get("mode"):
-        out["mode"] = str(mode)
+        out["mode"] = normalize_crawler_mode(str(mode))
     return out
 
 
@@ -79,9 +103,16 @@ def run_external_command(argv: list[str], *, timeout: float = 30.0, cwd: str | N
         return {"items": [{"review_summary": text[:500], "confidence": 0.4}]}
 
 
-def fetch_url(url: str, *, timeout: float = 15.0, proxy_url: str | None = None) -> str:
+def fetch_url(url: str, *, timeout: float | None = None, proxy_url: str | None = None) -> str:
+    limit = timeout
+    if limit is None:
+        try:
+            limit = float(os.environ.get("CRAWLER_FETCH_TIMEOUT_SECONDS", "12"))
+        except ValueError:
+            limit = 12.0
     proxies = proxy_url or os.environ.get("CRAWLER_PROXY_URL") or None
-    client_kwargs: dict[str, Any] = {"timeout": timeout, "follow_redirects": True}
+    client_timeout = httpx.Timeout(limit, connect=min(8.0, limit))
+    client_kwargs: dict[str, Any] = {"timeout": client_timeout, "follow_redirects": True}
     if proxies:
         client_kwargs["proxy"] = proxies
     headers = {

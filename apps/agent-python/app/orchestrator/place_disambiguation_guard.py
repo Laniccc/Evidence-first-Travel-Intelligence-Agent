@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from app.schemas.evidence import ClaimType, Evidence
 from app.schemas.user_query import TravelAgentState
+from tools.mcp.adapters.baidu_response_parser import candidates_are_ambiguous
 
 
 def extract_place_candidates(evidence: list[Evidence]) -> list[dict]:
@@ -27,12 +28,76 @@ def _location_key(candidate: dict) -> str:
 
 def detect_ambiguous_candidates(evidence: list[Evidence]) -> list[dict] | None:
     candidates = extract_place_candidates(evidence)
-    if len(candidates) < 2:
-        return None
-    keys = {_location_key(c) for c in candidates}
-    if len(keys) <= 1:
+    if not candidates_are_ambiguous(candidates):
         return None
     return candidates
+
+
+def candidate_baidu_region(candidate: dict) -> str | None:
+    region = (candidate.get("city") or candidate.get("province") or "").strip()
+    return region or None
+
+
+def mark_disambiguation_pending(state: TravelAgentState, candidates: list[dict]) -> None:
+    structured = dict(state.structured_result or {})
+    structured["place_disambiguation_pending"] = True
+    structured["place_disambiguation_candidates"] = candidates[:5]
+    structured.setdefault("place_disambiguation_branches_done", [])
+    state.structured_result = structured
+
+
+def clear_disambiguation_pending(state: TravelAgentState) -> None:
+    structured = dict(state.structured_result or {})
+    structured["place_disambiguation_pending"] = False
+    state.structured_result = structured
+
+
+def record_disambiguation_branch_done(state: TravelAgentState, branch_key: str) -> None:
+    structured = dict(state.structured_result or {})
+    done = list(structured.get("place_disambiguation_branches_done") or [])
+    if branch_key not in done:
+        done.append(branch_key)
+    structured["place_disambiguation_branches_done"] = done
+    state.structured_result = structured
+
+
+def next_disambiguation_branch(state: TravelAgentState) -> dict | None:
+    """Next region-scoped baidu_place_search args for an unresolved ambiguous candidate."""
+    structured = state.structured_result or {}
+    if not structured.get("place_disambiguation_pending"):
+        return None
+    candidates = structured.get("place_disambiguation_candidates") or []
+    done = set(structured.get("place_disambiguation_branches_done") or [])
+    frame = state.semantic_frame
+    place_name = ""
+    if frame and frame.entities and frame.entities.places:
+        place_name = frame.entities.places[0]
+    for candidate in candidates:
+        region = candidate_baidu_region(candidate)
+        if not region:
+            continue
+        name = (candidate.get("name") or place_name or "").strip()
+        branch_key = f"{region}|{name}"
+        if branch_key in done:
+            continue
+        return {
+            "place_name": name or place_name,
+            "query": name or place_name,
+            "region": region,
+            "city": candidate.get("city"),
+            "province": candidate.get("province"),
+            "_branch_key": branch_key,
+        }
+    return None
+
+
+def disambiguation_pending_without_city(state: TravelAgentState) -> bool:
+    structured = state.structured_result or {}
+    if not structured.get("place_disambiguation_pending"):
+        return False
+    frame = state.semantic_frame
+    city = (frame.entities.city or "").strip() if frame and frame.entities else ""
+    return not city
 
 
 def candidate_display_label(candidate: dict) -> str:

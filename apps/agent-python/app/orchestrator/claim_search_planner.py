@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 
+from app.orchestrator.information_need_aliases import is_nearby_need, resolve_nearby_need, query_text_from_state
 from app.orchestrator.comparison_helpers import (
     active_place_name,
     comparison_search_anchors,
@@ -96,29 +97,38 @@ class ClaimSearchPlanner:
         return hits_from_evidence_list(list(state.evidence))
 
     @classmethod
+    def _resolve_primary_need(cls, state: TravelAgentState, raw: str | None) -> str | None:
+        if not raw:
+            return None
+        text = query_text_from_state(state)
+        if is_nearby_need(raw):
+            return resolve_nearby_need(raw, text=text)
+        return raw
+
+    @classmethod
     def primary_information_need(cls, state: TravelAgentState) -> str | None:
         residual = state.user_need_residual
         if residual:
             for claim in residual.claim_requirements:
                 if claim.priority == "required":
-                    return claim.claim_type
+                    return cls._resolve_primary_need(state, claim.claim_type)
             for need in residual.information_needs:
                 if need.priority == "required":
-                    return need.need_type
+                    return cls._resolve_primary_need(state, need.need_type)
             if residual.claim_requirements:
-                return residual.claim_requirements[0].claim_type
+                return cls._resolve_primary_need(state, residual.claim_requirements[0].claim_type)
             if residual.information_needs:
-                return residual.information_needs[0].need_type
+                return cls._resolve_primary_need(state, residual.information_needs[0].need_type)
         contract = state.response_contract
         if contract:
             for claim in contract.claim_requirements:
                 if claim.priority == "required":
-                    return claim.claim_type
+                    return cls._resolve_primary_need(state, claim.claim_type)
             if contract.claim_requirements:
-                return contract.claim_requirements[0].claim_type
+                return cls._resolve_primary_need(state, contract.claim_requirements[0].claim_type)
         frame = state.semantic_frame
         if frame and frame.information_needs:
-            return frame.information_needs[0]
+            return cls._resolve_primary_need(state, frame.information_needs[0])
         return None
 
     @classmethod
@@ -163,6 +173,27 @@ class ClaimSearchPlanner:
         if is_comparison_mode(state) and place:
             anchor_keywords = comparison_search_anchors(place, frame, peer_places=state.comparison_peer_places)
 
+        from app.orchestrator.search_query_rewriter import SearchQueryRewriter
+
+        rewriter = SearchQueryRewriter.from_planning_context(
+            {
+                "raw_query": state.raw_user_query,
+                "entities": entities,
+                "claim_types": claim_types,
+                "anchor_keywords": anchor_keywords,
+                "disambiguated_place_label": (
+                    disambiguated_place_label(place, city=city, region=region)
+                    if place
+                    else None
+                ),
+                "tried_search_queries": tried,
+                "user_need_residual": (
+                    state.user_need_residual.model_dump() if state.user_need_residual else None
+                ),
+            },
+            state,
+        )
+
         return {
             "raw_query": state.raw_user_query,
             "normalized_request": frame.normalized_request if frame else None,
@@ -189,6 +220,7 @@ class ClaimSearchPlanner:
             "place_candidates": place_candidates,
             "evidence_highlights": cls.evidence_highlights(state),
             "recent_keyword_search_results": cls.recent_keyword_search_results(state),
+            "subagent_results": (state.structured_result or {}).get("subagent_results", [])[-8:],
             "user_need_residual": (
                 state.user_need_residual.model_dump() if state.user_need_residual else None
             ),
@@ -218,8 +250,14 @@ class ClaimSearchPlanner:
             ),
             "official_search_query_templates": OFFICIAL_SEARCH_QUERY_TEMPLATES,
             "official_search_queries_for_primary_need": templates_for_claim(
-                primary, place_name=place or "", city=city or ""
+                primary,
+                place_name=place or "",
+                city=city or "",
+                region=region or "",
+                user_query=state.raw_user_query or "",
             ),
+            "query_rewrite_slots": rewriter.slots_summary(),
+            "query_rewrite_plan": [i.model_dump() for i in rewriter.plan_items(max_items=6)],
         }
 
     @staticmethod

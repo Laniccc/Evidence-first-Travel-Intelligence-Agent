@@ -82,6 +82,9 @@ class ClaimType(str, Enum):
     PLATFORM_TICKET_URL = "platform_ticket_url"
     REVIEW_COUNT = "review_count"
     OFFICIAL_SOURCE_CANDIDATE = "official_source_candidate"
+    # General factual attributes about places (elevation, area, founding year, etc.)
+    ELEVATION = "elevation"
+    GENERAL_FACT = "general_fact"
 
 
 class Claim(BaseModel):

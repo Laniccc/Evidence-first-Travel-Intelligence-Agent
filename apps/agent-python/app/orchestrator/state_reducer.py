@@ -1,6 +1,7 @@
 from app.orchestrator.actions import ActionResult, AgentAction, AgentActionType
 from app.orchestrator.evidence_brief_builder import apply_evidence_brief
 from app.orchestrator.state_policy import StateNodePolicy
+from app.orchestrator.subagent_evidence_gate import filter_subagent_evidence
 from app.orchestrator.trace import TraceRecorder
 from app.schemas.evidence_brief import EvidenceBrief
 from app.schemas.final_answer_draft import FinalAnswerDraft
@@ -146,8 +147,38 @@ class StateReducer:
                 state,
                 f"✓ [A2A] evidence_contradiction_decomposer → {item_count} decomposed fact tiers",
             )
-        elif target == "keyword_search_agent":
-            evidence = output.get("evidence", [])
+        elif target in {
+            "keyword_search_agent",
+            "entity_resolution_agent",
+            "route_feasibility_agent",
+            "fact_search_agent",
+            "fact_lookup_agent",
+            "weather_context_agent",
+        }:
+            raw_evidence = output.get("evidence", [])
+            accepted, rejected = filter_subagent_evidence(
+                state,
+                raw_evidence,
+                subagent=target,
+                output=output if isinstance(output, dict) else {},
+            )
+            if rejected:
+                structured = dict(state.structured_result or {})
+                gate_log = list(structured.get("subagent_evidence_gate_rejects") or [])
+                gate_log.append(
+                    {
+                        "subagent": target,
+                        "task_id": output.get("task_id"),
+                        "rejected": rejected,
+                    }
+                )
+                structured["subagent_evidence_gate_rejects"] = gate_log[-24:]
+                state.structured_result = structured
+                TraceRecorder.add(
+                    state,
+                    f"⊘ NEARBY evidence gate dropped {len(rejected)} item(s) from {target}",
+                )
+            evidence = accepted
             if evidence:
                 state.evidence = list(state.evidence) + list(evidence)
             for item in output.get("tool_traces", []):
@@ -165,19 +196,34 @@ class StateReducer:
             history.append(
                 {
                     "task_id": task_id,
+                    "subagent": output.get("subagent") or target,
                     "search_query": output.get("search_query"),
                     "search_purpose": output.get("search_purpose") or output.get("information_need"),
                     "selected_tool": output.get("selected_tool"),
                     "anchor_keywords": output.get("anchor_keywords"),
                     "evidence_count": len(evidence),
+                    "resolution_status": output.get("resolution_status"),
                 }
             )
             structured["keyword_search_results"] = history[-12:]
+            sub_results = list(structured.get("subagent_results") or [])
+            sub_results.append(
+                {
+                    "subagent": output.get("subagent") or target,
+                    "task_id": task_id,
+                    "lookup_intent": output.get("lookup_intent"),
+                    "search_query": output.get("search_query"),
+                    "selected_tool": output.get("selected_tool"),
+                    "evidence_count": len(evidence),
+                    "resolution_status": output.get("resolution_status"),
+                }
+            )
+            structured["subagent_results"] = sub_results[-16:]
             state.structured_result = structured
             query_preview = str(output.get("search_query", ""))[:48]
             TraceRecorder.add(
                 state,
-                f"✓ [A2A] keyword_search_agent ({task_id}) → {len(evidence)} evidence | {query_preview}",
+                f"✓ [A2A] {target} ({task_id}) → {len(evidence)} evidence | {query_preview}",
             )
         elif target == "evidence_curation_planner_agent" and "curation_plan" in output:
             structured = dict(state.structured_result or {})
@@ -282,6 +328,14 @@ class StateReducer:
             state.final_response = rendered
             structured = dict(state.structured_result or {})
             structured["final_answer_draft"] = draft.model_dump()
+            if draft.compose_mode == "place_disambiguation":
+                structured["s8_place_disambiguation_presented"] = True
+                state.next_state = "clarification_response"
+                if state.query_understanding:
+                    state.query_understanding.needs_clarification = True
+                    state.query_understanding.clarification_question = rendered[:800]
+            elif draft.compose_mode == "nearby_guided":
+                structured["s8_nearby_guided_presented"] = True
             state.structured_result = structured
             TraceRecorder.add(state, "✓ [loop] AnswerComposition 完成")
         elif (state.final_response or "").strip():

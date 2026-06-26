@@ -16,6 +16,12 @@ _OPENING_SNIPPET = re.compile(
     r"开放|通车|封路|几月|月份|\d{1,2}月",
     re.I,
 )
+_ELEVATION_SNIPPET = re.compile(r"海拔|高度|elevation|altitude", re.I)
+_ELEVATION_VALUE = re.compile(
+    r"(?:海拔|高度|海拔约|高度约)[约为]?\s*(\d{3,5})\s*米",
+    re.I,
+)
+_ELEVATION_NEEDS = frozenset({"elevation", "altitude", "height", "海拔"})
 _OFFICIAL_DOMAIN_HINTS = (
     ".gov",
     ".gov.cn",
@@ -26,6 +32,15 @@ _OFFICIAL_DOMAIN_HINTS = (
     "official",
     "ticket",
     "ctrip.com/spot",
+)
+
+_SPAM_DOMAINS = frozenset({
+    "17173.com", "weixin.qq.com", "chsi.com.cn", "gaokao.chsi.com.cn",
+})
+
+_SPAM_TITLE_SIGNALS = (
+    "17173", "游戏", "萌妹", "少女兔", "阳光高考",
+    "强基计划", "考研", "高考",
 )
 
 
@@ -132,6 +147,13 @@ class SearchMCPAdapter(BaseTravelTool):
                 )
             ]
 
+        # Build relevance anchors from place context
+        relevance_anchors = self._build_relevance_anchors(
+            query=query,
+            place_name=place_name,
+            city=city,
+        )
+
         evidence_list: list[Evidence] = []
         for hit in hits[:8]:
             title = str(hit.get("title") or hit.get("name") or "").strip()
@@ -140,9 +162,21 @@ class SearchMCPAdapter(BaseTravelTool):
             if not title and not snippet:
                 continue
 
+            # Filter out obvious spam / off-topic results
+            if self._is_spam(title, snippet, url):
+                logger.debug("search_mcp: filtered spam result title=%r engine=%r",
+                             title[:80], hit.get("engine", "?"))
+                continue
+
+            # Filter results clearly unrelated to the queried place
+            if relevance_anchors and not self._is_relevant(title, snippet, relevance_anchors):
+                logger.debug("search_mcp: filtered irrelevant result title=%r", title[:80])
+                continue
+
             officialish = self._looks_official(url, title, snippet)
             confidence = 0.62 if officialish else 0.5
             claim_type = ClaimType.TRAVEL_ADVICE
+
             if information_need in {"seasonal_operation_status", "road_opening_period"}:
                 if _OPENING_SNIPPET.search(f"{title} {snippet}"):
                     claim_type = ClaimType.SEASONAL_OPERATION_STATUS
@@ -158,6 +192,15 @@ class SearchMCPAdapter(BaseTravelTool):
                 elif ticketish:
                     claim_type = ClaimType.TICKET_PRICE_CANDIDATE
                     confidence = 0.48
+            elif information_need in _ELEVATION_NEEDS:
+                text = f"{title} {snippet}"
+                if _ELEVATION_SNIPPET.search(text):
+                    claim_type = ClaimType.ELEVATION
+                    match = _ELEVATION_VALUE.search(text)
+                    if match:
+                        confidence = 0.62 if officialish else 0.52
+                    else:
+                        confidence = 0.55 if officialish else 0.45
 
             summary = title
             if snippet:
@@ -224,3 +267,60 @@ class SearchMCPAdapter(BaseTravelTool):
             if host.endswith(".gov.cn") or host.endswith(".gov"):
                 return True
         return bool(re.search(r"官方|门票|票价|景区官网", f"{title} {snippet}"))
+
+    @staticmethod
+    def _build_relevance_anchors(
+        query: str,
+        place_name: str | None,
+        city: str | None,
+    ) -> list[str]:
+        """Build tokens that search results should contain to be considered relevant."""
+        anchors: list[str] = []
+        if place_name:
+            anchors.append(place_name)
+        if city:
+            anchors.append(city)
+        # Extract Chinese tokens from query as extra anchors
+        cn_tokens = re.findall(r"[一-鿿]{2,6}", str(query))
+        for t in cn_tokens[:3]:
+            if t not in anchors:
+                anchors.append(t)
+        return anchors
+
+    @staticmethod
+    def _is_relevant(title: str, snippet: str, anchors: list[str]) -> bool:
+        """Check if a search hit is plausibly about the queried place.
+
+        Returns True if at least one anchor token appears in the title or snippet.
+        Without anchors, default to True (can't filter).
+        """
+        if not anchors:
+            return True
+        blob = f"{title} {snippet}"
+        for anchor in anchors:
+            if anchor in blob:
+                return True
+        return False
+
+    @staticmethod
+    def _is_spam(title: str, snippet: str, url: str | None) -> bool:
+        """Detect search results that are clearly spam, gaming, or off-topic content.
+
+        Uses a combination of domain blocklist and title signal matching.
+        Only flags results with strong spam indicators to avoid over-filtering.
+        """
+        # Domain blocklist check
+        if url:
+            host = (urlparse(url).hostname or "").lower()
+            # Check exact domain match
+            if host in _SPAM_DOMAINS:
+                return True
+            # Check subdomain match
+            for spam_domain in _SPAM_DOMAINS:
+                if host.endswith("." + spam_domain) or host == spam_domain:
+                    return True
+
+        # Title signal check: multiple spam signals = spam
+        blob = f"{title} {snippet}".lower()
+        signal_count = sum(1 for s in _SPAM_TITLE_SIGNALS if s.lower() in blob)
+        return signal_count >= 2

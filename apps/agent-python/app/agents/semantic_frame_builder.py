@@ -1,6 +1,7 @@
 import re
 
 from app.catalog.place_resolver import PlaceResolver
+from app.orchestrator.information_need_aliases import infer_nearby_need_from_text
 from app.schemas.place_candidate import PlaceCandidate
 from app.schemas.query_understanding import QueryUnderstandingResult
 from app.schemas.semantic_frame import (
@@ -197,6 +198,10 @@ class SemanticFrameBuilder:
         for c in concerns:
             if c not in needs and c not in {"elderly_suitability", "value_for_money"}:
                 needs.append(c)
+        if re.search(r"附近|周边", text):
+            inferred = infer_nearby_need_from_text(text)
+            if inferred not in needs:
+                needs.append(inferred)
         return list(dict.fromkeys(needs))
 
     @classmethod

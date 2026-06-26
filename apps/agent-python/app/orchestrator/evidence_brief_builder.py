@@ -45,6 +45,8 @@ def build_evidence_brief_from_report(
                 )
             )
 
+    curated = _merge_filter_candidates_for_refused(state, report, target_label, curated)
+
     coverage_gaps: list[str] = []
     for decision in report.claim_decisions:
         if decision.coverage_quality in {"none", "weak"} or decision.adoption in {
@@ -89,6 +91,69 @@ def _claim_value_for(ev: Evidence, claim_type: str) -> str:
     if ev.claims:
         return str(ev.claims[0].value)
     return ""
+
+
+def _merge_filter_candidates_for_refused(
+    state: TravelAgentState,
+    report: EvidenceDecisionReport,
+    target_label: str,
+    curated: list[CuratedClaimRow],
+) -> list[CuratedClaimRow]:
+    """When S7 refuses to adopt, still surface relevance-filter rows for S8."""
+    refused_types = {
+        d.claim_type
+        for d in report.claim_decisions
+        if d.adoption in {"refuse_to_guess", "ask_clarification"} and not d.adopted_evidence_ids
+    }
+    if not refused_types:
+        return curated
+
+    structured = state.structured_result or {}
+    filter_rows = structured.get("curated_claims") or []
+    existing = {(row.claim_type, row.evidence_id) for row in curated}
+    merged = list(curated)
+
+    for item in filter_rows:
+        row = item if isinstance(item, CuratedClaimRow) else CuratedClaimRow.model_validate(item)
+        if row.claim_type not in refused_types:
+            nearby_refused = refused_types & {
+                "nearby_food",
+                "nearby_poi",
+                "nearby_hotel",
+                "nearby_toilet",
+                "nearby_parking",
+                "nearby_rest_area",
+                "nearby_station",
+            }
+            if nearby_refused and row.claim_type in {"food", "general_fact", "lodging", "place_candidates"}:
+                pass
+            elif not (
+                "elevation" in refused_types
+                and row.claim_type in {"travel_advice", "general_fact"}
+                and ("海拔" in row.value or "高度" in row.value)
+            ):
+                continue
+        key = (row.claim_type, row.evidence_id)
+        if key in existing:
+            continue
+        merged.append(
+            row.model_copy(
+                update={
+                    "claim_type": (
+                        "elevation"
+                        if "elevation" in refused_types and row.claim_type == "travel_advice"
+                        else row.claim_type
+                    ),
+                    "confidence": min(float(row.confidence or 0.5), 0.55),
+                    "relevance_score": min(float(row.relevance_score or 0.5), 0.55),
+                    "rationale": row.rationale or "检索线索（未达官方采纳标准，供参考）",
+                }
+            )
+        )
+        existing.add(key)
+
+    merged.sort(key=lambda r: (r.relevance_score, r.confidence), reverse=True)
+    return merged[:24]
 
 
 def build_evidence_brief(state: TravelAgentState, target_label: str) -> EvidenceBrief:

@@ -9,6 +9,7 @@ import uuid
 from app.config import get_settings
 from app.llm_client import LLMClient
 from app.orchestrator.claim_search_planner import ClaimSearchPlanner
+from app.orchestrator.search_query_rewriter import SearchQueryRewriter
 from app.schemas.search_task import SearchTask
 from app.schemas.user_query import TravelAgentState
 
@@ -18,29 +19,27 @@ _SYSTEM_INITIAL = """You plan evidence lookup tasks for a travel evidence agent 
 Return ONLY JSON:
 {"tasks":[{"lookup_intent":"...","claim_target":"opening_hours","search_query":"...","anchor_keywords":["..."],"information_need":"opening_hours","preferred_tool":"search_mcp","tool_parameters":{},"rationale":"..."}]}
 
-Rules:
-- lookup_intent: REQUIRED. One sentence — what evidence S5 needs after reading user context (not bare keywords).
-- claim_target / information_need: claim type keyword_search_agent should satisfy (e.g. distance, route_plan, ticket_price).
-- search_query: concrete string for the chosen MCP (search phrase OR route context label).
-- tool_parameters: structured MCP args when applicable (e.g. {"origin":"乌鲁木齐市","destination":"可可托海风景区","mode":"driving"}).
-- Propose 2-3 tasks tailored to user_need_residual, anchor_keywords, and claim_types.
-- anchor_keywords: disambiguation tokens; search_query MUST contain at least one for web-search tasks.
-- Route / day-trip / distance / drive-time: dedicate one task with preferred_tool=baidu_route_mcp and full tool_parameters.origin+destination.
-- Read agent_tool_definitions: keyword_search_agent picks MCP using when_to_use / satisfies_needs — set preferred_tool accordingly.
-- If place_candidates shows multiple regions, create separate tasks per region — do NOT ask the user here.
-- For comparison: anchor each task to ONE place with full region/city label.
-- Do NOT answer the user; only plan delegated lookups."""
+Query rewrite rules (do NOT paste user raw query verbatim):
+1. Read query_rewrite_slots: anchor_entity, primary_intent, claim_types, time_hint, user_need_phrase.
+2. Read query_rewrite_plan: rule-based multi-query angles per claim — each task targets ONE evidence angle.
+3. search_query = place_entity + intent_words + source_hint + time_hint (when needed).
+   Formula: {place} + {claim_keyword} + {official|游客评价|怎么去|...} + {今年|今天|...}
+4. Different tasks = different evidence goals (not synonym repeats).
+5. lookup_intent: what evidence this query should retrieve (one sentence).
+6. LOOKUP/hard-fact: prefer 官方/官网/游客服务; REVIEW_CHECK: 游客评价/避坑/大众点评; REALTIME: 最新/今天/通知.
+7. Route/day-trip: preferred_tool=baidu_route_mcp + tool_parameters.origin+destination.
+8. Supplement query_rewrite_plan only if a critical angle is missing; do NOT duplicate rule queries.
+9. Do NOT answer the user; only plan delegated lookups."""
 
 _SYSTEM_REFINE = """You refine evidence lookup tasks after prior keyword_search_agent runs.
 Return ONLY JSON:
 {"tasks":[{"lookup_intent":"...","claim_target":"ticket_price","search_query":"...","anchor_keywords":["..."],"information_need":"ticket_price","preferred_tool":"search_mcp","tool_parameters":{},"rationale":"..."}]}
 Rules:
-- Use the top-level key "tasks" (NOT new_tasks).
-- Return 1-2 NEW tasks only; each MUST include lookup_intent.
-- Use place_candidates, evidence_highlights, recent_keyword_search_results.
-- Do NOT repeat tried_search_queries.
-- If distance/duration still missing, add baidu_route_mcp task with tool_parameters.origin+destination.
-- Read agent_tool_definitions and user_need_residual when refining."""
+- Use "tasks" (NOT new_tasks). Return 1-2 NEW tasks only.
+- Read query_rewrite_plan and tried_search_queries — pick untried claim angles.
+- Each search_query must target a different evidence goal (official vs review vs route).
+- Do NOT repeat queries from query_rewrite_plan or tried_search_queries.
+- If distance/duration missing: baidu_route_mcp with tool_parameters.origin+destination."""
 
 _REPAIR_SUFFIX = (
     "\n\nYour previous reply was invalid or empty. "
@@ -58,13 +57,34 @@ class SearchTaskPlannerAgent:
         ctx = ClaimSearchPlanner.planning_context(state)
         if refine:
             ctx["existing_tasks"] = (state.structured_result or {}).get("search_tasks") or []
-        tasks = await self._llm_plan_tasks(ctx, refine=refine)
-        return self._dedupe_tasks(tasks)
+            tasks = await self._llm_plan_tasks(ctx, refine=refine)
+            return self._dedupe_tasks(tasks)
 
-    async def _llm_plan_tasks(self, ctx: dict, *, refine: bool) -> list[SearchTask]:
+        cap = int(ctx.get("max_keyword_searches") or 10)
+        max_tasks = min(3, cap)
+        rewriter = SearchQueryRewriter.from_planning_context(ctx, state)
+        rule_tasks = rewriter.to_search_tasks(max_tasks=max_tasks)
+        if len(rule_tasks) >= max_tasks:
+            return self._dedupe_tasks(rule_tasks)
+
+        llm_tasks = await self._llm_plan_tasks(
+            ctx, refine=False, max_tasks=max(0, max_tasks - len(rule_tasks))
+        )
+        return self._dedupe_tasks(rule_tasks + llm_tasks)[:max_tasks]
+
+    async def _llm_plan_tasks(
+        self,
+        ctx: dict,
+        *,
+        refine: bool,
+        max_tasks: int | None = None,
+    ) -> list[SearchTask]:
         system = _SYSTEM_REFINE if refine else _SYSTEM_INITIAL
         cap = int(ctx.get("max_keyword_searches") or 10)
-        max_tasks = 2 if refine else min(3, cap)
+        if max_tasks is None:
+            max_tasks = 2 if refine else min(3, cap)
+        if max_tasks <= 0:
+            return []
         user = json.dumps(_planner_user_payload(ctx, refine), ensure_ascii=False)
         settings = get_settings()
         max_tokens = settings.llm_planner_max_tokens
@@ -186,6 +206,8 @@ def _planner_user_payload(ctx: dict, refine: bool) -> dict:
         "primary_information_need": ctx.get("primary_information_need"),
         "claim_types": ctx.get("claim_types") or [],
         "user_need_residual": ctx.get("user_need_residual"),
+        "query_rewrite_slots": ctx.get("query_rewrite_slots") or {},
+        "query_rewrite_plan": (ctx.get("query_rewrite_plan") or [])[:8],
         "agent_tool_definitions": (ctx.get("agent_tool_definitions") or [])[:12],
         "entities": ctx.get("entities") or {},
         "tried_search_queries": ctx.get("tried_search_queries") or [],
@@ -217,7 +239,9 @@ def _coerce_planner_task(
     raw_params = item.get("tool_parameters") or item.get("tool_args") or {}
     tool_params: dict[str, str] = {}
     if isinstance(raw_params, dict):
-        tool_params = {str(k): str(v) for k, v in raw_params.items() if v is not None and str(v).strip()}
+        from app.schemas.search_task import normalize_tool_parameters
+
+        tool_params = normalize_tool_parameters(raw_params)
 
     query = str(
         item.get("search_query")

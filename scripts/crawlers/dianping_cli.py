@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import sys
 from pathlib import Path
@@ -23,6 +24,7 @@ from _common import (  # noqa: E402
     extract_snippets,
     fetch_url,
     merge_stdin_payload,
+    normalize_crawler_mode,
     run_external_command,
 )
 
@@ -131,14 +133,7 @@ def _nearby_from_html(html: str, place: str, source_url: str, max_results: int) 
         if len(items) >= max_results:
             break
     if not items:
-        items.append(
-            {
-                "shop_name": f"{place} 周边商户",
-                "review_summary": f"大众点评搜索 {place}",
-                "source_url": source_url,
-                "confidence": 0.35,
-            }
-        )
+        return []
     return items
 
 
@@ -219,9 +214,7 @@ def main() -> int:
     place = str(merged.get("place") or "").strip()
     if not place:
         return emit_result({"items": [], "error": "missing place"}, exit_code=1)
-    mode = str(merged.get("mode") or "review")
-    if mode in {"ticket_price", "ticket_price_candidate"}:
-        mode = "ticket"
+    mode = normalize_crawler_mode(str(merged.get("mode") or "review"))
     max_results = int(merged.get("max_results") or 10)
     city = merged.get("city")
 

@@ -22,6 +22,9 @@ class InformationNeedType(str, Enum):
     SAFETY = "safety"
     EVENT = "event"
     FALLBACK_WEB_LOOKUP = "fallback_web_lookup"
+    # General factual attributes about places
+    ELEVATION = "elevation"
+    GENERAL_FACT = "general_fact"
 
 
 class NeedPriority(str, Enum):

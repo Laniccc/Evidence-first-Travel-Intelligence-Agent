@@ -4,6 +4,13 @@ from __future__ import annotations
 
 from app.config import get_settings
 from app.orchestrator.claim_search_planner import ClaimSearchPlanner
+from app.orchestrator.information_need_aliases import (
+    is_nearby_need,
+    normalize_need,
+    query_text_from_state,
+    resolve_nearby_need,
+)
+from app.orchestrator.nearby_recommendation_policy import BAIDU_TAG_BY_NEED, baidu_tag_for_need, nearby_query_suffix_for_need
 from app.schemas.user_query import TravelAgentState
 from app.tools.tool_name_resolver import is_mcp_policy_tool
 from tools.ticketing.provider_config import is_ticket_provider_tool
@@ -78,7 +85,10 @@ def enrich_mcp_tool_arguments(
             args["travel_date"] = goal.travel_date
         from tools.mcp.adapters.baidu_response_parser import resolve_coordinates_from_evidence
 
-        coords = resolve_coordinates_from_evidence(list(state.evidence))
+        coords = resolve_coordinates_from_evidence(
+            list(state.evidence),
+            structured_result=state.structured_result,
+        )
         if coords:
             args.setdefault("latitude", coords["latitude"])
             args.setdefault("longitude", coords["longitude"])
@@ -113,9 +123,15 @@ def enrich_mcp_tool_arguments(
             if tool_name == "baidu_place_detail_mcp" and "uid" not in args:
                 from tools.mcp.adapters.baidu_response_parser import pick_baidu_uid_from_evidence
 
-                uid = pick_baidu_uid_from_evidence(list(state.evidence))
+                uid = pick_baidu_uid_from_evidence(
+                    list(state.evidence),
+                    region=args.get("region") or (frame.entities.region if frame else None),
+                    city=city,
+                )
                 if uid:
                     args.setdefault("uid", uid)
+        if tool_name == "baidu_place_search_mcp":
+            _enrich_baidu_search_arguments(args, state)
         if tool_name == "baidu_geocode_mcp":
             if place_name and "address" not in args and "query" not in args:
                 args.setdefault("address", place_name)
@@ -125,6 +141,71 @@ def enrich_mcp_tool_arguments(
             args["location_sensitive"] = True
 
     return args
+
+
+def nearby_coordinate_patch(
+    coords: dict[str, float] | None,
+    *,
+    radius: int = 3000,
+) -> dict[str, object]:
+    """MCP args patch: circle-based nearby search from anchor coordinates."""
+    if not coords:
+        return {}
+    return {
+        "nearby_search": True,
+        "latitude": coords["latitude"],
+        "longitude": coords["longitude"],
+        "radius": radius,
+    }
+
+
+def apply_nearby_anchor_coordinates(
+    args: dict,
+    coords: dict[str, float] | None,
+    *,
+    radius: int = 3000,
+) -> None:
+    """Prefer lat/lng nearby search; drop region so Baidu uses location+radius."""
+    if not coords:
+        return
+    args["nearby_search"] = True
+    args["latitude"] = coords["latitude"]
+    args["longitude"] = coords["longitude"]
+    args["radius"] = radius
+    args.pop("region", None)
+    args.pop("bounds", None)
+
+
+def _enrich_baidu_search_arguments(args: dict, state: TravelAgentState) -> None:
+    raw_need = args.get("information_need") or ClaimSearchPlanner.primary_information_need(state)
+    text = query_text_from_state(state)
+    need = resolve_nearby_need(str(raw_need or ""), text=text)
+    if need in BAIDU_TAG_BY_NEED and "tag" not in args:
+        tag = baidu_tag_for_need(need) or BAIDU_TAG_BY_NEED.get(need)
+        if tag:
+            args["tag"] = tag
+    if is_nearby_need(str(raw_need or "")) or is_nearby_need(need):
+        suffix = nearby_query_suffix_for_need(need)
+        if args.get("nearby_search") or (args.get("latitude") is not None and args.get("tag")):
+            anchor = str(args.get("nearby_anchor_label") or args.get("place_name") or "").strip()
+            if anchor and suffix:
+                args["query"] = f"{anchor} {suffix}".strip()
+        from tools.mcp.adapters.baidu_response_parser import resolve_nearby_anchor_coordinates
+
+        coords = resolve_nearby_anchor_coordinates(
+            list(state.evidence or []),
+            user_query=state.raw_user_query or "",
+            structured_result=state.structured_result,
+        )
+        if coords:
+            apply_nearby_anchor_coordinates(args, coords)
+    frame = state.semantic_frame
+    if frame and frame.entities:
+        has_coord_anchor = args.get("latitude") is not None and args.get("longitude") is not None
+        if not has_coord_anchor and not args.get("region"):
+            region = frame.entities.city or frame.entities.region
+            if region:
+                args.setdefault("region", region)
 
 
 def _enrich_route_arguments(

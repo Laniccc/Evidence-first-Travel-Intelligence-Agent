@@ -104,6 +104,32 @@ def _register_baidu_mocks() -> None:
         q = str(args.get("query") or args.get("address") or "")
         if "云峰" in q:
             return search_yunfeng(args)
+        if "白沙湖" in q:
+            if args.get("region"):
+                return {
+                    "results": [
+                        {
+                            "name": "白沙湖",
+                            "uid": "uid-baisha",
+                            "city": "阿勒泰",
+                            "province": "新疆",
+                            "lat": 47.1,
+                            "lng": 87.5,
+                        }
+                    ]
+                }
+            return {
+                "results": [
+                    {
+                        "name": "白沙湖",
+                        "city": "阿勒泰",
+                        "province": "新疆",
+                        "lat": 47.1,
+                        "lng": 87.5,
+                        "address": "新疆阿勒泰",
+                    }
+                ]
+            }
         return search_single(args)
 
     mgr.register_mock_handler("baidu_map", "map_search_places", search_handler)
@@ -325,28 +351,36 @@ def test_baidu_route_and_traffic_in_whitelist(baidu_env):
 
 # 12
 @pytest.mark.asyncio
-async def test_baidu_multiple_candidates_triggers_clarification(baidu_env):
+async def test_baidu_multiple_candidates_marks_disambiguation_pending(baidu_env):
     _, registry = baidu_env
     state = TravelAgentState(session_id="s", query_id="q", raw_user_query="云峰山什么时候去合适")
     state.semantic_frame = _yunfeng_frame()
     wl = ToolWhitelistBuilder(tools_registry=registry).build(state)
 
-    class BaiduSearchController(ActionModelController):
+    class EntityResolutionController(ActionModelController):
         async def next_action(self, state, policy, prompt_context, step):
             if step == 0:
                 return AgentAction(
-                    action_type=AgentActionType.CALL_TOOL,
-                    target="baidu_place_search_mcp",
-                    arguments={"query": "云峰山"},
+                    action_type=AgentActionType.CALL_SUBAGENT,
+                    target="entity_resolution_agent",
+                    arguments={
+                        "lookup_intent": "锚定云峰山",
+                        "search_query": "云峰山",
+                        "anchor_keywords": ["云峰山"],
+                    },
                 )
             return AgentAction(action_type=AgentActionType.FINISH_STATE)
 
     ctx = {"tool_whitelist": wl, "allowed_tools": [t.model_dump() for t in wl.allowed_tools]}
-    out = await ClaudeStateRunner(model_controller=BaiduSearchController(), tools=registry).run(
+    out = await ClaudeStateRunner(model_controller=EntityResolutionController(), tools=registry).run(
         state, EVIDENCE_PLANNING_AND_TOOL_USE_POLICY, ctx
     )
-    assert out.next_state == "clarification_response"
-    assert "多个同名地点" in (out.final_response or "")
+    structured = out.structured_result or {}
+    assert structured.get("place_disambiguation_pending") is True
+    assert len(structured.get("place_disambiguation_candidates") or []) == 2
+    claim_types = {c.claim_type for ev in out.evidence for c in ev.claims}
+    assert ClaimType.PLACE_CANDIDATES in claim_types
+    assert ClaimType.POI_UID not in claim_types
 
 
 # 13
@@ -451,3 +485,89 @@ async def test_baidu_evidence_normalization(baidu_env, monkeypatch):
     traffic_ev = await BaiduMapMCPAdapter("baidu_traffic_mcp", client=mgr).run(road_name="独库公路")
     traffic_types = {c.claim_type for c in traffic_ev[0].claims}
     assert ClaimType.TRAFFIC_STATUS in traffic_types
+
+
+@pytest.mark.asyncio
+async def test_ambiguous_search_omits_top_uid_and_coordinates(baidu_env, monkeypatch):
+    settings = baidu_env[0]
+    monkeypatch.setattr("app.config.get_settings", lambda: settings)
+    mgr = get_mcp_client_manager(settings)
+    from tools.mcp.adapters.baidu_map_adapter import BaiduMapMCPAdapter
+
+    search_ev = await BaiduMapMCPAdapter("baidu_place_search_mcp", client=mgr).run(
+        query="云峰山",
+        country="China",
+        place_name="云峰山",
+    )
+    types = {c.claim_type for c in search_ev[0].claims}
+    assert ClaimType.PLACE_CANDIDATES in types
+    assert ClaimType.POI_UID not in types
+    assert ClaimType.COORDINATES not in types
+
+
+def test_build_map_search_places_args_nearby_and_tag():
+    from tools.mcp.adapters.baidu_response_parser import build_map_search_places_args
+
+    nearby = build_map_search_places_args(
+        {
+            "query": "餐厅",
+            "latitude": 47.0,
+            "longitude": 89.0,
+            "radius": 1500,
+            "tag": "美食",
+            "nearby_search": True,
+        }
+    )
+    assert nearby["location"] == "47.0,89.0"
+    assert nearby["radius"] == 1500
+    assert nearby["tag"] == "美食"
+    assert "region" not in nearby
+
+    regional = build_map_search_places_args({"query": "五彩滩", "region": "阿勒泰"})
+    assert regional["region"] == "阿勒泰"
+    assert "location" not in regional
+
+
+@pytest.mark.asyncio
+async def test_detail_resolves_uid_via_reverse_geocode_and_region_search(baidu_env, monkeypatch):
+    settings = baidu_env[0]
+    monkeypatch.setattr("app.config.get_settings", lambda: settings)
+    mgr = get_mcp_client_manager(settings)
+    from tools.mcp.adapters.baidu_map_adapter import BaiduMapMCPAdapter
+    from tools.mcp.adapters.baidu_response_parser import search_claims
+
+    coords_only = search_claims(
+        [
+            {
+                "name": "白沙湖",
+                "city": "阿勒泰",
+                "province": "新疆",
+                "latitude": 47.1,
+                "longitude": 87.5,
+            }
+        ]
+    )
+    prior = Evidence(
+        source_name="Baidu Maps MCP",
+        source_type=SourceType.MAP,
+        country="China",
+        place_name="白沙湖",
+        claims=coords_only,
+    )
+    detail_ev = await BaiduMapMCPAdapter("baidu_place_detail_mcp", client=mgr).run(
+        place_name="白沙湖",
+        prior_evidence=[prior],
+    )
+    types = {c.claim_type for c in detail_ev[0].claims}
+    assert ClaimType.PRICE_CANDIDATE in types or ClaimType.OPENING_HOURS_CANDIDATE in types
+
+
+def test_orchestrator_fallback_entity_resolution_first():
+    from app.agents.s5_evidence_orchestrator_agent import S5EvidenceOrchestratorAgent
+
+    state = TravelAgentState(session_id="s", query_id="q", raw_user_query="云峰山什么时候去合适")
+    state.semantic_frame = _yunfeng_frame()
+    agent = S5EvidenceOrchestratorAgent()
+    action = agent._deterministic_fallback(state, {}, step=1)
+    assert action.action_type == AgentActionType.CALL_SUBAGENT
+    assert action.target == "entity_resolution_agent"

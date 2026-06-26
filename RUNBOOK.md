@@ -105,6 +105,9 @@ mvn spring-boot:run
 cd apps/web
 npm install
 npm run dev
+
+cd apps/web
+npm run dev
 ```
 
 浏览器 http://127.0.0.1:5173
@@ -126,8 +129,8 @@ pytest app/evals -q
 | 找不到 app 模块 | `cd apps/agent-python`，`$env:PYTHONPATH=(Get-Location).Path` |
 | search_mcp 失败 | `.\scripts\start-mcp-stack.ps1`，`curl http://127.0.0.1:3210/health` |
 | baidu 搜索 302 / 全空 | `.env` 设 `MCP_SEARCH_USE_PROXY=true` 并重启 open-webSearch；或 `MCP_SEARCH_DEFAULT_ENGINE=sogou`；client 会自动回退 `MCP_SEARCH_FALLBACK_ENGINES` |
-| 携程/点评 0 命中 | 先看 search 是否空；trace 中 `partial_failures` / `output_parse_status=search_engine_error`；subprocess 路径检查 `CTRIP_CRAWLER_COMMAND` / `DIANPING_CRAWLER_COMMAND` |
-| subprocess 爬虫联调 | `CTRIP_CRAWLER_ENABLED=true` + `ENABLE_REVIEW_CRAWLER_PROVIDERS=true` + `CTRIP_CRAWLER_COMMAND=python ../../scripts/crawlers/ctrip_cli.py --place "{place}" --city "{city}" --mode review`；smoke: `python scripts/smoke/check_ctrip_crawler.py --place 喀纳斯 --city 阿勒泰` |
+| 携程/点评 0 命中 / 垃圾 URL | 默认已关：`CTRIP_CRAWLER_ENABLED=false`、`DIANPING_CRAWLER_ENABLED=false`、`*_WEBSEARCH_SIGNAL_ENABLED=false`；S5 显示 `disabled_by_config` 为预期；nearby 美食走 `baidu_place_search` |
+| subprocess 爬虫联调 | 先 `.\scripts\crawlers\install-deps.ps1`；验证通过后再把对应 `*_CRAWLER_ENABLED=true` 打开 |
 | guide/nearby/crowd 新工具 | `ENABLE_TRAVEL_NOTE_CRAWLERS` + `--mode guide`；`ENABLE_NEARBY_PLATFORM_CRAWLERS` + `dianping_cli --mode nearby`；`ENABLE_CROWD_ESTIMATION_TOOLS=true` + smoke `check_crowd_estimation.py` |
 | :3210 已被占用 | 服务已在跑，勿重复启动 |
 | npx EPERM | `$env:npm_config_cache="$env:USERPROFILE\.npm-cache"` |

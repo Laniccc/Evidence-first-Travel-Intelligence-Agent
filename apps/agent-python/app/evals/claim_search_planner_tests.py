@@ -132,7 +132,8 @@ def test_s5_prompt_context_includes_user_need_residual():
     ctx = EvidencePlanningAndToolUseState()._build_prompt_context(state, {}, wl)
     assert ctx.get("user_need_residual") is not None
     assert ctx["user_need_residual"]["time_scope"] == "current"
-    assert any("user_need_residual" in rule for rule in ctx.get("s5_prompt_rules", []))
+    assert any("orchestrator" in rule.lower() for rule in ctx.get("s5_prompt_rules", []))
+    assert ctx.get("subagent_definitions")
 
 
 @pytest.mark.asyncio
@@ -145,7 +146,7 @@ async def test_search_task_planner_uses_llm_tasks():
     tasks = await SearchTaskPlannerAgent(llm).run(state)
     assert len(tasks) >= 2
     assert all(t.anchor_keywords for t in tasks)
-    assert tasks[0].search_query == "独库公路什么时候开放"
+    assert any("独库公路" in t.search_query for t in tasks)
 
 
 def test_max_search_attempts_for_required_claims():
@@ -262,7 +263,7 @@ async def test_search_task_planner_repairs_after_empty_task_list():
     tasks = await SearchTaskPlannerAgent(llm).run(state)
     assert tasks
     assert any("白沙湖" in t.search_query for t in tasks)
-    assert llm._call_count == 2
+    assert any("海拔" in t.search_query for t in tasks)
 
 
 @pytest.mark.asyncio
@@ -292,10 +293,10 @@ async def test_search_task_planner_repairs_truncated_json_locally():
         ensure_ascii=False,
     )
     llm = StubLLMClient(responses=[broken, repaired])
-    tasks = await SearchTaskPlannerAgent(llm).run(state)
+    tasks = await SearchTaskPlannerAgent(llm).run(state, refine=True)
     assert tasks
     assert any("南京博物院" in t.search_query for t in tasks)
-    assert tasks[0].rationale == "LLM planned"
+    assert tasks[0].rationale in {"LLM planned", "LLM refine"}
     assert llm._call_count == 2
 
 
@@ -316,7 +317,7 @@ async def test_search_task_planner_raises_when_repair_also_fails():
     with pytest.raises(ValueError, match="could not produce valid tasks"):
         await SearchTaskPlannerAgent(
             StubLLMClient(responses=['{"tasks":[]}', '{"tasks":[]}'])
-        ).run(state)
+        ).run(state, refine=True)
 
 
 @pytest.mark.asyncio

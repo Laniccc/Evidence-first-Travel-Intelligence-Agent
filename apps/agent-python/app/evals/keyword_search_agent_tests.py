@@ -91,3 +91,61 @@ def test_search_task_requires_lookup_intent_or_query():
         KeywordSearchAgent.validate_task(
             SearchTask(task_id="x", lookup_intent="", search_query="", anchor_keywords=["a"])
         )
+
+
+def test_validate_nearby_food_with_route_preferred_tool_not_route_task():
+    """Mis-selected baidu_route_mcp for nearby_food must not require origin/destination."""
+    task = SearchTask(
+        task_id="n1",
+        lookup_intent="明故宫周边美食",
+        claim_target="nearby_food",
+        information_need="nearby_food",
+        search_query="明故宫 美食",
+        anchor_keywords=["明故宫"],
+        preferred_tool="baidu_route_mcp",
+        tool_parameters={},
+    )
+    KeywordSearchAgent.validate_task(task)
+
+
+def test_fact_search_pick_tool_honors_baidu_place_search_delegation():
+    from app.agents.fact_search_agent import FactSearchAgent
+
+    task = SearchTask(
+        task_id="n2",
+        lookup_intent="明故宫周边美食",
+        claim_target="nearby_food",
+        information_need="nearby_food",
+        search_query="明故宫 美食",
+        anchor_keywords=["明故宫"],
+        preferred_tool="baidu_place_search_mcp",
+    )
+    wl = _whitelist("baidu_place_search_mcp", "search_mcp")
+    tool = FactSearchAgent.pick_tool(task, wl)
+    assert tool == "baidu_place_search_mcp"
+
+
+def test_apply_diversified_selection_skips_when_preferred_set():
+    from app.agents.fact_search_agent import FactSearchAgent
+    from app.schemas.semantic_frame import DecisionType, SemanticEntities, SemanticFrame
+
+    state = TravelAgentState(session_id="s", query_id="q", raw_user_query="明故宫附近美食")
+    state.semantic_frame = SemanticFrame(
+        raw_query="明故宫附近美食",
+        decision_type=DecisionType.NEARBY_SEARCH,
+        entities=SemanticEntities(country="China", city="南京", places=["明故宫"]),
+    )
+    task = SearchTask(
+        task_id="n3",
+        lookup_intent="周边美食",
+        claim_target="nearby_food",
+        information_need="nearby_food",
+        search_query="明故宫 美食",
+        anchor_keywords=["明故宫"],
+        preferred_tool="baidu_place_search_mcp",
+    )
+    wl = _whitelist("baidu_place_search_mcp", "search_mcp", "baidu_route_mcp")
+    updated = FactSearchAgent.apply_diversified_tool_selection(
+        state, task, wl, subagent="fact_search_agent"
+    )
+    assert updated.preferred_tool == "baidu_place_search_mcp"

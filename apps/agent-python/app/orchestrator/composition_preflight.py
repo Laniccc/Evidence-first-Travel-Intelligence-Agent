@@ -32,6 +32,12 @@ def has_actionable_claim_decisions(state: TravelAgentState) -> bool:
 
 
 def should_compose_over_clarification(state: TravelAgentState) -> bool:
+    from app.orchestrator.place_disambiguation_composition import (
+        should_present_place_disambiguation_at_s8,
+    )
+
+    if should_present_place_disambiguation_at_s8(state):
+        return False
     return is_premature_place_clarification(state) and has_actionable_claim_decisions(state)
 
 

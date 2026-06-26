@@ -6,6 +6,7 @@ from typing import Any
 
 from app.schemas.evidence import Claim, ClaimType, DataFreshness, Evidence, LicenseScope, SourceType
 from tools.base import BaseTravelTool
+from tools.mcp.adapters.baidu_response_parser import coerce_baidu_payload
 from tools.mcp.adapters.page_content_extractor import text_from_mcp_payload
 from tools.mcp.client_manager import MCPClientManager, get_mcp_client_manager
 
@@ -91,6 +92,7 @@ class OpenMeteoMCPAdapter(BaseTravelTool):
 
     @staticmethod
     def _parse_coords(data: Any) -> tuple[float | None, float | None]:
+        data = coerce_baidu_payload(data)
         if isinstance(data, str):
             try:
                 data = json.loads(data)

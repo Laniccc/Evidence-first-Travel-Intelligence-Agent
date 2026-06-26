@@ -6,6 +6,7 @@ from typing import Any
 from app.schemas.evidence import Claim, ClaimType, DataFreshness, Evidence, LicenseScope, SourceType
 from tools.base import BaseTravelTool
 from tools.mcp.adapters.baidu_response_parser import (
+    build_map_search_places_args,
     detail_claims,
     directions_claims,
     directions_matrix_claims,
@@ -85,19 +86,13 @@ class BaiduMapMCPAdapter(BaseTravelTool):
         return await handler(kwargs)
 
     async def _run_search(self, kwargs: dict[str, Any]) -> list[Evidence]:
-        query = kwargs.get("query") or kwargs.get("place_name") or ""
-        if not query:
-            raise ValueError("baidu_place_search_mcp requires query or place_name")
-
-        region = kwargs.get("region") or kwargs.get("city") or kwargs.get("province")
-        args: dict[str, Any] = {"query": str(query)}
-        if region:
-            args["region"] = str(region)
+        args = build_map_search_places_args(kwargs)
 
         result = await self._client.invoke("baidu_map", "map_search_places", args)
         if not result.ok:
             raise RuntimeError(result.error or "map_search_places failed")
 
+        query = args["query"]
         candidates = parse_search_places(result.data)
         if not candidates and kwargs.get("city"):
             geo = await self._client.invoke(
@@ -125,6 +120,8 @@ class BaiduMapMCPAdapter(BaseTravelTool):
         if not candidates:
             text = text_from_mcp_payload(result.data)
             if text.strip():
+                candidates = parse_search_places(text)
+            if not candidates and text.strip():
                 return [
                     self._evidence(
                         claims=[Claim(claim_type=ClaimType.TRAVEL_ADVICE, value=text[:600], confidence=0.55)],
@@ -134,25 +131,32 @@ class BaiduMapMCPAdapter(BaseTravelTool):
                 ]
             raise RuntimeError("map_search_places returned no candidates")
 
-        claims = search_claims(candidates)
+        claims = search_claims(
+            candidates,
+            information_need=str(kwargs.get("information_need") or kwargs.get("claim_target") or ""),
+            claim_target=str(kwargs.get("claim_target") or ""),
+            nearby_search=bool(kwargs.get("nearby_search")),
+            tag=kwargs.get("tag"),
+            latitude=kwargs.get("latitude"),
+            anchor_location_key=str(kwargs.get("anchor_location_key") or ""),
+            anchor_candidate_name=str(kwargs.get("anchor_candidate_name") or kwargs.get("nearby_anchor_label") or ""),
+        )
         city = candidates[0].get("city") or kwargs.get("city")
+        anchor_label = kwargs.get("anchor_candidate_name") or kwargs.get("nearby_anchor_label")
+        place_name = anchor_label or candidates[0].get("name") or kwargs.get("place_name")
         return [
             self._evidence(
                 claims=claims,
                 kwargs=kwargs,
                 city=city,
-                place_name=candidates[0].get("name") or kwargs.get("place_name"),
+                place_name=place_name,
                 confidence=0.72 if len(candidates) == 1 else 0.62,
                 limitations=_SEARCH_LIMITATIONS,
             )
         ]
 
     async def _run_detail(self, kwargs: dict[str, Any]) -> list[Evidence]:
-        uid = kwargs.get("uid") or kwargs.get("poi_uid")
-        if not uid:
-            prior = kwargs.get("prior_evidence") or kwargs.get("evidence") or []
-            if isinstance(prior, list):
-                uid = pick_baidu_uid_from_evidence(prior)
+        uid = await self._resolve_detail_uid(kwargs)
         if not uid:
             raise ValueError("baidu_place_detail_mcp requires uid from search or kwargs")
 
@@ -176,6 +180,63 @@ class BaiduMapMCPAdapter(BaseTravelTool):
                 limitations=_DETAIL_LIMITATIONS,
             )
         ]
+
+    async def _resolve_detail_uid(self, kwargs: dict[str, Any]) -> str | None:
+        uid = kwargs.get("uid") or kwargs.get("poi_uid")
+        if uid:
+            return str(uid)
+
+        region = kwargs.get("region") or kwargs.get("province")
+        city = kwargs.get("city")
+        prior = kwargs.get("prior_evidence") or kwargs.get("evidence") or []
+        if isinstance(prior, list):
+            uid = pick_baidu_uid_from_evidence(prior, region=region, city=city)
+            if uid:
+                return uid
+
+        place = kwargs.get("place_name") or kwargs.get("query")
+        search_region = city or region
+        if place and search_region:
+            uid = await self._search_uid_for_place(str(place), str(search_region))
+            if uid:
+                return uid
+
+        lat = kwargs.get("latitude")
+        lng = kwargs.get("longitude")
+        if (lat is None or lng is None) and isinstance(prior, list):
+            from tools.mcp.adapters.baidu_response_parser import resolve_coordinates_from_evidence
+
+            coords = resolve_coordinates_from_evidence(prior)
+            if coords:
+                lat = coords["latitude"]
+                lng = coords["longitude"]
+        if lat is not None and lng is not None and place:
+            rev = await self._client.invoke(
+                "baidu_map",
+                "map_reverse_geocode",
+                {"location": f"{lat},{lng}"},
+            )
+            if rev.ok:
+                parsed = parse_reverse_geocode(rev.data)
+                inferred_city = parsed.get("city") or parsed.get("province")
+                if inferred_city:
+                    uid = await self._search_uid_for_place(str(place), str(inferred_city))
+                    if uid:
+                        return uid
+        return None
+
+    async def _search_uid_for_place(self, place: str, region: str) -> str | None:
+        result = await self._client.invoke(
+            "baidu_map",
+            "map_search_places",
+            {"query": place, "region": region},
+        )
+        if not result.ok:
+            return None
+        for candidate in parse_search_places(result.data):
+            if candidate.get("uid"):
+                return str(candidate["uid"])
+        return None
 
     async def _run_weather(self, kwargs: dict[str, Any]) -> list[Evidence]:
         args: dict[str, Any] = {}

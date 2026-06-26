@@ -12,6 +12,12 @@ from app.schemas.response_contract import ResponseContract
 from app.schemas.s5_information_domain import InformationDomain, S5DomainPlan, S5DomainToolBinding, S5ToolRole
 from app.schemas.semantic_frame import SemanticFrame
 
+from app.orchestrator.information_need_aliases import (
+    is_nearby_need,
+    normalize_need,
+    query_text_from_state,
+    resolve_nearby_need,
+)
 from app.orchestrator.intent_strategy_registry import IntentStrategy, resolve_intent_strategy
 
 D = InformationDomain
@@ -56,10 +62,18 @@ CLAIM_TO_DOMAINS: dict[str, list[InformationDomain]] = {
     "current_crowd": [D.REALTIME_STATUS, D.REVIEW_SIGNAL, D.GEO_RESOLUTION],
     "current_crowd_estimate": [D.REALTIME_STATUS, D.REVIEW_SIGNAL, D.GEO_RESOLUTION],
     "nearby_food": [D.NEARBY_RECOMMENDATION, D.GEO_RESOLUTION],
+    "nearby_dining": [D.NEARBY_RECOMMENDATION, D.GEO_RESOLUTION],
+    "nearby_restaurant": [D.NEARBY_RECOMMENDATION, D.GEO_RESOLUTION],
     "nearby_rest_area": [D.NEARBY_RECOMMENDATION, D.GEO_RESOLUTION],
     "nearby_poi": [D.NEARBY_RECOMMENDATION, D.GEO_RESOLUTION],
     "nearby_hotel": [D.NEARBY_RECOMMENDATION, D.GEO_RESOLUTION],
+    "nearby_lodging": [D.NEARBY_RECOMMENDATION, D.GEO_RESOLUTION],
+    "nearby_parking": [D.NEARBY_RECOMMENDATION, D.GEO_RESOLUTION],
+    "nearby_toilet": [D.NEARBY_RECOMMENDATION, D.GEO_RESOLUTION],
     "nearby_station": [D.NEARBY_RECOMMENDATION, D.GEO_RESOLUTION],
+    "nearby_attraction": [D.NEARBY_RECOMMENDATION, D.GEO_RESOLUTION],
+    "nearby_accommodation": [D.NEARBY_RECOMMENDATION, D.GEO_RESOLUTION],
+    "nearby_amenity": [D.NEARBY_RECOMMENDATION, D.GEO_RESOLUTION],
     "lodging_area": [D.NEARBY_RECOMMENDATION, D.GEO_RESOLUTION],
     "today_weather": [D.REALTIME_STATUS, D.GEO_RESOLUTION],
     "current_weather": [D.REALTIME_STATUS, D.GEO_RESOLUTION],
@@ -110,8 +124,14 @@ class S5DomainPlanner:
         claim_to_domains: dict[str, list[InformationDomain]] = {}
         domain_set: set[InformationDomain] = set()
 
+        frame_text = ""
+        if frame:
+            frame_text = f"{frame.raw_query} {frame.normalized_request}".strip()
         for claim in claim_types:
-            domains = list(CLAIM_TO_DOMAINS.get(claim, []))
+            canonical = resolve_nearby_need(claim, text=frame_text)
+            domains = list(CLAIM_TO_DOMAINS.get(canonical, CLAIM_TO_DOMAINS.get(claim, [])))
+            if not domains and is_nearby_need(claim):
+                domains = [D.NEARBY_RECOMMENDATION, D.GEO_RESOLUTION]
             if claim in {"traffic_status", "congestion_risk"} and self._has_route_context(frame):
                 if D.ROUTE_PLANNING not in domains:
                     domains.append(D.ROUTE_PLANNING)
@@ -132,14 +152,16 @@ class S5DomainPlanner:
             notes.append("geo_resolution prerequisite: city/coordinates not yet resolved")
 
         retrieval_mode: str = "single_place"
-        if intent_profile and intent_profile.primary_intent == PrimaryIntent.COMPARISON:
+        places = list(frame.entities.places) if frame and frame.entities else []
+        if strategy and strategy.retrieval_mode == "multi_place_parallel":
             retrieval_mode = "multi_place_parallel"
-            places = list(frame.entities.places) if frame and frame.entities else []
-            if len(places) >= 2:
-                notes.append(
-                    "comparison parallel retrieval: "
-                    + "; ".join(f"place={p}" for p in places[:6])
-                )
+        elif intent_profile and intent_profile.primary_intent == PrimaryIntent.COMPARISON:
+            retrieval_mode = "multi_place_parallel"
+        if retrieval_mode == "multi_place_parallel" and len(places) >= 2:
+            notes.append(
+                "comparison parallel retrieval: "
+                + "; ".join(f"place={p}" for p in places[:6])
+            )
 
         return S5DomainPlan(
             domains=ordered_domains,
@@ -166,14 +188,22 @@ class S5DomainPlanner:
     @staticmethod
     def _collect_claim_types(contract: ResponseContract | None, frame: SemanticFrame | None) -> list[str]:
         claims: list[str] = []
+        frame_text = ""
+        if frame:
+            frame_text = f"{frame.raw_query} {frame.normalized_request}".strip()
         if contract:
             for req in contract.claim_requirements:
-                if req.claim_type not in claims:
-                    claims.append(req.claim_type)
+                canonical = resolve_nearby_need(req.claim_type, text=frame_text)
+                if canonical not in claims:
+                    claims.append(canonical)
         if frame and frame.information_needs:
             for need in frame.information_needs:
-                if need not in claims:
-                    claims.append(need)
+                if is_nearby_need(need):
+                    canonical = resolve_nearby_need(need, text=frame_text)
+                else:
+                    canonical = normalize_need(need)
+                if canonical not in claims:
+                    claims.append(canonical)
         return claims
 
     @staticmethod

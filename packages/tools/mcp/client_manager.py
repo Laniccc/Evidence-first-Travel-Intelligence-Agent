@@ -536,8 +536,6 @@ class MCPClientManager:
         )
         if need_fallback:
             for fallback in self._search_fallback_engines():
-                if merged_hits:
-                    break
                 engines_tried.append(fallback)
                 fb_result = await self._post_open_websearch_search(
                     client, base, query, limit, [fallback]

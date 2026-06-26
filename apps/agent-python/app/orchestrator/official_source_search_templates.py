@@ -31,9 +31,33 @@ OFFICIAL_SEARCH_QUERY_TEMPLATES: dict[str, list[str]] = {
         "{place_name} 道路 开放 官方 公告",
         "{city} {place_name} 通行 时间",
     ],
+    "elevation": [
+        "{place_name} 海拔",
+        "{region} {place_name} 海拔",
+        "{city} {place_name} 海拔",
+    ],
+    "general_fact": [
+        "{region} {place_name} {user_query}",
+        "{place_name} {user_query}",
+    ],
 }
 
 
-def templates_for_claim(claim_type: str | None, *, place_name: str = "", city: str = "") -> list[str]:
+def templates_for_claim(
+    claim_type: str | None,
+    *,
+    place_name: str = "",
+    city: str = "",
+    region: str = "",
+    user_query: str = "",
+) -> list[str]:
     raw = OFFICIAL_SEARCH_QUERY_TEMPLATES.get(claim_type or "", [])
-    return [t.format(place_name=place_name or "目的地", city=city or "") for t in raw]
+    return [
+        t.format(
+            place_name=place_name or "目的地",
+            city=city or "",
+            region=region or "",
+            user_query=user_query or "",
+        )
+        for t in raw
+    ]

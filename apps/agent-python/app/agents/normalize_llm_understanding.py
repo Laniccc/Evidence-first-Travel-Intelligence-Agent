@@ -45,6 +45,19 @@ _FAMILY_ALIASES = {
     "route": "planning",
 }
 
+_NEED_TYPE_ALIASES: dict[str, str] = {
+    "altitude": "elevation",
+    "height": "elevation",
+    "海拔": "elevation",
+    "高度": "elevation",
+    "面积": "general_fact",
+    "area": "general_fact",
+    "人口": "general_fact",
+    "population": "general_fact",
+    "founding_year": "general_fact",
+    "建成年份": "general_fact",
+}
+
 
 def _coerce_float(value: Any, default: float = 0.7) -> float:
     if value is None:
@@ -107,11 +120,15 @@ def _normalize_entity(raw: Any) -> dict[str, Any] | None:
 
 def _normalize_information_need(raw: Any) -> dict[str, Any]:
     if isinstance(raw, str):
-        return {"need_type": raw, "priority": "medium"}
+        canonical = _NEED_TYPE_ALIASES.get(raw.lower(), raw)
+        return {"need_type": canonical, "priority": "medium"}
     if isinstance(raw, dict):
         need = dict(raw)
         if "need_type" not in need:
             need["need_type"] = need.pop("type", None) or need.pop("name", None) or "unknown"
+        raw_type = str(need.get("need_type", "")).lower()
+        if raw_type in _NEED_TYPE_ALIASES:
+            need["need_type"] = _NEED_TYPE_ALIASES[raw_type]
         return need
     return {"need_type": "unknown", "priority": "medium"}
 
@@ -183,7 +200,27 @@ def normalize_llm_understanding_payload(data: dict[str, Any], raw_query: str) ->
     out["time_scope"] = _normalize_time_scope(out.get("time_scope") or {})
 
     if isinstance(out.get("user_constraints"), dict):
-        pass
+        uc = out["user_constraints"]
+        raw_party = uc.get("party")
+        if isinstance(raw_party, list):
+            normalized_party: list[str] = []
+            for item in raw_party:
+                if isinstance(item, str):
+                    normalized_party.append(item)
+                elif isinstance(item, dict):
+                    val = item.get("type") or item.get("name") or item.get("value") or ""
+                    if isinstance(val, str) and val.strip():
+                        normalized_party.append(val.strip())
+                elif item is not None:
+                    s = str(item).strip()
+                    if s:
+                        normalized_party.append(s)
+            uc["party"] = normalized_party
+        elif raw_party is None:
+            uc["party"] = []
+        else:
+            uc["party"] = []
+        out["user_constraints"] = uc
     else:
         out["user_constraints"] = {}
 

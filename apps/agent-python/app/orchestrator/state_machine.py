@@ -178,6 +178,20 @@ class TravelAgentStateMachine:
 
     @staticmethod
     def _resolve_compose_mode(state: TravelAgentState) -> str:
+        from app.orchestrator.nearby_task_orchestration import resolve_nearby_compose_mode
+        from app.orchestrator.fact_lookup_task_orchestration import resolve_fact_lookup_compose_mode
+        from app.orchestrator.place_disambiguation_composition import (
+            should_present_place_disambiguation_at_s8,
+        )
+
+        nearby_mode = resolve_nearby_compose_mode(state)
+        if nearby_mode:
+            return nearby_mode
+        fact_mode = resolve_fact_lookup_compose_mode(state)
+        if fact_mode:
+            return fact_mode
+        if should_present_place_disambiguation_at_s8(state):
+            return "place_disambiguation"
         task = state.travel_task
         if task and task.task_type == TravelTaskType.COMPARE_PLACES:
             return "compare"
@@ -266,6 +280,13 @@ class TravelAgentStateMachine:
             if state.travel_task and state.travel_task.task_type == TravelTaskType.CROWD_INQUIRY:
                 return await self._run_crowd_inquiry(state)
             return await self._run_evidence_pipeline(state)
+
+        if mode == AnswerMode.EVIDENCE_PREFERRED and decision and decision.allow_knowledge_prior:
+            resp = await self._run_evidence_pipeline(state)
+            if self._evidence_preferred_response_sufficient(state, resp):
+                return resp
+            TraceRecorder.add(state, "✓ 工具证据不足以回答问题，回退 KnowledgePriorTool")
+            return await self._run_advisory(state)
 
         if not state.travel_task:
             state.limitations.append("TravelTask 缺失，后续路由可能受限。")
@@ -368,6 +389,10 @@ class TravelAgentStateMachine:
         profile = IntentProfileDeriver().derive(frame)
         state.intent_profile = profile
         state.intent_strategy = resolve_intent_strategy(profile)
+        if profile and profile.primary_intent == PrimaryIntent.CLARIFICATION and state.intent_strategy:
+            frame_amb = frame.place_ambiguity
+            if frame_amb and frame_amb.candidates:
+                state.intent_strategy = state.intent_strategy.model_copy(update={"skip_s5": False})
         if profile:
             subtypes = ",".join(profile.intent_subtypes[:4]) or "-"
             TraceRecorder.add(
@@ -443,8 +468,28 @@ class TravelAgentStateMachine:
         if not contract:
             return "legacy"
         if contract.clarification_policy.should_ask:
+            frame = state.semantic_frame
+            if (
+                state.intent_profile
+                and state.intent_profile.primary_intent == PrimaryIntent.CLARIFICATION
+                and frame
+                and frame.place_ambiguity
+                and frame.place_ambiguity.candidates
+                and state.intent_strategy
+                and not state.intent_strategy.skip_s5
+            ):
+                return "evidence_pipeline"
             return "clarification"
         if state.intent_profile and state.intent_profile.primary_intent == PrimaryIntent.CLARIFICATION:
+            frame = state.semantic_frame
+            if (
+                frame
+                and frame.place_ambiguity
+                and frame.place_ambiguity.candidates
+                and state.intent_strategy
+                and not state.intent_strategy.skip_s5
+            ):
+                return "evidence_pipeline"
             return "clarification"
         if self._has_required_hard_claims(contract):
             return "evidence_pipeline"
@@ -511,6 +556,61 @@ class TravelAgentStateMachine:
             return resp
         TraceRecorder.add(state, "✓ 工具证据不足，回退 KnowledgePriorTool")
         return await self._run_advisory(state)
+
+    @staticmethod
+    def _evidence_preferred_response_sufficient(state: TravelAgentState, resp) -> bool:
+        """Do not discard a completed fact-lookup or nearby pipeline for advisory re-run."""
+        frame = state.semantic_frame
+        fact_needs = frozenset(
+            {"elevation", "ticket_price", "opening_hours", "area", "general_fact", "address"}
+        )
+        nearby_needs = frozenset(
+            {
+                "nearby_food",
+                "nearby_dining",
+                "nearby_poi",
+                "nearby_hotel",
+                "nearby_rest_area",
+                "nearby_parking",
+                "nearby_toilet",
+                "nearby_station",
+            }
+        )
+        needs = set(frame.information_needs or []) if frame else set()
+        is_fact_lookup = bool(
+            frame
+            and (
+                frame.task_family.value == "fact_lookup"
+                or frame.requires_exact_fact
+                or bool(frame.information_needs and frame.information_needs[0] in fact_needs)
+            )
+        )
+        is_nearby = bool(
+            state.intent_profile
+            and state.intent_profile.primary_intent == PrimaryIntent.NEARBY
+        ) or bool(needs & nearby_needs)
+        has_answer = bool((state.final_response or resp.answer or "").strip())
+        has_evidence = bool(state.evidence) or len(resp.evidence_summary or []) > 0
+        brief = state.evidence_brief
+        has_curated = bool(brief and brief.curated_claims)
+
+        if is_fact_lookup and has_answer and (has_evidence or has_curated):
+            return True
+
+        if is_nearby and has_answer and (has_evidence or has_curated):
+            return True
+
+        structured = resp.structured_result
+        return (
+            len(resp.evidence_summary or []) > 0
+            and resp.confidence >= 0.30
+            and structured is not None
+            and (
+                structured.recommendation is not None
+                or bool(structured.places)
+                or bool(structured.comparison)
+            )
+        )
 
     def _has_place_target_from_frame(self, state: TravelAgentState) -> bool:
         if state.semantic_frame and state.semantic_frame.entities.places:
@@ -1035,6 +1135,25 @@ class TravelAgentStateMachine:
             if isinstance(ev, Evidence)
         ]
         structured = StructuredResult.model_validate(state.structured_result or {})
+        sr = state.structured_result or {}
+        orchestration_summary: dict = {}
+        for key in (
+            "subagent_results",
+            "fact_lookup_pipeline_runs",
+            "fact_anchor",
+            "nearby_enrichment_runs",
+            "completed_search_task_ids",
+            "subagent_evidence_gate_rejects",
+        ):
+            value = sr.get(key)
+            if value:
+                orchestration_summary[key] = value
+        try:
+            from app.orchestrator.agent_tool_catalog import resolve_s5_task_class
+
+            orchestration_summary["s5_task_class"] = resolve_s5_task_class(state)
+        except Exception:
+            pass
         answer_mode = (
             state.response_contract.derived_debug_answer_mode
             if state.response_contract and state.response_contract.derived_debug_answer_mode
@@ -1055,4 +1174,5 @@ class TravelAgentStateMachine:
             query_id=state.query_id,
             semantic_frame_summary=self._semantic_frame_summary(state),
             answer_mode=answer_mode,
+            orchestration_summary=orchestration_summary or None,
         )

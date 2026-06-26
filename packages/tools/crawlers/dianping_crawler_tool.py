@@ -15,6 +15,7 @@ class DianpingReviewCrawlerTool(PlatformSignalCrawlerMixin, BaseCrawlerTool):
     policy_name = "dianping_review_crawler_mcp"
     platform = "dianping"
     websearch_flag_attr = "dianping_websearch_signal_enabled"
+    crawler_mode = "review"
 
     def __init__(self, settings: Settings | None = None) -> None:
         super().__init__(settings)

@@ -1,6 +1,7 @@
 import json
 
 from app.agents.information_need_planner import InformationNeedPlanner
+from app.agents.s5_evidence_orchestrator_agent import S5EvidenceOrchestratorAgent
 from app.llm_client import LLMClient
 from app.orchestrator.actions import AgentAction, AgentActionType
 from app.orchestrator.claim_search_planner import ClaimSearchPlanner
@@ -35,6 +36,7 @@ class ActionModelController:
 
     def __init__(self, llm_client=None) -> None:
         self.llm = llm_client or LLMClient()
+        self.s5_orchestrator = S5EvidenceOrchestratorAgent(self.llm)
 
     async def next_action(
         self,
@@ -55,18 +57,8 @@ class ActionModelController:
             if prompt_context.get("gap_filling"):
                 prompt_context["_last_action_source"] = "deterministic_gap"
                 return self._deterministic_action(state, policy, prompt_context, step)
-            if self._hard_fact_interleave_due(state, prompt_context):
-                prompt_context["_last_action_source"] = "hard_fact_interleave"
-                return self._hard_fact_interleave_action(state, prompt_context)
-            if self._contradiction_decompose_due(state, prompt_context):
-                prompt_context["_last_action_source"] = "contradiction_decompose"
-                return self._contradiction_decompose_action(state, prompt_context)
-            if self._search_strategy_review_due(state, prompt_context):
-                prompt_context["_last_action_source"] = "search_strategy_review"
-                return await self._search_strategy_review_action(state, prompt_context)
-            # S5 routing is deterministic; LLM is used only inside search_task_planner_agent.
-            prompt_context["_last_action_source"] = "deterministic"
-            return self._deterministic_action(state, policy, prompt_context, step)
+            prompt_context["_last_action_source"] = "s5_orchestrator"
+            return await self._plan_evidence_planning_and_tool_use(state, prompt_context, step)
         if self.llm and self.llm._should_use_anthropic():
             try:
                 action = await self._llm_action(state, policy, prompt_context, step)
@@ -233,7 +225,7 @@ class ActionModelController:
             confidence=0.85,
         )
 
-    def _plan_evidence_planning_and_tool_use(
+    async def _plan_evidence_planning_and_tool_use(
         self,
         state: TravelAgentState,
         prompt_context: dict,
@@ -252,136 +244,41 @@ class ActionModelController:
                 confidence=0.8,
             )
 
-        allowed_names = set(self._whitelist_names(prompt_context))
-        called = {resolve_tool_name(t.tool_name) for t in state.tool_traces}
-        called |= {resolve_tool_name(t) for t in prompt_context.get("_called_policy_tools", [])}
+        if self._contradiction_decompose_due(state, prompt_context):
+            return self._contradiction_decompose_action(state, prompt_context)
 
-        pending_task = self._next_pending_search_task(state)
+        return await self.s5_orchestrator.next_action(state, prompt_context, step)
 
-        if not self._search_tasks_from_state(state):
-            if not prompt_context.get("_search_task_planner_called"):
-                prompt_context["_search_task_planner_called"] = True
-                return AgentAction(
-                    action_type=AgentActionType.CALL_SUBAGENT,
-                    target="search_task_planner_agent",
-                    arguments={},
-                    reason_summary="A2A: LLM plans keyword search tasks from user query",
-                    confidence=0.85,
-                )
+    def _next_disambiguation_branch_action(
+        self,
+        state: TravelAgentState,
+        prompt_context: dict,
+    ) -> AgentAction | None:
+        from app.orchestrator.place_disambiguation_guard import (
+            clear_disambiguation_pending,
+            next_disambiguation_branch,
+            try_resolve_disambiguation,
+        )
 
-        if pending_task:
-            kw_cap = self._max_keyword_searches_before_tools(state)
-            if ClaimSearchPlanner.keyword_search_call_count(state) < kw_cap:
-                return AgentAction(
-                    action_type=AgentActionType.CALL_SUBAGENT,
-                    target="keyword_search_agent",
-                    arguments=pending_task,
-                    reason_summary=f"A2A keyword search: {pending_task.get('search_query', '')[:56]}",
-                    confidence=0.8,
-                )
-
-        if self._hard_fact_interleave_due(state, prompt_context):
-            return self._hard_fact_interleave_action(state, prompt_context)
-
-        if (
-            self._search_tasks_from_state(state)
-            and "search_mcp" in allowed_names
-            and ClaimSearchPlanner.searches_failed(state)
-            and not prompt_context.get("_search_refine_planned")
-            and ClaimSearchPlanner.search_call_count(state) < ClaimSearchPlanner.max_search_attempts(state)
-        ):
-            prompt_context["_search_refine_planned"] = True
-            return AgentAction(
-                action_type=AgentActionType.CALL_SUBAGENT,
-                target="search_task_planner_agent",
-                arguments={"refine": True},
-                reason_summary="A2A: LLM refines keyword search tasks after misses",
-                confidence=0.8,
-            )
-
-        prior_args = self._optional_prior_arguments(state, prompt_context, allowed_names, called)
-        if prior_args:
-            search_done = self._search_call_count(state)
-            min_searches = min(2, ClaimSearchPlanner.max_search_attempts(state))
-            if search_done < min_searches:
-                prior_args = None
-        if prior_args:
-            prompt_context.setdefault("_called_policy_tools", []).append("knowledge_prior")
-            return AgentAction(
-                action_type=AgentActionType.CALL_TOOL,
-                target="knowledge_prior",
-                arguments=prior_args,
-                reason_summary="Low-confidence general seasonal context (optional claim)",
-                confidence=0.55,
-            )
-
-        queue = self._evidence_tool_queue(state, prompt_context)
-        if allowed_names:
-            queue = [tool for tool in queue if tool in allowed_names]
-        next_tool = next((tool for tool in queue if resolve_tool_name(tool) not in called), None)
-        if next_tool in {"openmeteo_mcp", "climate_mcp"} and self._needs_coordinate_resolution(state):
-            if "baidu_geocode_mcp" in allowed_names and resolve_tool_name("baidu_geocode_mcp") not in called:
-                next_tool = "baidu_geocode_mcp"
-        if next_tool:
-            return self._make_call_tool_action(
-                next_tool,
-                state,
-                prompt_context,
-                reason_summary=f"Retrieve evidence via {next_tool}",
-            )
-
-        finish_args: dict = {}
-        contract = state.response_contract
-        if contract:
-            from app.orchestrator.evidence_coverage_checker import EvidenceCoverageChecker
-
-            report = state.coverage_report or EvidenceCoverageChecker().check(
-                contract, state.evidence, state.tool_traces
-            )
-            if not report.all_required_covered:
-                tried = [t.tool_name for t in state.tool_traces]
-                missing = [
-                    i.claim_type
-                    for i in report.items
-                    if not i.covered
-                    and any(
-                        c.claim_type == i.claim_type and c.priority == "required"
-                        for c in contract.claim_requirements
-                    )
-                ]
-                finish_args["evidence_gap_acknowledged"] = True
-                finish_args["limitations"] = [
-                    "已尝试 "
-                    + (", ".join(tried) if tried else "（无）")
-                    + "，但未获取到可验证 "
-                    + "/".join(missing)
-                    + " 证据。"
-                ]
-        else:
-            decision = state.answer_mode_decision
-            frame = state.semantic_frame
-            if decision and decision.answer_mode == AnswerMode.EVIDENCE_REQUIRED:
-                missing_needs: list[str] = []
-                if frame:
-                    from app.orchestrator.evidence_policy_guard import EvidencePolicyGuard
-
-                    guard = EvidencePolicyGuard()
-                    missing_needs = guard._missing_required_needs(state, frame.information_needs)
-                if missing_needs or not state.evidence:
-                    tried = [t.tool_name for t in state.tool_traces]
-                    finish_args["evidence_gap_acknowledged"] = True
-                    finish_args["limitations"] = [
-                        "已尝试 "
-                        + (", ".join(tried) if tried else "（无）")
-                        + "，但未获取到可验证"
-                        + (" " + "/".join(missing_needs) if missing_needs else "")
-                        + " 证据；强事实问题不能用模型常识补全。"
-                    ]
-        return AgentAction(
-            action_type=AgentActionType.FINISH_STATE,
-            arguments=finish_args,
-            reason_summary="Evidence sufficient or tool queue exhausted",
-            confidence=0.8,
+        allowed = set(self._whitelist_names(prompt_context))
+        if "baidu_place_search_mcp" not in allowed:
+            return None
+        if try_resolve_disambiguation(state):
+            clear_disambiguation_pending(state)
+            return None
+        branch = next_disambiguation_branch(state)
+        if not branch:
+            return None
+        branch_key = branch.pop("_branch_key", None)
+        if branch_key:
+            prompt_context["_pending_disambiguation_branch_key"] = branch_key
+        return self._make_call_tool_action(
+            "baidu_place_search_mcp",
+            state,
+            prompt_context,
+            reason_summary=f"S5 disambiguation branch: {branch.get('region', '')}",
+            extra_arguments=branch,
+            confidence=0.82,
         )
 
     def _make_call_tool_action(
@@ -741,6 +638,7 @@ class ActionModelController:
         prompt_context: dict,
         allowed_names: set[str],
     ) -> list[str]:
+        from app.orchestrator.place_disambiguation_guard import disambiguation_pending_without_city
         from tools.mcp.adapters.baidu_response_parser import pick_baidu_uid_from_evidence
 
         queue = self._non_search_priority_queue(state, prompt_context, allowed_names)
@@ -754,11 +652,20 @@ class ActionModelController:
                 if isinstance(candidate, dict) and candidate.get("uid"):
                     has_uid = True
                     break
+        blocked_when_pending = {
+            "baidu_place_detail_mcp",
+            "baidu_route_mcp",
+            "baidu_route_matrix_mcp",
+            "baidu_geocode_mcp",
+            "baidu_weather_mcp",
+        }
         filtered: list[str] = []
         for tool in queue:
             if tool in {"browser_mcp", "official_page_reader_mcp"} and not has_url and not search_done:
                 continue
             if tool == "baidu_place_detail_mcp" and not has_uid:
+                continue
+            if disambiguation_pending_without_city(state) and tool in blocked_when_pending:
                 continue
             filtered.append(tool)
         return filtered
@@ -769,7 +676,18 @@ class ActionModelController:
         prompt_context: dict,
         allowed_names: set[str],
     ) -> list[str]:
-        ordered: list[str] = []
+        from app.orchestrator.s5_diversified_tool_selector import S5DiversifiedToolSelector
+        from app.schemas.tool_whitelist import ToolWhitelist
+
+        whitelist = prompt_context.get("tool_whitelist")
+        if isinstance(whitelist, dict):
+            whitelist = ToolWhitelist.model_validate(whitelist)
+        selector = S5DiversifiedToolSelector(state)
+        diversified = [
+            t for t in selector.non_search_tool_queue(whitelist) if t in allowed_names
+        ]
+
+        ordered: list[str] = list(diversified)
 
         def _add(tool: str | None) -> None:
             if not tool or tool == "search_mcp" or tool not in allowed_names:
@@ -827,15 +745,33 @@ class ActionModelController:
         max_steps = int(prompt_context.get("gap_max_extra_steps", gap.max_extra_steps))
         called: set[str] = set(prompt_context.get("_gap_called_tools", []))
 
+        from app.orchestrator.s5_diversified_tool_selector import S5DiversifiedToolSelector
+        from app.schemas.tool_whitelist import ToolWhitelist
+
+        whitelist = prompt_context.get("tool_whitelist")
+        if isinstance(whitelist, dict):
+            whitelist = ToolWhitelist.model_validate(whitelist)
+        allowed = set(self._whitelist_names(prompt_context))
+        selector = S5DiversifiedToolSelector(state)
+        diversified = [
+            t
+            for t in selector.non_search_tool_queue(whitelist, claim_type=gap.claim_type)
+            if t in allowed
+        ]
+
         tools = [
             resolve_tool_name(t)
-            for t in gap.suggested_tools
+            for t in [*diversified, *gap.suggested_tools]
             if resolve_tool_name(t) not in set(gap.forbidden_tools)
             and resolve_tool_name(t) not in set(gap.failed_tools)
             and resolve_tool_name(t) not in set(gap.already_tried_tools)
         ]
-        allowed = set(self._whitelist_names(prompt_context))
         tools = [t for t in tools if t in allowed]
+        seen_tools: list[str] = []
+        for t in tools:
+            if t not in seen_tools:
+                seen_tools.append(t)
+        tools = seen_tools
         if not tools and "search_mcp" in allowed:
             tools = ["search_mcp"]
         tools = [t for t in tools if t not in called]
@@ -871,10 +807,13 @@ class ActionModelController:
                 action_type=AgentActionType.CALL_SUBAGENT,
                 target="keyword_search_agent",
                 arguments={
+                    "lookup_intent": f"Gap-fill evidence for {gap.claim_type}",
+                    "claim_target": gap.claim_type,
                     "search_query": query,
                     "information_need": gap.claim_type,
                     "task_id": task_id,
                     "anchor_keywords": anchor_keywords,
+                    "preferred_tool": "",
                 },
                 reason_summary=f"S5 gap-fill search: {query[:48]}",
                 confidence=0.8,
@@ -1006,7 +945,10 @@ class ActionModelController:
     def _needs_coordinate_resolution(state: TravelAgentState) -> bool:
         from tools.mcp.adapters.baidu_response_parser import resolve_coordinates_from_evidence
 
-        if resolve_coordinates_from_evidence(list(state.evidence)):
+        if resolve_coordinates_from_evidence(
+            list(state.evidence),
+            structured_result=state.structured_result,
+        ):
             return False
         frame = state.semantic_frame
         if frame is None or frame.entities is None:
@@ -1019,6 +961,9 @@ class ActionModelController:
     @staticmethod
     def _baidu_disambiguation_queue(state: TravelAgentState) -> list[str]:
         """Baidu search → detail → geocode when China place lacks city/coordinates."""
+        structured = state.structured_result or {}
+        if structured.get("place_disambiguation_pending"):
+            return ["baidu_place_search_mcp"]
         frame = state.semantic_frame
         if frame is None or frame.entities is None:
             return []

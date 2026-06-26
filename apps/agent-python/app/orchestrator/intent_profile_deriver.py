@@ -4,6 +4,12 @@ from __future__ import annotations
 
 import re
 
+from app.orchestrator.information_need_aliases import (
+    infer_nearby_need_from_text,
+    is_nearby_need,
+    nearby_needs_set,
+    normalize_information_needs,
+)
 from app.schemas.intent_profile import (
     AnswerStyle,
     EvidenceSensitivity,
@@ -53,16 +59,49 @@ _LIVE_NEEDS = frozenset(
     }
 )
 
+_NEARBY_NEEDS = frozenset(
+    {
+        "nearby_food",
+    "nearby_dining",
+    "nearby_restaurant",
+    "restaurant_recommendation",
+    "food_recommendation",
+    "food_nearby",
+    "nearby_places",
+        "nearby_poi",
+        "nearby_hotel",
+        "nearby_lodging",
+        "nearby_rest_area",
+        "nearby_parking",
+        "nearby_toilet",
+        "nearby_station",
+        "nearby_amenity",
+        "nearby_accommodation",
+        "nearby_attraction",
+    }
+)
+
 _COMPARE_PATTERN = re.compile(r"哪个更|还是|vs|对比|比较|只能选一个|选一个去", re.I)
+_NEARBY_PATTERN = re.compile(
+    r"附近|周边|顺路|附近吃|好吃的|停车|厕所|宾馆|酒店|住宿|休息区|周边吃|周边玩",
+    re.I,
+)
+_LIVE_TEXT_PATTERN = re.compile(
+    r"今天|明天|现在|这两天|周末|会下雨|能走吗|路况|开放吗",
+    re.I,
+)
 
 
 class IntentProfileDeriver:
     def derive(self, frame: SemanticFrame | None) -> IntentProfile | None:
         if frame is None:
             return None
-        needs = set(frame.information_needs or [])
+        raw_needs = list(frame.information_needs or [])
+        text = f"{frame.raw_query} {frame.normalized_request}".strip()
+        needs = set(normalize_information_needs(raw_needs, text=text))
+        needs |= nearby_needs_set(raw_needs)
         places = list(frame.entities.places or [])
-        subtypes = list(dict.fromkeys(frame.information_needs or []))
+        subtypes = list(dict.fromkeys(raw_needs))
 
         primary, sensitivity, style, flags = self._rules(frame, needs, places)
         sensitivity = self._apply_sensitivity_overrides(sensitivity, needs, frame, primary)
@@ -99,6 +138,22 @@ class IntentProfileDeriver:
                     flags,
                 )
 
+        # Nearby POI recommendation beats hard_fact / advisory when user asks 附近+宾馆/美食/…
+        if (
+            frame.decision_type == DecisionType.NEARBY_SEARCH
+            or needs & _NEARBY_NEEDS
+            or nearby_needs_set(list(needs))
+            or _NEARBY_PATTERN.search(text)
+        ):
+            flags["review"] = True
+            return (
+                PrimaryIntent.NEARBY,
+                EvidenceSensitivity.EVIDENCE_PREFERRED,
+                AnswerStyle.RECOMMENDATION_LIST,
+                flags,
+            )
+
+        # Hard fact lookup (ticket, hours, closure) — not generic nearby POI lists
         if frame.requires_exact_fact or needs & _HARD_FACT_NEEDS:
             flags["official"] = True
             return (
@@ -108,20 +163,12 @@ class IntentProfileDeriver:
                 flags,
             )
 
-        if frame.decision_type == DecisionType.NEARBY_SEARCH or needs & {"nearby_food", "nearby_poi", "nearby_hotel"}:
-            flags["review"] = True
-            return (
-                PrimaryIntent.NEARBY,
-                EvidenceSensitivity.EVIDENCE_PREFERRED,
-                AnswerStyle.RECOMMENDATION_LIST,
-                flags,
-            )
-
-        if (
-            frame.requires_live_data
-            or frame.time_scope in {TimeScope.CURRENT, TimeScope.SPECIFIC_DATE}
-            or needs & _LIVE_NEEDS
-        ):
+        # Override 2: live_fact beats review/advisory
+        live_by_text = (
+            frame.time_scope in {TimeScope.CURRENT, TimeScope.SPECIFIC_DATE}
+            and _LIVE_TEXT_PATTERN.search(text)
+        )
+        if frame.requires_live_data or needs & _LIVE_NEEDS or live_by_text:
             flags["live"] = True
             return (
                 PrimaryIntent.REALTIME_CHECK,

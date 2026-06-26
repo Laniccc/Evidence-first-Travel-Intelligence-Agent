@@ -3,6 +3,14 @@ from app.orchestrator.composition_preflight import (
     clear_premature_clarification_for_composition,
     should_compose_over_clarification,
 )
+from app.orchestrator.nearby_guided_composition import prepare_nearby_guided_compose_context
+from app.orchestrator.nearby_task_orchestration import should_use_nearby_guided_compose
+from app.orchestrator.fact_lookup_guided_composition import prepare_fact_lookup_guided_compose_context
+from app.orchestrator.fact_lookup_task_orchestration import should_use_fact_lookup_guided_compose
+from app.orchestrator.place_disambiguation_composition import (
+    prepare_place_disambiguation_compose_context,
+    should_present_place_disambiguation_at_s8,
+)
 from app.orchestrator.claude_state_runner import ClaudeStateRunner
 from app.orchestrator.state_policy import ANSWER_COMPOSITION_POLICY
 from app.orchestrator.state_reducer import StateReducer
@@ -19,7 +27,25 @@ class AnswerCompositionState:
 
     async def run(self, state: TravelAgentState, **compose_kwargs) -> TravelAgentState:
         prompt_context = dict(compose_kwargs)
-        if clear_premature_clarification_for_composition(state):
+        if should_use_nearby_guided_compose(state):
+            prompt_context = prepare_nearby_guided_compose_context(state, prompt_context)
+            TraceRecorder.add(
+                state,
+                "✓ S8 片区周边引导合成：先给可执行推荐，再轻量消歧",
+            )
+        elif should_use_fact_lookup_guided_compose(state):
+            prompt_context = prepare_fact_lookup_guided_compose_context(state, prompt_context)
+            TraceRecorder.add(
+                state,
+                "✓ S8 硬事实引导合成：先结论后来源，无法确认则明说",
+            )
+        elif should_present_place_disambiguation_at_s8(state):
+            prompt_context = prepare_place_disambiguation_compose_context(state, prompt_context)
+            TraceRecorder.add(
+                state,
+                "✓ S8 地点消歧呈现：列出候选地点及证据，引导用户选择",
+            )
+        elif clear_premature_clarification_for_composition(state):
             TraceRecorder.add(
                 state,
                 "✓ S8 清除 S5 过早地点澄清，改按 S7 claim_decisions 合成",

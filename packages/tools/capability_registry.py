@@ -209,11 +209,11 @@ def build_default_capabilities(tool_mode: str | None = None) -> dict[str, ToolCa
                     FreshnessLevel.DAILY,
                 ),
                 "wikipedia_mcp": (
-                    ["destination_overview", "entity_description", "best_time_to_visit"],
+                    ["destination_overview", "entity_description", "best_time_to_visit", "general_fact"],
                     FreshnessLevel.STATIC,
                 ),
                 "wikidata_mcp": (
-                    ["entity_resolution", "alias_lookup"],
+                    ["entity_resolution", "alias_lookup", "general_fact"],
                     FreshnessLevel.STATIC,
                 ),
                 "sqlite_mcp": (

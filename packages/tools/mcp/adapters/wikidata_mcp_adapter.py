@@ -48,6 +48,8 @@ class WikidataMCPAdapter(BaseTravelTool):
         if props.ok:
             text = f"{text}\n{text_from_mcp_payload(props.data)}"[:2500]
 
+        # Determine claim type from the information need context
+        claim_type = self._claim_type_for_need(kwargs.get("information_need"))
         return [
             Evidence(
                 source_name="Wikidata MCP",
@@ -62,7 +64,7 @@ class WikidataMCPAdapter(BaseTravelTool):
                 confidence=0.82,
                 claims=[
                     Claim(
-                        claim_type=ClaimType.ADDRESS,
+                        claim_type=claim_type,
                         value=text[:800],
                         raw_text=text[:2000],
                         confidence=0.82,
@@ -72,6 +74,18 @@ class WikidataMCPAdapter(BaseTravelTool):
                 limitations=["Wikidata entity resolution."],
             )
         ]
+
+    @staticmethod
+    def _claim_type_for_need(information_need: str | None) -> ClaimType:
+        """Map information need to appropriate claim type for Wikidata results."""
+        if not information_need:
+            return ClaimType.GENERAL_FACT
+        need = str(information_need).lower()
+        if need in ("elevation", "altitude", "height", "海拔"):
+            return ClaimType.ELEVATION
+        if need in ("general_fact", "fact_lookup", "fact"):
+            return ClaimType.GENERAL_FACT
+        return ClaimType.GENERAL_FACT
 
     @staticmethod
     def _first_entity_id(data) -> str | None:

@@ -48,6 +48,22 @@ class AnswerModeRouter:
               reason="问题要求精确或实时事实，必须经工具获取 Evidence",
           )
 
+      # Well-known factual attributes (elevation, area, etc.): evidence preferred,
+      # but model prior is acceptable as fallback when tools return nothing.
+      if any(n in self._MODEL_PRIOR_FALLBACK_NEEDS for n in frame.information_needs):
+          tools = self._tools_for_needs(frame.information_needs, caps, required=True)
+          return AnswerModeDecision(
+              answer_mode=AnswerMode.EVIDENCE_PREFERRED,
+              required_tools=tools,
+              optional_tools=["knowledge_prior"],
+              allow_knowledge_prior=True,
+              allow_partial_answer=True,
+              reason="常识性事实（海拔/面积等）优先证据，证据不足时允许 model prior 补充",
+              limitations_to_add=[
+                  "该数据未从官方来源实时验证，基于常识知识，建议查阅权威资料确认。"
+              ],
+          )
+
       if frame.decision_type == DecisionType.BEST_TIME_TO_VISIT or "best_time_to_visit" in frame.information_needs:
           if frame.query_scope in {
               QueryScope.CITY,
@@ -160,8 +176,17 @@ class AnswerModeRouter:
           limitations_to_add=["当前无法理解该问题类型，请补充更多细节。"],
       )
 
+  # Information needs that are well-known facts — LLM can answer with reasonable accuracy.
+  # Evidence is preferred but model prior is acceptable as fallback when tools fail.
+  _MODEL_PRIOR_FALLBACK_NEEDS: frozenset[str] = frozenset({
+      "elevation", "altitude", "general_fact", "area", "founding_year", "population",
+  })
+
   def _requires_exact_evidence(self, frame: SemanticFrame) -> bool:
       if frame.requires_exact_fact or frame.requires_live_data:
+          # Well-known facts can fall back to model prior even when exact fact is preferred
+          if any(n in self._MODEL_PRIOR_FALLBACK_NEEDS for n in frame.information_needs):
+              return False
           return True
       if frame.time_scope in {TimeScope.CURRENT, TimeScope.SPECIFIC_DATE} and any(
           n in self.LIVE_FACT_NEEDS for n in frame.information_needs

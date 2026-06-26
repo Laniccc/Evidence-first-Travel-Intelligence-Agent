@@ -26,6 +26,7 @@ from _common import (  # noqa: E402
     fetch_url,
     heat_score_from_text,
     merge_stdin_payload,
+    normalize_crawler_mode,
     run_external_command,
 )
 
@@ -141,13 +142,7 @@ def main() -> int:
     place = str(merged.get("place") or "").strip()
     if not place:
         return emit_result({"items": [], "error": "missing place"}, exit_code=1)
-    mode = str(merged.get("mode") or "review")
-    if mode in {"ticket_price", "ticket_price_candidate"}:
-        mode = "ticket"
-    if mode in {"current_crowd_estimate", "queue_risk"}:
-        mode = "crowd"
-    if mode in {"best_time_to_visit", "seasonality"}:
-        mode = "guide"
+    mode = normalize_crawler_mode(str(merged.get("mode") or "review"))
     result = run_mode(
         place,
         merged.get("city"),

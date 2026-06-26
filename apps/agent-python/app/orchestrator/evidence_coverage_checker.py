@@ -8,6 +8,12 @@ from app.schemas.coverage_report import CoverageItem, CoverageReport
 from app.schemas.evidence import ClaimType, Evidence, SourceType
 from app.schemas.response_contract import ClaimRequirement, ResponseContract
 from app.schemas.tool_trace import ToolTrace
+from app.orchestrator.information_need_aliases import is_nearby_need
+from app.orchestrator.nearby_recommendation_policy import (
+    claim_aliases_for_need,
+    is_nearby_information_need,
+    place_candidates_is_nearby_recommendation,
+)
 from app.orchestrator.official_source_judgement import best_official_support, parse_candidate_from_evidence
 from app.tools.tool_name_resolver import resolve_tool_name
 
@@ -80,7 +86,48 @@ _CLAIM_TYPE_ALIASES: dict[str, frozenset[str]] = {
     "entity_resolution": frozenset(
         {ClaimType.PLACE_CANDIDATES.value, ClaimType.COORDINATES.value, ClaimType.POI_UID.value}
     ),
+    "nearby_food": frozenset(
+        {
+            ClaimType.FOOD.value,
+            ClaimType.GENERAL_FACT.value,
+            ClaimType.RATING_CANDIDATE.value,
+            ClaimType.ADDRESS.value,
+        }
+    ),
+    "nearby_hotel": frozenset(
+        {
+            ClaimType.LODGING.value,
+            ClaimType.GENERAL_FACT.value,
+            ClaimType.RATING_CANDIDATE.value,
+            ClaimType.ADDRESS.value,
+        }
+    ),
+    "nearby_poi": frozenset(
+        {
+            ClaimType.GENERAL_FACT.value,
+            ClaimType.ADDRESS.value,
+            ClaimType.RATING_CANDIDATE.value,
+        }
+    ),
+    "nearby_toilet": frozenset({ClaimType.GENERAL_FACT.value, ClaimType.ADDRESS.value}),
+    "nearby_parking": frozenset({ClaimType.GENERAL_FACT.value, ClaimType.ADDRESS.value}),
+    "nearby_rest_area": frozenset({ClaimType.GENERAL_FACT.value, ClaimType.ADDRESS.value}),
+    "nearby_station": frozenset({ClaimType.GENERAL_FACT.value, ClaimType.ADDRESS.value}),
 }
+
+_IRRELEVANT_FINISH_FOR_NEARBY = frozenset(
+    {
+        "baidu_route_mcp",
+        "baidu_route_matrix_mcp",
+        "baidu_traffic_mcp",
+        "baidu_reverse_geocode_mcp",
+        "wikipedia_mcp",
+        "wikidata_mcp",
+        "osm_mcp",
+        "climate_mcp",
+        "knowledge_prior",
+    }
+)
 
 _GEO_ONLY_CLAIMS = frozenset(
     {
@@ -204,6 +251,8 @@ class EvidenceCoverageChecker:
         tool_traces: list[ToolTrace],
     ) -> CoverageItem:
         aliases = _CLAIM_TYPE_ALIASES.get(req.claim_type, frozenset({req.claim_type}))
+        if is_nearby_information_need(req.claim_type):
+            aliases = claim_aliases_for_need(req.claim_type)
         irrelevant = _IRRELEVANT_FOR.get(req.claim_type, frozenset())
 
         matched_ids: list[str] = []
@@ -235,7 +284,14 @@ class EvidenceCoverageChecker:
                     "coordinates",
                     "disambiguation",
                 }:
-                    continue
+                    if (
+                        is_nearby_information_need(req.claim_type)
+                        and ct == ClaimType.PLACE_CANDIDATES.value
+                        and place_candidates_is_nearby_recommendation(claim)
+                    ):
+                        pass
+                    else:
+                        continue
                 if req.claim_type in _REVIEW_EXPERIENCE_CLAIMS and ct in {
                     ClaimType.TICKET_PRICE.value,
                     ClaimType.OPENING_HOURS.value,
@@ -358,6 +414,8 @@ class EvidenceCoverageChecker:
                 continue
             for tool in req.preferred_tools:
                 resolved = resolve_tool_name(tool)
+                if is_nearby_need(req.claim_type) and resolved in _IRRELEVANT_FINISH_FOR_NEARBY:
+                    continue
                 if tool not in pending and resolved not in called:
                     pending.append(tool)
         for tool in contract.entity_policy.preferred_tools:

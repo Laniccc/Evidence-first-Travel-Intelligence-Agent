@@ -14,6 +14,7 @@ from app.orchestrator.comparison_helpers import (
     is_comparison_mode,
 )
 from app.orchestrator.mcp_tool_arguments import enrich_mcp_tool_arguments
+from app.orchestrator.information_need_aliases import normalize_need
 from app.schemas.search_task import SearchTask
 from app.schemas.tool_whitelist import ToolWhitelist
 from app.schemas.user_query import TravelAgentState
@@ -39,16 +40,78 @@ _ROUTE_NEEDS = frozenset(
 class KeywordSearchAgent:
     """Run one delegated lookup task; pick MCP from catalog + whitelist; invoke tool."""
 
+    _SUBAGENT_NAME = "keyword_search_agent"
+
     def __init__(self, tools_registry=None) -> None:
         self.tools = tools_registry
 
     @staticmethod
+    def _subagent_label(agent_cls: type) -> str:
+        return getattr(agent_cls, "_SUBAGENT_NAME", agent_cls.__name__)
+
+    @staticmethod
+    def _resolve_preferred_tool(task: SearchTask) -> str:
+        return resolve_tool_name(task.preferred_tool or "")
+
+    @classmethod
+    def _preferred_tool_is_usable(
+        cls,
+        task: SearchTask,
+        whitelist: ToolWhitelist | None,
+    ) -> str | None:
+        """Return explicit preferred tool when safe to honor (not a mis-delegated route tool)."""
+        preferred = cls._resolve_preferred_tool(task)
+        if not preferred or preferred == "search_mcp":
+            return None
+        if preferred in _ROUTE_TOOLS and not cls._is_route_task(task):
+            return None
+        if whitelist is not None and not whitelist.is_allowed(preferred):
+            return None
+        return preferred
+
+    @classmethod
+    def apply_diversified_tool_selection(
+        cls,
+        state: TravelAgentState,
+        task: SearchTask,
+        whitelist: ToolWhitelist | None,
+        *,
+        subagent: str,
+        phase: str = "main",
+    ) -> SearchTask:
+        """Single diversified selection pass; skip when route task or explicit preferred is set."""
+        if cls._is_route_task(task):
+            return task
+        if cls._preferred_tool_is_usable(task, whitelist):
+            return task
+        from app.orchestrator.s5_diversified_tool_selector import select_tool_for_subagent
+
+        selection = select_tool_for_subagent(
+            state,
+            task,
+            whitelist,
+            subagent=subagent,
+            phase=phase,
+        )
+        if not selection:
+            return task
+        return task.model_copy(
+            update={
+                "preferred_tool": selection.tool_name,
+                "tool_parameters": {
+                    **(task.tool_parameters or {}),
+                    **selection.tool_parameters_patch,
+                },
+            }
+        )
+
+    @staticmethod
     def _is_route_task(task: SearchTask) -> bool:
-        params = task.tool_parameters or {}
-        if params.get("origin") and params.get("destination"):
+        need = normalize_need(task.claim_target or task.information_need or "")
+        if need in _ROUTE_NEEDS:
             return True
-        preferred = resolve_tool_name(task.preferred_tool or "")
-        return preferred in _ROUTE_TOOLS
+        params = task.tool_parameters or {}
+        return bool(params.get("origin") and params.get("destination"))
 
     @staticmethod
     def validate_task(task: SearchTask) -> None:
@@ -85,6 +148,8 @@ class KeywordSearchAgent:
         task: SearchTask,
         whitelist: ToolWhitelist | None,
         agent_tool_definitions: list[dict] | None = None,
+        *,
+        state: TravelAgentState | None = None,
     ) -> str:
         """Select MCP using task delegation, tool catalog, and NEED_TOOL_PROFILES."""
         params = task.tool_parameters or {}
@@ -96,15 +161,25 @@ class KeywordSearchAgent:
                 if whitelist is None or whitelist.is_allowed(resolved):
                     return resolved
 
-        preferred = resolve_tool_name(task.preferred_tool or "search_mcp")
-        if preferred != "search_mcp" and (whitelist is None or whitelist.is_allowed(preferred)):
-            return preferred
+        usable = KeywordSearchAgent._preferred_tool_is_usable(task, whitelist)
+        if usable:
+            return usable
+
+        # Default delegated web lookup: search_mcp → open-webSearch HTTP
+        if whitelist is None or whitelist.is_allowed("search_mcp"):
+            return "search_mcp"
+
+        if need in _ROUTE_NEEDS:
+            for route_tool in ("baidu_place_search_mcp", "baidu_route_mcp"):
+                resolved = resolve_tool_name(route_tool)
+                if whitelist is None or whitelist.is_allowed(resolved):
+                    return resolved
 
         if agent_tool_definitions and need:
             ranked: list[str] = []
             for defn in agent_tool_definitions:
                 name = resolve_tool_name(str(defn.get("name") or ""))
-                if not name or name.endswith("_agent"):
+                if not name or name.endswith("_agent") or name == "search_mcp":
                     continue
                 satisfies = set(defn.get("satisfies_needs") or [])
                 if need not in satisfies:
@@ -115,19 +190,14 @@ class KeywordSearchAgent:
             if ranked:
                 return ranked[0]
 
-        if need in _ROUTE_NEEDS:
-            for route_tool in ("baidu_place_search_mcp", "baidu_route_mcp"):
-                resolved = resolve_tool_name(route_tool)
-                if whitelist is None or whitelist.is_allowed(resolved):
-                    return resolved
-
         for tool in NEED_TOOL_PROFILES.get(need, []):
             resolved = resolve_tool_name(tool)
             if whitelist is None or whitelist.is_allowed(resolved):
                 return resolved
 
-        spec = catalog_entry(preferred)
+        spec = catalog_entry(KeywordSearchAgent._resolve_preferred_tool(task))
         if spec and need in (spec.satisfies_needs or []):
+            preferred = KeywordSearchAgent._resolve_preferred_tool(task)
             if whitelist is None or whitelist.is_allowed(preferred):
                 return preferred
 
@@ -144,7 +214,7 @@ class KeywordSearchAgent:
         allowed = whitelist.allowed_tool_names() if whitelist else []
         if allowed:
             return allowed[0]
-        return preferred
+        return KeywordSearchAgent._resolve_preferred_tool(task) or "search_mcp"
 
     @staticmethod
     def build_tool_payload(
@@ -218,10 +288,20 @@ class KeywordSearchAgent:
             raw["claim_target"] = raw["information_need"]
 
         task = SearchTask.model_validate(raw)
+        whitelist = prompt_context.get("tool_whitelist")
+        phase: str = "gap_fill" if prompt_context.get("gap_filling") else "main"
+        subagent = self._subagent_label(type(self))
+
+        task = self.apply_diversified_tool_selection(
+            state,
+            task,
+            whitelist,
+            subagent=subagent,
+            phase=phase,
+        )
         self.validate_task(task)
 
-        whitelist = prompt_context.get("tool_whitelist")
-        tool_name = self.pick_tool(task, whitelist, tool_defs)
+        tool_name = self.pick_tool(task, whitelist, tool_defs, state=state)
         if whitelist is not None and not whitelist.is_allowed(tool_name):
             raise ValueError(f"Tool {tool_name!r} not allowed for keyword_search_agent")
 
@@ -258,6 +338,18 @@ class KeywordSearchAgent:
         trace_before = len(self.tools.traces)
         evidence = await self.tools.run_tool(tool_name, **payload)
         new_traces = self.tools.traces[trace_before:]
+
+        from app.orchestrator.s5_tool_attempt_ledger import record_tool_attempt
+
+        record_tool_attempt(
+            state,
+            tool_name=tool_name,
+            claim_type=task.claim_target or task.information_need,
+            subagent=subagent,
+            phase=phase,
+            status="ok" if evidence else "zero_evidence",
+            evidence_count=len(evidence),
+        )
 
         return {
             "task_id": task.task_id,

@@ -1,4 +1,5 @@
 from app.catalog.place_catalog import get_place_catalog
+from app.orchestrator.information_need_aliases import infer_all_nearby_needs_from_text
 from app.schemas.conversation_memory import ConversationMemory
 from app.schemas.place_context import PlaceContext
 from app.schemas.rewritten_query import RewrittenQueryResult
@@ -49,7 +50,7 @@ class TravelTaskExtractor:
             budget_level=goal.budget_level.value,
         )
 
-        required, optional = cls._evidence_for_task(task_type, rewritten.key_concerns)
+        required, optional = cls._evidence_for_task(task_type, rewritten.key_concerns, text=text)
 
         return TravelTask(
             task_type=task_type,
@@ -98,7 +99,9 @@ class TravelTaskExtractor:
         return TravelTaskType.OPEN_ENDED_ADVICE
 
     @classmethod
-    def _evidence_for_task(cls, task_type: TravelTaskType, concerns: list[str]) -> tuple[list[str], list[str]]:
+    def _evidence_for_task(
+        cls, task_type: TravelTaskType, concerns: list[str], *, text: str = ""
+    ) -> tuple[list[str], list[str]]:
         if task_type == TravelTaskType.CROWD_INQUIRY:
             return ["crowd_level", "queue_time"], ["event", "weather", "reservation_policy"]
         if task_type == TravelTaskType.SINGLE_PLACE_SUITABILITY:
@@ -114,9 +117,14 @@ class TravelTaskExtractor:
         if task_type == TravelTaskType.WEATHER_RISK:
             return ["weather"], ["crowd_level", "official_hours"]
         if task_type == TravelTaskType.FOOD_NEARBY:
-            return ["nearby_food"], ["nearby_rest_area"]
+            needs = infer_all_nearby_needs_from_text(text)
+            if not needs or needs == ["nearby_poi"]:
+                needs = ["nearby_food"]
+            return needs, ["nearby_rest_area"]
         if task_type == TravelTaskType.LODGING_AREA:
-            return ["lodging_area"], ["transit"]
+            needs = infer_all_nearby_needs_from_text(text)
+            lodging = [n for n in needs if n in ("nearby_hotel", "lodging_area")]
+            return lodging or ["nearby_hotel"], ["transit"]
         if task_type == TravelTaskType.TRANSPORT_PLANNING:
             return ["transit"], ["walking_intensity"]
         return ["official_hours"], ["reviews", "transit"]

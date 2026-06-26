@@ -48,11 +48,12 @@ class WikipediaMCPAdapter(BaseTravelTool):
             raise RuntimeError(summary.error or "wikipedia_get_summary failed")
 
         text = text_from_mcp_payload(summary.data)
+        claim_type = self._claim_type_for_need(kwargs.get("information_need"))
         return [
             Evidence(
                 source_name="Wikipedia MCP",
                 source_type=SourceType.WEB,
-                source_url=None,
+                source_url=f"https://{language}.wikipedia.org/wiki/{title.replace(' ', '_')}" if title else None,
                 country=kwargs.get("country") or "Unknown",
                 city=kwargs.get("city"),
                 place_name=kwargs.get("place_name"),
@@ -62,7 +63,7 @@ class WikipediaMCPAdapter(BaseTravelTool):
                 confidence=0.7,
                 claims=[
                     Claim(
-                        claim_type=ClaimType.TRAVEL_ADVICE,
+                        claim_type=claim_type,
                         value=text[:600],
                         raw_text=text[:2000],
                         confidence=0.7,
@@ -72,6 +73,18 @@ class WikipediaMCPAdapter(BaseTravelTool):
                 limitations=["Wikipedia summary; verify critical facts."],
             )
         ]
+
+    @staticmethod
+    def _claim_type_for_need(information_need: str | None) -> ClaimType:
+        """Map information need to appropriate claim type for Wikipedia results."""
+        if not information_need:
+            return ClaimType.TRAVEL_ADVICE
+        need = str(information_need).lower()
+        if need in ("elevation", "altitude", "height", "海拔"):
+            return ClaimType.ELEVATION
+        if need in ("general_fact", "fact_lookup", "fact"):
+            return ClaimType.GENERAL_FACT
+        return ClaimType.TRAVEL_ADVICE
 
     @staticmethod
     def _first_title(data) -> str | None:

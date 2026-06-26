@@ -37,6 +37,13 @@ class AnswerComposerAgent:
 
     async def compose(self, state: TravelAgentState, arguments: dict) -> FinalAnswerDraft:
         bundle = self._build_input_bundle(state, arguments)
+        if bundle.get("compose_mode") == "nearby_guided":
+            return await self._compose_nearby_guided(state, bundle)
+        if bundle.get("compose_mode") == "fact_lookup_guided":
+            return await self._compose_fact_lookup_guided(state, bundle)
+        if bundle.get("compose_mode") == "place_disambiguation":
+            return await self._compose_place_disambiguation(state, bundle)
+
         if not self.llm._should_use_anthropic():
             if bundle.get("has_actionable_evidence"):
                 fallback = self._evidence_fallback_draft(bundle)
@@ -190,8 +197,10 @@ class AnswerComposerAgent:
             "coverage_report": (
                 state.coverage_report.model_dump() if state.coverage_report else None
             ),
-            "composition_rules": self._composition_rules(state, overall_confidence, brief),
-            "style_prompt_fragment": self._style_prompt_fragment(state),
+            "composition_rules": self._composition_rules(
+                state, overall_confidence, brief, compose_mode=compose_mode
+            ),
+            "style_prompt_fragment": self._style_prompt_fragment(state, compose_mode=compose_mode),
             "itinerary_plan": (
                 arguments["plan"].model_dump()
                 if arguments.get("plan") and hasattr(arguments["plan"], "model_dump")
@@ -200,13 +209,150 @@ class AnswerComposerAgent:
             "compare_place_names": arguments.get("place_names"),
             "evidence_decision_report": report.model_dump() if report else None,
             "claim_decisions": claim_decisions,
+            **self._disambiguation_bundle_fields(state, arguments, compose_mode),
+            **self._nearby_guided_bundle_fields(state, arguments, compose_mode),
+            **self._fact_lookup_guided_bundle_fields(state, arguments, compose_mode),
         }
+
+    @staticmethod
+    def _nearby_guided_bundle_fields(
+        state: TravelAgentState,
+        arguments: dict,
+        compose_mode: str,
+    ) -> dict:
+        if compose_mode != "nearby_guided" and not arguments.get("nearby_guided_presentation"):
+            return {}
+        from app.orchestrator.nearby_guided_composition import build_nearby_guided_presentation
+
+        presentation = arguments.get("nearby_guided_presentation") or build_nearby_guided_presentation(
+            state
+        )
+        return {
+            "nearby_guided_presentation": presentation,
+            "has_actionable_evidence": bool(
+                presentation.get("area_nearby_clues")
+            ),
+        }
+
+    async def _compose_nearby_guided(
+        self,
+        state: TravelAgentState,
+        bundle: dict,
+    ) -> FinalAnswerDraft:
+        from app.orchestrator.nearby_guided_composition import build_nearby_guided_draft
+
+        fallback = build_nearby_guided_draft(state, bundle.get("nearby_guided_presentation"))
+        if not self.llm._should_use_anthropic():
+            TraceRecorder.add(state, "✓ AnswerComposition 片区周边引导（无 LLM）")
+            return fallback
+
+        try:
+            draft = await self._llm_compose(bundle)
+            draft, _ = self._postprocess_draft(draft, bundle)
+            if self._accept_draft(draft, bundle):
+                draft.answer_text = draft.render_text().strip()
+                draft.compose_mode = "nearby_guided"
+                TraceRecorder.add(state, "✓ AnswerComposition 片区周边引导（LLM）")
+                return draft
+        except Exception as exc:
+            logger.warning("AnswerComposer nearby_guided LLM failed: %s", exc)
+
+        TraceRecorder.add(state, "✓ AnswerComposition 片区周边引导（兜底模板）")
+        return fallback
+
+    @staticmethod
+    def _fact_lookup_guided_bundle_fields(
+        state: TravelAgentState,
+        arguments: dict,
+        compose_mode: str,
+    ) -> dict:
+        if compose_mode != "fact_lookup_guided" and not arguments.get("fact_lookup_presentation"):
+            return {}
+        from app.orchestrator.fact_lookup_guided_composition import build_fact_lookup_presentation
+
+        presentation = arguments.get("fact_lookup_presentation") or build_fact_lookup_presentation(state)
+        return {
+            "fact_lookup_presentation": presentation,
+            "has_actionable_evidence": bool(presentation.get("fact_clues")),
+        }
+
+    async def _compose_fact_lookup_guided(
+        self,
+        state: TravelAgentState,
+        bundle: dict,
+    ) -> FinalAnswerDraft:
+        from app.orchestrator.fact_lookup_guided_composition import build_fact_lookup_draft
+
+        fallback = build_fact_lookup_draft(state, bundle.get("fact_lookup_presentation"))
+        if not self.llm._should_use_anthropic():
+            TraceRecorder.add(state, "✓ AnswerComposition 硬事实引导（无 LLM）")
+            return fallback
+
+        try:
+            draft = await self._llm_compose(bundle)
+            draft, _ = self._postprocess_draft(draft, bundle)
+            if self._accept_draft(draft, bundle):
+                draft.answer_text = draft.render_text().strip()
+                draft.compose_mode = "fact_lookup_guided"
+                TraceRecorder.add(state, "✓ AnswerComposition 硬事实引导（LLM）")
+                return draft
+        except Exception as exc:
+            logger.warning("AnswerComposer fact_lookup_guided LLM failed: %s", exc)
+
+        TraceRecorder.add(state, "✓ AnswerComposition 硬事实引导（兜底模板）")
+        return fallback
+
+    @staticmethod
+    def _disambiguation_bundle_fields(
+        state: TravelAgentState,
+        arguments: dict,
+        compose_mode: str,
+    ) -> dict:
+        if compose_mode != "place_disambiguation" and not arguments.get("disambiguation_presentation"):
+            return {}
+        from app.orchestrator.place_disambiguation_composition import build_disambiguation_presentation
+
+        presentation = arguments.get("disambiguation_presentation") or build_disambiguation_presentation(
+            state
+        )
+        return {
+            "disambiguation_presentation": presentation,
+            "has_actionable_evidence": bool(presentation.get("options")),
+        }
+
+    async def _compose_place_disambiguation(
+        self,
+        state: TravelAgentState,
+        bundle: dict,
+    ) -> FinalAnswerDraft:
+        from app.orchestrator.place_disambiguation_composition import build_disambiguation_draft
+
+        fallback = build_disambiguation_draft(state, bundle.get("disambiguation_presentation"))
+        if not self.llm._should_use_anthropic():
+            TraceRecorder.add(state, "✓ AnswerComposition 地点消歧呈现（无 LLM）")
+            return fallback
+
+        try:
+            draft = await self._llm_compose(bundle)
+            draft, _ = self._postprocess_draft(draft, bundle)
+            if self._accept_draft(draft, bundle):
+                draft.answer_text = draft.render_text().strip()
+                draft.compose_mode = "place_disambiguation"
+                TraceRecorder.add(state, "✓ AnswerComposition 地点消歧呈现（LLM）")
+                return draft
+        except Exception as exc:
+            logger.warning("AnswerComposer place_disambiguation LLM failed: %s", exc)
+
+        TraceRecorder.add(state, "✓ AnswerComposition 地点消歧呈现（兜底模板）")
+        return fallback
 
     def _composition_rules(
         self,
         state: TravelAgentState,
         overall_confidence: float,
         brief: EvidenceBrief | None,
+        *,
+        compose_mode: str = "advisory",
     ) -> list[str]:
         rules = [
             "user_need_residual describes what the user wants to know and their constraints — NOT verified facts.",
@@ -219,6 +365,39 @@ class AnswerComposerAgent:
             "cited_evidence_ids: copy full evidence_id from curated_claims — never shorten UUIDs.",
             "S8 must follow claim_decisions.adoption from evidence_decision_report — do NOT re-judge evidence.",
         ]
+        if compose_mode == "place_disambiguation":
+            rules.extend(
+                [
+                    "compose_mode is place_disambiguation: list EVERY option in disambiguation_presentation.options.",
+                    "For each option show location fields and evidence_clues; do not merge clues across regions.",
+                    "If has_clues_for_question is false for an option, state that no adoptable evidence was found for question_label.",
+                    "Include shared_clues in a separate section when non-empty.",
+                    "End with selection_prompt; set next_state intent to user picking an index or province/city.",
+                    "Do NOT answer the factual question as if one place were already confirmed.",
+                ]
+            )
+            return rules
+        if compose_mode == "fact_lookup_guided":
+            rules.extend(
+                [
+                    "compose_mode is fact_lookup_guided: LEAD with a one-sentence factual conclusion (price/hours/policy).",
+                    "List every fact_clues entry with source_name; mark 官方 when official=true.",
+                    "If no adoptable fact_clues: state 无法确认 explicitly — never invent 兵马俑/景区 prices.",
+                    "Do NOT recommend food, routes, or weather unless asked.",
+                ]
+            )
+            return rules
+        if compose_mode == "nearby_guided":
+            rules.extend(
+                [
+                    "compose_mode is nearby_guided: LEAD with area_nearby_clues — full numbered list with sources; use area_nearby_clues_by_need for multi-category queries.",
+                    "Answer the user's nearby category (food, toilet, parking, etc.) — do NOT substitute a different POI type.",
+                    "Do NOT refuse to answer when area_nearby_clues is non-empty.",
+                    "Disambiguation is secondary; optional short section at end only.",
+                    "Every POI name must trace to area_nearby_clues or curated_claims.",
+                ]
+            )
+            return rules
         profile = state.intent_profile
         if profile and profile.answer_style == AnswerStyle.COMPARISON:
             rules.extend(
@@ -318,7 +497,52 @@ class AnswerComposerAgent:
         return list(mapping.get(style, []))
 
     @staticmethod
-    def _style_prompt_fragment(state: TravelAgentState) -> str:
+    def _style_prompt_fragment(state: TravelAgentState, *, compose_mode: str = "advisory") -> str:
+        if compose_mode == "place_disambiguation":
+            path = PROMPTS_DIR / "composer_place_disambiguation.md"
+            if path.is_file():
+                return path.read_text(encoding="utf-8").strip()
+            return ""
+        if compose_mode == "nearby_guided":
+            path = PROMPTS_DIR / "composer_nearby_guided.md"
+            if path.is_file():
+                return path.read_text(encoding="utf-8").strip()
+            return ""
+        if compose_mode == "fact_lookup_guided":
+            path = PROMPTS_DIR / "composer_fact_lookup_guided.md"
+            if path.is_file():
+                return path.read_text(encoding="utf-8").strip()
+            return ""
+        compose_prompts = {
+            "nearby": "composer_recommendation_list.md",
+            "review_insight": "composer_advisory.md",
+            "realtime_status": "composer_direct_fact.md",
+            "fact_lookup": "composer_direct_fact.md",
+            "compare": "composer_comparison.md",
+            "itinerary": "composer_itinerary.md",
+            "clarification": "composer_clarification.md",
+            "advisory": "composer_advisory.md",
+        }
+        fname = compose_prompts.get(compose_mode)
+        if fname:
+            path = PROMPTS_DIR / fname
+            if path.is_file():
+                base = path.read_text(encoding="utf-8").strip()
+                if compose_mode == "nearby":
+                    base += (
+                        "\n\n输出须包含：名称、距离/步行或驾车时间、推荐理由、适合场景、证据限制。"
+                    )
+                elif compose_mode == "review_insight":
+                    base += (
+                        "\n\n用语示例：「可见评论倾向……」「多条游客反馈提到……」"
+                        "「如果你介意 X，可能不太适合」。"
+                    )
+                elif compose_mode == "realtime_status":
+                    base += (
+                        "\n\n必须带时效说明，例如「根据目前可获取的天气预报……」"
+                        "「实时人流没有可靠来源，只能结合节假日和评论信号估计……」。"
+                    )
+                return base
         profile = state.intent_profile
         if not profile:
             return ""
@@ -625,6 +849,10 @@ class AnswerComposerAgent:
         return inferred
 
     def _validate_draft(self, draft: FinalAnswerDraft, bundle: dict) -> bool:
+        if bundle.get("compose_mode") == "place_disambiguation":
+            return bool(draft.conclusion or draft.answer_text or draft.sections)
+        if bundle.get("compose_mode") == "nearby_guided":
+            return bool(draft.sections or draft.conclusion or draft.answer_text)
         allowed_ids = set(bundle.get("evidence_ids", []))
         if draft.cited_evidence_ids and not set(draft.cited_evidence_ids).issubset(allowed_ids):
             logger.warning("Draft cites unknown evidence ids: %s", draft.cited_evidence_ids)
@@ -639,6 +867,16 @@ class AnswerComposerAgent:
         target = bundle.get("target_label", "目的地")
         compose_mode = bundle.get("compose_mode", "advisory")
         claims = bundle.get("actionable_evidence_claims") or []
+        if compose_mode == "place_disambiguation":
+            from app.orchestrator.place_disambiguation_composition import (
+                build_disambiguation_draft_from_bundle,
+            )
+
+            return build_disambiguation_draft_from_bundle(bundle)
+        if compose_mode == "nearby_guided":
+            from app.orchestrator.nearby_guided_composition import build_nearby_guided_draft_from_bundle
+
+            return build_nearby_guided_draft_from_bundle(bundle)
         if compose_mode == "compare":
             return AnswerComposerAgent._comparison_fallback_draft(bundle)
 

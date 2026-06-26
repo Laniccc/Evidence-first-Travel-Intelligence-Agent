@@ -91,63 +91,10 @@ class ClaudeStateRunner:
                         state.evidence,
                         state.tool_traces,
                     )
-                if action.action_type == AgentActionType.CALL_TOOL:
-                    await self._handle_place_disambiguation(state, action, policy, ctx)
 
         state.limitations.append(f"{policy.state_name} reached max_steps")
         TraceRecorder.add(state, f"✓ [{policy.state_name}] 达到 max_steps={policy.max_steps}")
         return state
-
-    async def _handle_place_disambiguation(
-        self,
-        state: TravelAgentState,
-        action: AgentAction,
-        policy: StateNodePolicy,
-        ctx: dict,
-    ) -> None:
-        if policy.state_name != "evidence_planning_and_tool_use":
-            return
-        target = action.target or ""
-        if target not in {
-            "baidu_place_search_mcp",
-            "baidu_geocode_mcp",
-            "baidu_place_detail_mcp",
-        }:
-            return
-
-        from app.orchestrator.place_disambiguation_guard import (
-            apply_unique_candidate,
-            detect_ambiguous_candidates,
-            extract_place_candidates,
-            should_apply_unique_resolution,
-            try_resolve_disambiguation,
-        )
-
-        if target == "baidu_place_search_mcp":
-            ambiguous = detect_ambiguous_candidates(state.evidence)
-            if ambiguous:
-                labels = [
-                    (c.get("name") or c.get("city") or "?") for c in ambiguous[:4]
-                ]
-                TraceRecorder.add(
-                    state,
-                    "✓ [S5] place_candidates in evidence ("
-                    + " / ".join(labels)
-                    + ") — LLM will refine keyword searches",
-                )
-
-        if try_resolve_disambiguation(state):
-            TraceRecorder.add(state, "✓ [S5] place disambiguation resolved from evidence")
-            return
-
-        candidates = extract_place_candidates(state.evidence)
-        unique = should_apply_unique_resolution(candidates)
-        if unique and target == "baidu_place_search_mcp":
-            state = apply_unique_candidate(state, unique)
-            TraceRecorder.add(
-                state,
-                f"✓ [S5] resolved place via Baidu: {unique.get('province', '')} {unique.get('city', '')}",
-            )
 
 
 def action_executor_result_fail(action):

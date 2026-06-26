@@ -121,6 +121,49 @@ def _frame(**kwargs) -> SemanticFrame:
             EvidenceSensitivity.EVIDENCE_PREFERRED,
         ),
         (
+            "束河古镇附近餐厅",
+            ["nearby_dining"],
+            {
+                "decision_type": DecisionType.NEARBY_SEARCH,
+                "task_family": TaskFamily.ADVISORY,
+            },
+            PrimaryIntent.NEARBY,
+            EvidenceSensitivity.EVIDENCE_PREFERRED,
+        ),
+        (
+            "附近有什么好吃的",
+            [],
+            {
+                "decision_type": DecisionType.GENERAL_ADVICE,
+                "task_family": TaskFamily.ADVISORY,
+                "entities": SemanticEntities(country="China", city="丽江", places=["束河古镇"]),
+            },
+            PrimaryIntent.NEARBY,
+            EvidenceSensitivity.EVIDENCE_PREFERRED,
+        ),
+        (
+            "独库公路几月份开放",
+            ["seasonal_operation_status"],
+            {
+                "decision_type": DecisionType.GENERAL_ADVICE,
+                "task_family": TaskFamily.ADVISORY,
+                "requires_exact_fact": True,
+                "entities": SemanticEntities(country="China", city="伊犁", places=["独库公路"]),
+            },
+            PrimaryIntent.LOOKUP,
+            EvidenceSensitivity.HARD_FACT,
+        ),
+        (
+            "今天能走吗",
+            [],
+            {
+                "time_scope": TimeScope.CURRENT,
+                "entities": SemanticEntities(country="China", city="伊犁", places=["独库公路"]),
+            },
+            PrimaryIntent.REALTIME_CHECK,
+            EvidenceSensitivity.LIVE_REQUIRED,
+        ),
+        (
             "独库公路几月份开放",
             ["seasonal_operation_status"],
             {

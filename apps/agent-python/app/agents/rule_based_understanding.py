@@ -1,7 +1,8 @@
-from datetime import date
+import re
 
 from app.catalog.location_resolver import resolve_city_country_from_text
 from app.agents.semantic_frame_builder import SemanticFrameBuilder
+from app.orchestrator.information_need_aliases import infer_nearby_need_from_text
 from app.catalog.place_resolver import PlaceResolver
 from app.schemas.conversation_context import ConversationContext
 from app.schemas.place_candidate import PlaceCandidate
@@ -29,6 +30,10 @@ CONCERN_PATTERNS: list[tuple[list[str], str]] = [
     (["踩雷", "overrated", "失望"], "overrated_risk"),
     (["天气", "下雨", "weather", "rain"], "weather"),
     (["吃", "餐厅", "food", "restaurant"], "nearby_food"),
+    (["酒店", "住宿", "宾馆", "旅馆", "民宿"], "nearby_hotel"),
+    (["停车", "停车场", "泊车"], "nearby_parking"),
+    (["厕所", "卫生间", "公厕", "洗手间"], "nearby_toilet"),
+    (["公交", "地铁", "站点"], "nearby_station"),
 ]
 
 

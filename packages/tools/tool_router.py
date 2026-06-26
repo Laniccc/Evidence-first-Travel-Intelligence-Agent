@@ -24,6 +24,8 @@ NEED_TO_CAPABILITY: dict[InformationNeedType, list[str]] = {
     InformationNeedType.SAFETY: ["walking_intensity"],
     InformationNeedType.EVENT: ["event"],
     InformationNeedType.FALLBACK_WEB_LOOKUP: ["fallback_web_lookup"],
+    InformationNeedType.ELEVATION: ["general_fact", "public_web_search"],
+    InformationNeedType.GENERAL_FACT: ["general_fact", "public_web_search"],
 }
 
 

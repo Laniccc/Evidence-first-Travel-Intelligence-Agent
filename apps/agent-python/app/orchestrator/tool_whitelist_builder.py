@@ -467,6 +467,10 @@ class ToolWhitelistBuilder:
         contract_preferred.update(contract.tool_strategy.initial_tools)
         if state.intent_strategy:
             contract_preferred.update(state.intent_strategy.preferred_tools)
+            for tool in state.intent_strategy.forbidden_tools:
+                forbidden.add(tool)
+            for tool in state.intent_strategy.tool_tiers.forbidden:
+                forbidden.add(tool)
         candidates |= contract_preferred
         candidates -= forbidden
         candidates &= set(EVIDENCE_PLANNING_TOOL_NAMES)
@@ -632,9 +636,14 @@ class ToolWhitelistBuilder:
                     if not EvidencePolicy.model_prior_allowed_for(need):
                         restrictions.append(f"model_prior not allowed for need: {need}")
 
-            from app.orchestrator.agent_tool_catalog import enrich_descriptor_fields
+            from app.orchestrator.agent_tool_catalog import enrich_descriptor_fields, resolve_s5_task_class
 
-            enriched = enrich_descriptor_fields(tool_name, str(meta.get("description", tool_name)))
+            task_class = resolve_s5_task_class(state) if state else None
+            enriched = enrich_descriptor_fields(
+                tool_name,
+                str(meta.get("description", tool_name)),
+                task_class=task_class,
+            )
             descriptor = ToolDescriptor(
                 name=tool_name,
                 description=enriched["description"],

@@ -154,7 +154,7 @@ class Settings(BaseSettings):
     ctrip_crawler_timeout_seconds: float = 30.0
     ctrip_crawler_max_results: int = 20
     ctrip_crawler_output_format: str = "json"
-    ctrip_websearch_signal_enabled: bool = True
+    ctrip_websearch_signal_enabled: bool = False
 
     # Fliggy — Taobao TOP Open API (open.fliggy.com App Key + App Secret)
     fliggy_ticket_crawler_enabled: bool = False
@@ -175,11 +175,13 @@ class Settings(BaseSettings):
     dianping_crawler_timeout_seconds: float = 30.0
     dianping_crawler_max_results: int = 20
     dianping_crawler_output_format: str = "json"
-    dianping_websearch_signal_enabled: bool = True
+    dianping_websearch_signal_enabled: bool = False
     dianping_spider_command: str = ""
     dianping_spider_workdir: str = ""
     ctrip_spider_root: str = ""
     dianping_crawler_root: str = ""
+    crawler_proxy_url: str = ""
+    crawler_fetch_timeout_seconds: float = 15.0
 
     # Ticket snapshot store
     ticket_snapshot_store_enabled: bool = True
@@ -187,8 +189,8 @@ class Settings(BaseSettings):
 
     supported_countries: list[str] = ["Japan", "China", "South Korea"]
     supported_cities: dict[str, list[str]] = {
-        "Japan": ["Tokyo", "Kyoto", "Osaka", "Nara", "Sapporo", "Fukuoka", "Okinawa", "Hakone", "Nagoya", "Hiroshima", "Okayama"],
-        "China": ["Beijing", "Shanghai", "Hangzhou", "Suzhou", "Xi'an", "Chengdu", "Chongqing", "Guangzhou", "Shenzhen", "Nanjing", "Xiamen", "Qingdao", "Altay"],
+        "Japan": ["Tokyo", "Kyoto", "Osaka", "Nara", "Sapporo", "Fukuoka", "Okinawa", "Hakone", "Nagoya", "Hiroshima", "Okayama", "Fujikawaguchiko"],
+        "China": ["Beijing", "Shanghai", "Hangzhou", "Suzhou", "Xi'an", "Chengdu", "Chongqing", "Guangzhou", "Shenzhen", "Nanjing", "Xiamen", "Qingdao", "Altay", "Lijiang", "Xinjiang", "Ganzi"],
         "South Korea": ["Seoul", "Busan", "Jeju", "Gyeongju", "Incheon", "Daegu"],
     }
 

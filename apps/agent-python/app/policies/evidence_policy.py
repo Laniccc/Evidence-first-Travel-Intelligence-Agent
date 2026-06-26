@@ -90,6 +90,14 @@ CLAIM_POLICIES: dict[str, ClaimPolicy] = {
         model_prior_allowed=True,
         preferred_source_types=["web", "tourism_board", "wikidata", "model_prior"],
     ),
+    "elevation": ClaimPolicy(
+        model_prior_allowed=True,
+        preferred_source_types=["wikidata", "wikipedia", "web", "model_prior"],
+    ),
+    "general_fact": ClaimPolicy(
+        model_prior_allowed=True,
+        preferred_source_types=["wikidata", "wikipedia", "web", "model_prior"],
+    ),
     "fallback_web_lookup": ClaimPolicy(
         model_prior_allowed=True,
         preferred_source_types=["web", "model_prior"],

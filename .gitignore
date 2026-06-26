@@ -76,6 +76,9 @@ apps/agent-python/data/*.db
 apps/agent-python/data/*.sqlite
 apps/agent-python/data/*.sqlite3
 
+# --- External crawler vendor clones (adapters under external/crawlers/ are committed) ---
+external/crawlers/vendors/
+
 # --- Misc logs & temp ---
 *.log
 .cache/

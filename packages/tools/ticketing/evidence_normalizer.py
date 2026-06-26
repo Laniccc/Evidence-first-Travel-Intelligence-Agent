@@ -442,9 +442,19 @@ def normalize_nearby_crawler_payload(
                 Claim(claim_type=ClaimType.ADDRESS, value=str(item["address"])[:200], confidence=0.45)
             )
         rating = item.get("rating")
+        review_count = item.get("review_count") or item.get("comment_count")
         if rating is not None:
             claims.append(
-                Claim(claim_type=ClaimType.RATING_CANDIDATE, value=rating, confidence=0.45)
+                Claim(
+                    claim_type=ClaimType.RATING_CANDIDATE,
+                    value=f"评分 {rating}" + (f"（{review_count}条评价）" if review_count else ""),
+                    normalized_value={
+                        "rating": rating,
+                        "review_count": review_count,
+                        "shop_name": name,
+                    },
+                    confidence=0.62,
+                )
             )
         price_level = item.get("price_level") or item.get("avg_price")
         if price_level:
@@ -452,8 +462,25 @@ def normalize_nearby_crawler_payload(
                 Claim(claim_type=ClaimType.PRICE_CANDIDATE, value=str(price_level), confidence=0.4)
             )
         category = item.get("main_category") or item.get("category")
+        food_bits = [str(name)[:120]]
+        if rating is not None:
+            food_bits.append(f"评分{rating}")
+        if review_count:
+            food_bits.append(f"{review_count}条评价")
         if category and "餐" in str(category):
-            claims.append(Claim(claim_type=ClaimType.FOOD, value=str(name)[:120], confidence=0.45))
+            claims.append(
+                Claim(
+                    claim_type=ClaimType.FOOD,
+                    value="，".join(food_bits),
+                    normalized_value={
+                        "name": name,
+                        "rating": rating,
+                        "review_count": review_count,
+                        "information_need": "nearby_food",
+                    },
+                    confidence=0.58,
+                )
+            )
         evidence_list.append(
             Evidence(
                 source_name=f"{provider} Nearby",
