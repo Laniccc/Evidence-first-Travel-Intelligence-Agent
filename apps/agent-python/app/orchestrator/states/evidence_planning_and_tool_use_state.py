@@ -7,9 +7,9 @@ from app.orchestrator.claude_state_runner import ClaudeStateRunner
 from app.orchestrator.claim_search_planner import ClaimSearchPlanner
 from app.orchestrator.evidence_policy_guard import EvidencePolicyGuard
 from app.orchestrator.comparison_helpers import comparison_max_tool_calls, is_comparison_mode
+from app.orchestrator.agent_core_pipeline_gate import PipelineGate, ToolVisibility
 from app.orchestrator.state_policy import EVIDENCE_PLANNING_AND_TOOL_USE_POLICY
 from app.orchestrator.state_reducer import StateReducer
-from app.orchestrator.tool_whitelist_builder import ToolWhitelistBuilder
 from app.orchestrator.trace import TraceRecorder
 from app.policies.evidence_policy import EvidencePolicy
 from app.schemas.evidence import Evidence
@@ -36,7 +36,9 @@ class EvidencePlanningAndToolUseState:
         self.tools = tools
         self.tool_router = tool_router
         self.capability_registry = capability_registry or CapabilityRegistry()
-        self.whitelist_builder = ToolWhitelistBuilder(self.capability_registry, tools)
+        self.pipeline_gate = PipelineGate(self.capability_registry, tools)
+        # Compatibility for older tests/helpers. S5 itself consumes PipelineGate output.
+        self.whitelist_builder = self.pipeline_gate.whitelist_builder
         self.runner = ClaudeStateRunner(
             llm_client,
             tools,
@@ -52,7 +54,13 @@ class EvidencePlanningAndToolUseState:
         if state.travel_task and not state.information_needs:
             state.information_needs = InformationNeedPlanner.plan(state.travel_task)
 
-        tool_whitelist = self.whitelist_builder.build(state, ctx)
+        visibility = self.pipeline_gate.visible_tools(
+            state,
+            phase="evidence_acquisition",
+            prompt_context=ctx,
+        )
+        tool_whitelist = self._require_tool_whitelist(visibility)
+        self._record_gate_visibility(state, visibility)
         prompt_context = self._build_prompt_context(state, ctx, tool_whitelist)
         if state.s5_domain_plan and state.s5_domain_plan.domains:
             TraceRecorder.add(
@@ -79,6 +87,7 @@ class EvidencePlanningAndToolUseState:
             TraceRecorder.add(state, f"⊘ S5 blocked {tool_name}: {reason}")
 
         state = await self.runner.run(state, EVIDENCE_PLANNING_AND_TOOL_USE_POLICY, prompt_context)
+        self._supplement_geo_fact_gazetteer(state)
         state = await self._supplement_answer_mode_tools(state, prompt_context, tool_whitelist)
         if self.tools and not state.tool_traces:
             state.tool_traces = list(self.tools.traces)
@@ -88,6 +97,20 @@ class EvidencePlanningAndToolUseState:
         else:
             TraceRecorder.add(state, "✓ 已完成 EvidencePlanningAndToolUse")
         return state
+
+    @staticmethod
+    def _supplement_geo_fact_gazetteer(state: TravelAgentState) -> None:
+        try:
+            from app.orchestrator.geo_fact_gazetteer import supplement_elevation_from_gazetteer
+
+            added = supplement_elevation_from_gazetteer(state)
+            if added:
+                TraceRecorder.add(
+                    state,
+                    f"S5 geo-fact gazetteer fallback added {len(added)} elevation evidence",
+                )
+        except Exception:
+            return
 
     async def run_gap_filling(self, state: TravelAgentState, gap) -> TravelAgentState:
         from app.config import get_settings
@@ -101,13 +124,21 @@ class EvidencePlanningAndToolUseState:
 
         apply_ticket_gap_phase_override(state, gap)
         settings = get_settings()
-        tool_whitelist = self.whitelist_builder.build_gap_whitelist(gap)
+        gap_max_extra_steps = min(gap.max_extra_steps, settings.evidence_gap_max_extra_steps)
+        if gap.claim_type in {
+            "ticket_price",
+            "entrance_ticket_price",
+            "boat_ticket_price",
+            "shuttle_bus_ticket_price",
+            "cable_car_ticket_price",
+        }:
+            gap_max_extra_steps = min(gap_max_extra_steps, 5)
         prompt_context = {
             "gap_filling": True,
             "gap_request": gap.model_dump(),
             "gap_query_objectives": [o.model_dump() for o in gap.query_objectives],
             "gap_query_objective": gap.query_objective,
-            "gap_max_extra_steps": min(gap.max_extra_steps, settings.evidence_gap_max_extra_steps),
+            "gap_max_extra_steps": gap_max_extra_steps,
             "reset_evidence": False,
             "place_name": (
                 state.comparison_active_place
@@ -118,6 +149,13 @@ class EvidencePlanningAndToolUseState:
                 )
             ),
         }
+        visibility = self.pipeline_gate.visible_tools(
+            state,
+            phase="evidence_acquisition",
+            prompt_context=prompt_context,
+        )
+        tool_whitelist = self._require_tool_whitelist(visibility)
+        self._record_gate_visibility(state, visibility)
         prompt_context["tool_whitelist"] = tool_whitelist
         prompt_context["allowed_tools"] = [t.model_dump() for t in tool_whitelist.allowed_tools]
         from app.orchestrator.s5_diversified_tool_selector import store_retrieval_plans
@@ -145,6 +183,27 @@ class EvidencePlanningAndToolUseState:
         TraceRecorder.add(state, f"✓ S5 gap-filling 完成：+{len(state.evidence) - before} evidence")
         return state
 
+    @staticmethod
+    def _require_tool_whitelist(visibility: ToolVisibility) -> ToolWhitelist:
+        if visibility.tool_whitelist is None:
+            raise RuntimeError(f"PipelineGate returned no ToolWhitelist for phase={visibility.phase}")
+        return visibility.tool_whitelist
+
+    @staticmethod
+    def _record_gate_visibility(state: TravelAgentState, visibility: ToolVisibility) -> None:
+        try:
+            from app.orchestrator.agent_core_store import ensure_agent_core_store
+
+            store = ensure_agent_core_store(state)
+            store.add_phase_output(
+                visibility.phase,
+                kind="tool_visibility",
+                status="succeeded",
+                payload=visibility.model_dump(mode="json", exclude={"projection"}),
+            )
+        except Exception:
+            return
+
     def _build_prompt_context(
         self,
         state: TravelAgentState,
@@ -154,6 +213,12 @@ class EvidencePlanningAndToolUseState:
         prompt_context = dict(ctx)
         prompt_context["tool_whitelist"] = tool_whitelist
         prompt_context["allowed_tools"] = [t.model_dump() for t in tool_whitelist.allowed_tools]
+        research_plan = self._latest_research_plan(state)
+        if research_plan:
+            prompt_context["research_plan"] = research_plan
+            structured = dict(state.structured_result or {})
+            structured["agent_core_research_plan"] = research_plan
+            state.structured_result = structured
         # LLM-facing context: only dynamic allowed_tools (no static state-policy tool catalog).
         prompt_context.pop("candidate_tool_plan", None)
         prompt_context["s5_prompt_rules"] = [
@@ -226,10 +291,16 @@ class EvidencePlanningAndToolUseState:
             prompt_context["user_need_residual"] = state.user_need_residual.model_dump()
 
         from app.orchestrator.agent_tool_catalog import agent_tool_definitions_for_allowed, resolve_s5_task_class
+        from app.orchestrator.agent_core_prompt_guidance import agent_core_task_guidance
 
         allowed_names = tool_whitelist.allowed_tool_names()
         task_class = resolve_s5_task_class(state)
         prompt_context["s5_task_class"] = task_class
+        prompt_context["agent_core_task_guidance"] = agent_core_task_guidance(
+            state,
+            task_class=task_class,
+        )
+        prompt_context["s5_prompt_rules"].extend(prompt_context["agent_core_task_guidance"])
         prompt_context["agent_tool_definitions"] = agent_tool_definitions_for_allowed(
             allowed_names,
             task_class=task_class,
@@ -264,6 +335,20 @@ class EvidencePlanningAndToolUseState:
                 ctx.model_dump() if hasattr(ctx, "model_dump") else ctx
             )
         return prompt_context
+
+    @staticmethod
+    def _latest_research_plan(state: TravelAgentState) -> dict | None:
+        try:
+            from app.orchestrator.agent_core_store import project_agent_core
+
+            projection = project_agent_core(state) or {}
+            artifact = (projection.get("latest_artifacts") or {}).get("research_plan") or {}
+            payload = artifact.get("payload")
+            if isinstance(payload, dict):
+                return payload
+        except Exception:
+            return None
+        return None
 
     @staticmethod
     def _residual_need_types(state: TravelAgentState) -> list[str]:
@@ -429,6 +514,12 @@ class EvidencePlanningAndToolUseState:
                     tool_call_count=tool_call_count,
                 )
             except ValueError:
+                continue
+
+            from app.orchestrator.mcp_tool_arguments import mcp_tool_invocation_ready
+
+            if not mcp_tool_invocation_ready(tool, {}, state=state, prompt_context=prompt_context):
+                TraceRecorder.add(state, f"↷ [supplement] skip {tool}: args not ready")
                 continue
 
             supplement_ctx = {

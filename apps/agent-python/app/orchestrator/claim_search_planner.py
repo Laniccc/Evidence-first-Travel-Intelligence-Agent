@@ -45,6 +45,65 @@ class ClaimSearchPlanner:
         return len(completed) if isinstance(completed, list) else 0
 
     @classmethod
+    def attempted_search_task_ids(cls, state: TravelAgentState) -> list[str]:
+        structured = state.structured_result or {}
+        attempted = structured.get("attempted_search_task_ids") or []
+        return attempted if isinstance(attempted, list) else []
+
+    @classmethod
+    def effective_evidence_count(
+        cls,
+        state: TravelAgentState,
+        evidence: list,
+        *,
+        claim_type: str | None = None,
+    ) -> int:
+        """Count evidence that can actually support the current search need."""
+        items = [ev for ev in evidence or [] if isinstance(ev, Evidence)]
+        if not items:
+            return 0
+        need = claim_type or cls.primary_information_need(state)
+        if not need:
+            return len(items)
+        from app.orchestrator.fact_lookup_policy import (
+            focus_claim_types_for_need,
+            is_hard_fact_need,
+            is_ticket_claim_type,
+        )
+
+        if not is_hard_fact_need(need):
+            return sum(
+                1
+                for ev in items
+                if any(not is_search_miss_value(str(c.value or "")) for c in (ev.claims or []))
+            )
+
+        from app.orchestrator.search_snippet_policy import can_be_direct_answer
+
+        focus = focus_claim_types_for_need(need)
+        total = 0
+        for ev in items:
+            matched = False
+            for claim in ev.claims or []:
+                ct = claim.claim_type.value if hasattr(claim.claim_type, "value") else str(claim.claim_type)
+                if ct not in focus:
+                    continue
+                value = str(claim.value or "").strip()
+                if not value or is_search_miss_value(value):
+                    continue
+                if is_ticket_claim_type(need):
+                    from tools.ticket_price_text import has_explicit_ticket_price_signal
+
+                    if not has_explicit_ticket_price_signal(value):
+                        continue
+                if can_be_direct_answer(ev, need):
+                    matched = True
+                    break
+            if matched:
+                total += 1
+        return total
+
+    @classmethod
     def _anchor_keywords(cls, state: TravelAgentState) -> list[str]:
         contract = state.response_contract
         if contract and contract.gated_search_keywords:
@@ -92,9 +151,10 @@ class ClaimSearchPlanner:
 
     @classmethod
     def search_hits_from_evidence(cls, state: TravelAgentState) -> list[dict]:
-        from tools.official_source.url_normalizer import hits_from_evidence_list
+        from app.orchestrator.ticket_lookup_helpers import collect_official_discovery_search_results
 
-        return hits_from_evidence_list(list(state.evidence))
+        hits, _urls = collect_official_discovery_search_results(state)
+        return hits
 
     @classmethod
     def _resolve_primary_need(cls, state: TravelAgentState, raw: str | None) -> str | None:
@@ -156,6 +216,7 @@ class ClaimSearchPlanner:
         tried = sorted(cls.tried_from_traces(state))
         structured = state.structured_result or {}
         completed_ids = structured.get("completed_search_task_ids") or []
+        attempted_ids = structured.get("attempted_search_task_ids") or []
 
         from app.orchestrator.official_source_search_templates import (
             OFFICIAL_SEARCH_QUERY_TEMPLATES,
@@ -214,6 +275,7 @@ class ClaimSearchPlanner:
             "search_purpose_hint": cls.primary_information_need(state),
             "tried_search_queries": tried,
             "completed_search_task_ids": completed_ids,
+            "attempted_search_task_ids": attempted_ids,
             "keyword_search_count": cls.keyword_search_call_count(state),
             "max_keyword_searches": cls.max_search_attempts(state),
             "failed_snippets": cls.failed_snippets(state),

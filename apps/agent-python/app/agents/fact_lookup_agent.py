@@ -10,7 +10,9 @@ from app.orchestrator.lookup_research_chain import (
     ensure_lookup_chain_initialized,
     is_duplicate_lookup_attempt,
     lookup_attempt_signature,
+    next_recommended_phase,
     record_lookup_attempt,
+    source_families_for_phase,
 )
 from app.schemas.lookup_research_chain import LookupPhase, LookupQueryObjective, SourceFamily
 from app.schemas.user_query import TravelAgentState
@@ -47,6 +49,26 @@ def _objective_key(query_objectives: list[dict] | None, source_family: str) -> s
     return str(first or source_family)
 
 
+def _default_phase_and_family(
+    state: TravelAgentState,
+    *,
+    requested_phase: str | None,
+    requested_family: str | None,
+    claim_target: str,
+) -> tuple[str, str]:
+    phase = requested_phase or next_recommended_phase(state)
+    if phase in {None, "research_frame", "source_plan", "entity_anchor", "retrieval_audit"}:
+        phase = "official_ticket_page_discovery" if claim_target == "ticket_price" else "official_discovery"
+    families = source_families_for_phase(phase, claim_target)
+    if requested_family and (not families or requested_family in families):
+        family = requested_family
+    elif families:
+        family = families[0]
+    else:
+        family = "ticket_platform" if claim_target == "ticket_price" else "web_reference"
+    return str(phase), str(family)
+
+
 class FactLookupAgent:
     def __init__(self, tools_registry=None) -> None:
         self.tools = tools_registry
@@ -69,9 +91,15 @@ class FactLookupAgent:
             }
 
         ensure_lookup_chain_initialized(state)
-        lookup_phase: LookupPhase = args.get("lookup_phase") or "fact_acquisition"
-        source_family: SourceFamily = args.get("source_family") or "web_reference"
         claim_target = args.get("claim_target") or primary_fact_need_from_state(state)
+        lookup_phase_raw, source_family_raw = _default_phase_and_family(
+            state,
+            requested_phase=args.get("lookup_phase"),
+            requested_family=args.get("source_family"),
+            claim_target=claim_target,
+        )
+        lookup_phase: LookupPhase = lookup_phase_raw
+        source_family: SourceFamily = source_family_raw
         query_objectives = _normalize_query_objectives(args.get("query_objectives"))
 
         sig = lookup_attempt_signature(

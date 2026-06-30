@@ -29,6 +29,17 @@ class AnswerModeRoutingState:
         )
         contract.derived_debug_answer_mode = decision.answer_mode.value
         state.response_contract = contract
+        from app.orchestrator.claim_compiler import compile_lookup_claims
+
+        lookup_claims = compile_lookup_claims(
+            state.semantic_frame,
+            state.raw_user_query,
+            intent_profile=state.intent_profile,
+        )
+        if lookup_claims:
+            structured = dict(state.structured_result or {})
+            structured["lookup_claims"] = [lc.model_dump() for lc in lookup_claims]
+            state.structured_result = structured
 
         claim_types = ", ".join(c.claim_type for c in contract.claim_requirements) or "none"
         TraceRecorder.add(state, f"✓ 已生成 ResponseContract：{claim_types}")

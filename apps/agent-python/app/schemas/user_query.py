@@ -1,4 +1,5 @@
 from enum import Enum
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -156,6 +157,8 @@ class TravelAgentState(BaseModel):
     scores: SuitabilityScores = Field(default_factory=SuitabilityScores)
     visible_trace: list[str] = Field(default_factory=list)
     limitations: list[str] = Field(default_factory=list)
+    internal_debug_limitations: list[str] = Field(default_factory=list)
+    user_visible_limitations: list[str] = Field(default_factory=list)
     field_evidence_summary: list[dict] = Field(default_factory=list)
     citation_check_result: CitationCheckResult | None = None
     tool_traces: list[ToolTrace] = Field(default_factory=list)
@@ -174,3 +177,4 @@ class TravelAgentState(BaseModel):
     comparison_mode: bool = False
     comparison_active_place: str | None = None
     comparison_peer_places: list[str] = Field(default_factory=list)
+    agent_core_store: Any | None = Field(default=None, exclude=True)

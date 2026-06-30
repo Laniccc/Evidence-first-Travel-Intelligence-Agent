@@ -101,7 +101,8 @@ class ActionModelController:
                 "Sub-agents read agent_tool_definitions for MCP when_to_use / satisfies_needs.\n"
                 "When evidence contains place_candidates (多地同名), refine search_query with region/city "
                 "in the next keyword_search tasks — do NOT ask the user in S5.\n"
-                "Every 2 keyword_search_agent completions trigger search_task_planner refine automatically.\n"
+                "Every 2 effective keyword_search_agent completions trigger search_task_planner refine automatically; "
+                "zero/insufficient evidence attempts are attempted but not effective completions.\n"
                 "CALL_TOOL directly only when no subagent task applies (rare fallback).\n"
                 "Use user_need_residual (in planning_context) for search/tool focus — needs only, not verified facts.\n"
                 "Never output final answer text."
@@ -133,8 +134,12 @@ class ActionModelController:
                     "blocked_tools": prompt_context.get("blocked_tools", []),
                     "whitelist_policy_notes": prompt_context.get("whitelist_policy_notes", []),
                     "s5_prompt_rules": prompt_context.get("s5_prompt_rules", []),
+                    "s5_task_class": prompt_context.get("s5_task_class"),
+                    "agent_core_task_guidance": prompt_context.get("agent_core_task_guidance", []),
+                    "research_plan": prompt_context.get("research_plan"),
                     "search_tasks": self._search_tasks_from_state(state),
                     "completed_search_task_ids": self._completed_search_task_ids(state),
+                    "attempted_search_task_ids": ClaimSearchPlanner.attempted_search_task_ids(state),
                     "tool_diversity_hints": prompt_context.get("tool_diversity_hints", []),
                     "planning_context": ClaimSearchPlanner.planning_context(state),
                     "agent_tool_definitions": prompt_context.get("agent_tool_definitions", []),
@@ -450,7 +455,7 @@ class ActionModelController:
             arguments={"refine": True},
             reason_summary=(
                 "S5 每 2 次 keyword_search 后：结合 S4 关键词与子代理结果，"
-                "调整下一批 search_query / information_need"
+                "调整下一批 search_query / information_need（仅有效证据查询计入次数）"
             ),
             confidence=0.88,
         )
@@ -744,6 +749,7 @@ class ActionModelController:
         gap = gap_raw if isinstance(gap_raw, EvidenceGapRequest) else EvidenceGapRequest.model_validate(gap_raw)
         max_steps = int(prompt_context.get("gap_max_extra_steps", gap.max_extra_steps))
         called: set[str] = set(prompt_context.get("_gap_called_tools", []))
+        gap_failed: set[str] = {resolve_tool_name(t) for t in prompt_context.get("_gap_failed_tools", [])}
 
         from app.orchestrator.s5_diversified_tool_selector import S5DiversifiedToolSelector
         from app.schemas.tool_whitelist import ToolWhitelist
@@ -752,19 +758,25 @@ class ActionModelController:
         if isinstance(whitelist, dict):
             whitelist = ToolWhitelist.model_validate(whitelist)
         allowed = set(self._whitelist_names(prompt_context))
+        allowed_frozen = frozenset(allowed)
+        excluded = (
+            called
+            | gap_failed
+            | {resolve_tool_name(t) for t in (gap.failed_tools or [])}
+            | {resolve_tool_name(t) for t in (gap.already_tried_tools or [])}
+            | set(gap.forbidden_tools or [])
+        )
         selector = S5DiversifiedToolSelector(state)
         diversified = [
             t
             for t in selector.non_search_tool_queue(whitelist, claim_type=gap.claim_type)
-            if t in allowed
+            if t in allowed and t not in excluded
         ]
 
         tools = [
             resolve_tool_name(t)
             for t in [*diversified, *gap.suggested_tools]
-            if resolve_tool_name(t) not in set(gap.forbidden_tools)
-            and resolve_tool_name(t) not in set(gap.failed_tools)
-            and resolve_tool_name(t) not in set(gap.already_tried_tools)
+            if resolve_tool_name(t) not in excluded
         ]
         tools = [t for t in tools if t in allowed]
         seen_tools: list[str] = []
@@ -772,11 +784,32 @@ class ActionModelController:
             if t not in seen_tools:
                 seen_tools.append(t)
         tools = seen_tools
-        if not tools and "search_mcp" in allowed:
-            tools = ["search_mcp"]
+        if not tools:
+            from app.orchestrator.claim_gap_fill_planner import gap_tools_for_claim, order_gap_tools
+
+            pool = gap_tools_for_claim(gap.claim_type)
+            tools = [resolve_tool_name(t) for t in pool if resolve_tool_name(t) in allowed and resolve_tool_name(t) not in excluded]
+            if not tools and "search_mcp" in allowed and "search_mcp" not in excluded:
+                tools = ["search_mcp"]
+        from app.orchestrator.fact_lookup_policy import is_ticket_claim_type
+
+        if is_ticket_claim_type(gap.claim_type) or gap.claim_type == "opening_hours":
+            from app.orchestrator.claim_gap_fill_planner import order_gap_tools
+
+            tools = order_gap_tools(
+                state,
+                tools,
+                claim_type=gap.claim_type,
+                allowed=allowed_frozen,
+            )
+        from app.orchestrator.claim_tool_policy import filter_allowed_tools
+
+        tools = filter_allowed_tools(tools, [gap.claim_type])
+        tools = [t for t in tools if t in allowed and t not in excluded]
         tools = [t for t in tools if t not in called]
 
-        if step < len(tools) and step < max_steps:
+        tool_budget = min(len(tools), max_steps)
+        if step < tool_budget:
             tool = tools[step]
             called.add(tool)
             prompt_context["_gap_called_tools"] = list(called)
@@ -788,8 +821,9 @@ class ActionModelController:
             )
 
         templates = list(gap.query_templates or [])
-        search_idx = step - min(len(tools), max_steps)
-        if search_idx >= 0 and search_idx < len(templates) and step < max_steps + len(templates):
+        search_idx = step - tool_budget
+        search_budget = max(0, max_steps - tool_budget)
+        if search_idx >= 0 and search_idx < min(len(templates), search_budget):
             query = templates[search_idx]
             task_id = f"gap-{gap.gap_id[:8]}-{search_idx}"
             anchor_keywords: list[str] = []
@@ -922,11 +956,12 @@ class ActionModelController:
         if ClaimSearchPlanner.keyword_search_call_count(state) >= ClaimSearchPlanner.max_search_attempts(state):
             return None
         completed = set(self._completed_search_task_ids(state))
+        attempted = set(ClaimSearchPlanner.attempted_search_task_ids(state))
         for task in self._search_tasks_from_state(state):
             if not isinstance(task, dict):
                 continue
             task_id = task.get("task_id")
-            if task_id and task_id in completed:
+            if task_id and (task_id in completed or task_id in attempted):
                 continue
             return task
         return None
@@ -1216,7 +1251,13 @@ class ActionModelController:
             if need:
                 args["claim_type"] = need
                 args["information_need"] = need
-            args["search_results"] = ClaimSearchPlanner.search_hits_from_evidence(state)
+            from app.orchestrator.ticket_lookup_helpers import collect_official_discovery_search_results
+
+            hits, urls = collect_official_discovery_search_results(state)
+            if hits:
+                args["search_results"] = hits
+            if urls:
+                args["urls"] = urls
             args["probe_top_n"] = 1
             from tools.official_source.whitelist_resolver import resolve_official_whitelist_url
 

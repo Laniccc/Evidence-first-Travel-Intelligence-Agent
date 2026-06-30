@@ -138,4 +138,20 @@ def test_fact_s5_planning_context_includes_chain():
     state = _terracotta_state()
     ctx = fact_s5_planning_context(state)
     assert ctx["lookup_research_chain"]
-    assert ctx["s5_task_class"] == "strict_fact_lookup"
+    assert ctx["s5_task_class"] == "ticket_price_lookup"
+
+
+def test_fact_lookup_agent_defaults_to_ticket_phase():
+    from app.agents.fact_lookup_agent import _default_phase_and_family
+    from app.orchestrator.lookup_research_chain import ensure_lookup_chain_initialized
+
+    state = _terracotta_state()
+    ensure_lookup_chain_initialized(state)
+    phase, family = _default_phase_and_family(
+        state,
+        requested_phase=None,
+        requested_family=None,
+        claim_target="ticket_price",
+    )
+    assert phase in {"official_site_discovery", "official_ticket_page_discovery"}
+    assert family in {"official_operator", "government_tourism"}

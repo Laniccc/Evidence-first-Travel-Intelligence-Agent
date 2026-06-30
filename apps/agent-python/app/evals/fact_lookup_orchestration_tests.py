@@ -141,6 +141,47 @@ def test_fact_lookup_guided_draft_with_ticket_evidence():
     assert "无法确认" not in text
 
 
+def test_fact_lookup_guided_draft_prioritizes_platform_ticket_candidate():
+    state = _terracotta_state()
+    state.evidence = [
+        Evidence(
+            evidence_id="ev-fliggy",
+            source_name="Fliggy Open API",
+            source_type=SourceType.TICKET_PLATFORM,
+            source_url="https://a.feizhu.com/1HPCRe",
+            country="China",
+            city="南京",
+            place_name="栖霞山",
+            claims=[
+                Claim(
+                    claim_type=ClaimType.TICKET_PRICE_CANDIDATE,
+                    value="¥48",
+                    confidence=0.62,
+                ),
+                Claim(
+                    claim_type=ClaimType.TICKET_TYPE,
+                    value="大门票（当日可订） 成人票",
+                    confidence=0.55,
+                ),
+                Claim(
+                    claim_type=ClaimType.PLATFORM_TICKET_URL,
+                    value="https://a.feizhu.com/1HPCRe",
+                    confidence=0.55,
+                ),
+            ],
+            confidence=0.62,
+        )
+    ]
+
+    draft = build_fact_lookup_draft(state)
+    text = draft.render_text()
+
+    assert "48" in text
+    assert "大门票" in text
+    assert "平台候选价" in text
+    assert "官方页面价格" in text
+
+
 def test_fact_lookup_guided_draft_without_evidence():
     state = _terracotta_state()
     draft = build_fact_lookup_draft(state)

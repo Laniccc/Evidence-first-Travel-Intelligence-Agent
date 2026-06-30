@@ -19,12 +19,21 @@ notepad .env
 
 ## 启动
 
+推荐从仓库根目录启动，脚本会自动设置 `PYTHONPATH`、执行轻量 compile 检查，并按需启动 MCP 搜索栈：
+
 ```powershell
 conda activate ClaudeAgent
-cd apps/agent-python
-$env:PYTHONPATH = (Get-Location).Path
-python -m compileall app
-python -m uvicorn app.main:app --host 127.0.0.1 --port 8001
+# 回到仓库根目录后执行
+.\scripts\start-agent.ps1
+```
+
+常用参数：
+
+```powershell
+.\scripts\start-agent.ps1 -NoMcp
+.\scripts\start-agent.ps1 -AllowMcpFailure
+.\scripts\start-agent.ps1 -Port 8002
+.\scripts\start-agent.ps1 -NoReload -SkipCompileCheck
 ```
 
 > 默认 **8001**。根路径 `/` 无页面，请用 `/agent/health`。
@@ -86,11 +95,11 @@ curl.exe -s -X POST http://127.0.0.1:8001/agent/query `
 
 本地没有 Java/Maven 时，**只启动本服务**即可验证 Agent 核心：
 
-1. 按上文启动 agent-python（8001）
+1. 在仓库根目录执行 `.\scripts\start-agent.ps1`
 2. 浏览器打开 `http://127.0.0.1:8001/agent/health`
 3. 用上面 `Invoke-RestMethod` 或 `curl` 调 `/agent/query`
 
-若要 **网页界面** 且暂时没有 api-java，见 [`apps/web/README.md` — 临时绕过 api-java](../web/README.md#临时绕过-api-java无-maven)（改 Vite 代理后 `npm run dev`）。
+若要 **网页界面**，仓库根目录执行 `.\scripts\start-agent.ps1` 会默认启动 Web 并直连 agent-python；完整 Gateway 链路见 [`apps/web/README.md`](../web/README.md)。
 
 完整三件套（含 Java Gateway）需安装 Maven 后在 `apps/api-java` 执行 `mvn spring-boot:run`。
 
@@ -112,5 +121,5 @@ python -m pytest tests/test_s5_whitelist.py -v
 
 ## 说明
 
-- **无前端页面**；正常链路为 `web → api-java → agent-python`。
+- **无内置前端页面**；本地 Web 默认链路为 `web → agent-python`，完整 Gateway 链路为 `web → api-java → agent-python`。
 - 调试日志：每次 `/agent/query` 后写入 `debug_last_session.md`（覆盖）。

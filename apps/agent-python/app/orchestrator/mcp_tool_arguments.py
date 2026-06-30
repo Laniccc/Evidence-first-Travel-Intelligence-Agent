@@ -14,6 +14,7 @@ from app.orchestrator.nearby_recommendation_policy import BAIDU_TAG_BY_NEED, bai
 from app.schemas.user_query import TravelAgentState
 from app.tools.tool_name_resolver import is_mcp_policy_tool
 from tools.ticketing.provider_config import is_ticket_provider_tool
+import re
 
 
 def _is_valid_baidu_uid(uid: str | None) -> bool:
@@ -26,6 +27,89 @@ def _is_ticket_price_lookup(state: TravelAgentState) -> bool:
     from app.orchestrator.fact_lookup_policy import is_fact_lookup_task, primary_fact_need_from_state
 
     return is_fact_lookup_task(state) and primary_fact_need_from_state(state) == "ticket_price"
+
+
+def _enrich_official_page_reader_arguments(args: dict, state: TravelAgentState) -> None:
+    from app.orchestrator.fact_lookup_policy import primary_fact_need_from_state
+    from app.orchestrator.official_candidate_bridge import (
+        best_official_url,
+        collect_readable_urls_for_claim,
+    )
+    from tools.official_source.url_normalizer import is_official_reader_url
+
+    need = str(args.get("information_need") or primary_fact_need_from_state(state) or "").strip()
+    ticket_needs = {
+        "ticket_price",
+        "entrance_ticket_price",
+        "boat_ticket_price",
+        "shuttle_bus_ticket_price",
+        "cable_car_ticket_price",
+        "opening_hours",
+        "reservation_policy",
+        "temporary_closure",
+    }
+    if need in ticket_needs:
+        args["information_need"] = need
+        args.setdefault("max_follow_urls", 5)
+
+    readable_urls = collect_readable_urls_for_claim(state, need or None)
+    best = best_official_url(state, need or None)
+    if best:
+        args.setdefault("url", best)
+    if readable_urls:
+        filtered = [u for u in readable_urls if is_official_reader_url(u)]
+        if filtered:
+            args.setdefault("urls", filtered[:5])
+            if not args.get("url"):
+                args.setdefault("url", filtered[0])
+
+
+def _apply_coordinate_defaults(args: dict, state: TravelAgentState) -> None:
+    from tools.mcp.adapters.baidu_response_parser import resolve_coordinates_from_evidence
+
+    coords = resolve_coordinates_from_evidence(
+        list(state.evidence),
+        structured_result=state.structured_result,
+    )
+    if coords:
+        args.setdefault("latitude", coords["latitude"])
+        args.setdefault("longitude", coords["longitude"])
+
+
+def _route_endpoints_from_text(text: str) -> tuple[str | None, str | None]:
+    """Parse common Chinese route phrasing: 从A到B..."""
+    raw = str(text or "").strip()
+    if not raw:
+        return None, None
+    match = re.search(
+        r"从(?P<origin>.+?)到(?P<dest>.+?)(?:坐|打|开|怎么|大概|大约|多久|多长|路线|$)",
+        raw,
+    )
+    if not match:
+        return None, None
+    origin = re.sub(r"[，,。?？!！\s]+$", "", match.group("origin")).strip()
+    dest = re.sub(r"[，,。?？!！\s]+$", "", match.group("dest")).strip()
+    return (origin or None), (dest or None)
+
+
+def mcp_tool_invocation_ready(
+    tool_name: str,
+    arguments: dict,
+    *,
+    state: TravelAgentState,
+    prompt_context: dict | None = None,
+) -> bool:
+    """True when enrich + validation would succeed for this tool/state."""
+    try:
+        enrich_mcp_tool_arguments(
+            tool_name,
+            dict(arguments),
+            state=state,
+            prompt_context=prompt_context,
+        )
+        return True
+    except ValueError:
+        return False
 
 
 def enrich_mcp_tool_arguments(
@@ -93,30 +177,38 @@ def enrich_mcp_tool_arguments(
         product_ctx = ensure_ticket_product_context(state)
         if product_ctx:
             args.setdefault("ticket_product", product_ctx.get("ticket_product"))
-            kws = ticket_product_keywords(state)
-            if kws:
-                args.setdefault("ticket_product_keywords", kws)
-                args.setdefault("product_keywords", kws)
-                place = args.get("place_name") or resolved_place_label(state)
-                if place:
-                    args.setdefault("normalized_place", place)
-                aliases = list(dict.fromkeys([*(args.get("aliases") or []), *kws]))
-                args["aliases"] = aliases[:12]
-                product_query = " ".join(kws[:4])
+            from app.orchestrator.ticket_product_policy import (
+                place_aliases_for_ticket,
+                product_keywords_for_ticket,
+            )
+
+            place_aliases = place_aliases_for_ticket(state)
+            product_kws = product_keywords_for_ticket(state)
+            if product_kws:
+                args["product_keywords"] = product_kws
+                args["ticket_product_keywords"] = product_kws
+            if place_aliases:
+                args["place_aliases"] = place_aliases
+                args["aliases"] = place_aliases[:12]
+            place = args.get("place_name") or resolved_place_label(state)
+            if place:
+                args.setdefault("normalized_place", place)
+            if product_kws:
+                product_query = " ".join(product_kws[:4])
                 if product_query and product_query not in (args.get("query") or ""):
                     args["query"] = f"{args.get('query') or state.raw_user_query} {product_query}".strip()
         from app.orchestrator.ticket_lookup_helpers import build_ticket_place_aliases
         from app.orchestrator.fact_lookup_anchor_policy import resolved_place_label
 
-        aliases = build_ticket_place_aliases(state)
-        if aliases:
-            args.setdefault("aliases", aliases)
+        if not args.get("aliases"):
+            aliases = build_ticket_place_aliases(state)
+            if aliases:
+                args.setdefault("aliases", aliases)
 
     if tool_name == "official_source_discovery_mcp":
-        from app.orchestrator.ticket_lookup_helpers import collect_ticket_search_hits, collect_ticket_search_urls
+        from app.orchestrator.ticket_lookup_helpers import collect_official_discovery_search_results
 
-        hits = collect_ticket_search_hits(state)
-        urls = collect_ticket_search_urls(state)
+        hits, urls = collect_official_discovery_search_results(state)
         if hits:
             args.setdefault("search_results", hits)
         if urls:
@@ -159,6 +251,14 @@ def enrich_mcp_tool_arguments(
         if state.evidence:
             args.setdefault("prior_evidence", list(state.evidence))
 
+    if tool_name == "search_mcp":
+        from tools.mcp.adapters.search_mcp_adapter import SearchMCPAdapter
+
+        limit = SearchMCPAdapter.resolve_search_limit(args)
+        args["limit"] = limit
+        args.setdefault("top_k", limit)
+        args.setdefault("max_results", limit)
+
     if tool_name in {"weather", "seasonality", "lodging"} or tool_name in {
         "openmeteo_mcp",
         "weather_mcp",
@@ -173,13 +273,7 @@ def enrich_mcp_tool_arguments(
             args["travel_date"] = goal.travel_date
         from tools.mcp.adapters.baidu_response_parser import resolve_coordinates_from_evidence
 
-        coords = resolve_coordinates_from_evidence(
-            list(state.evidence),
-            structured_result=state.structured_result,
-        )
-        if coords:
-            args.setdefault("latitude", coords["latitude"])
-            args.setdefault("longitude", coords["longitude"])
+        _apply_coordinate_defaults(args, state)
 
     if tool_name == "knowledge_prior":
         args.setdefault("raw_query", state.raw_user_query)
@@ -192,6 +286,13 @@ def enrich_mcp_tool_arguments(
         args.setdefault("city", city)
         args.setdefault("country", country)
         args.setdefault("need_types", ["crowd_level"])
+
+    if tool_name == "baidu_traffic_mcp":
+        args.setdefault("model", "road")
+        if not args.get("road_name") and not args.get("road"):
+            text = state.raw_user_query or ""
+            if re.search(r"路况|拥堵|堵|道路|公路|高速", text):
+                args.setdefault("road_name", args.get("query") or text)
 
     if is_mcp_policy_tool(tool_name):
         if "query" not in args:
@@ -208,15 +309,15 @@ def enrich_mcp_tool_arguments(
                 args.setdefault("allowed_domains", domains)
             if state.evidence and "url" not in args and "source_url" not in args:
                 args.setdefault("prior_evidence", list(state.evidence))
-            from app.orchestrator.ticket_lookup_helpers import collect_ticket_search_urls
+            if tool_name == "official_page_reader_mcp":
+                _enrich_official_page_reader_arguments(args, state)
+            elif tool_name == "browser_mcp":
+                from app.orchestrator.official_candidate_bridge import collect_readable_urls_for_claim
 
-            ticket_urls = collect_ticket_search_urls(state)
-            if ticket_urls and tool_name == "official_page_reader_mcp":
-                args.setdefault("urls", ticket_urls[:5])
-                args.setdefault("url", ticket_urls[0])
-            if tool_name == "official_page_reader_mcp" and _is_ticket_price_lookup(state):
-                args["information_need"] = "ticket_price"
-                args.setdefault("max_follow_urls", 5)
+                readable_urls = collect_readable_urls_for_claim(state)
+                if readable_urls:
+                    args.setdefault("urls", readable_urls[:5])
+                    args.setdefault("url", readable_urls[0])
             if tool_name == "baidu_place_detail_mcp" and "uid" not in args:
                 from tools.mcp.adapters.baidu_response_parser import pick_baidu_uid_from_evidence
 
@@ -236,6 +337,8 @@ def enrich_mcp_tool_arguments(
             _enrich_route_arguments(args, state, place_name=place_name, tool_name=tool_name)
         if tool_name == "baidu_ip_location_mcp":
             args["location_sensitive"] = True
+        if tool_name == "baidu_reverse_geocode_mcp":
+            _apply_coordinate_defaults(args, state)
 
     _validate_mcp_tool_arguments(tool_name, args, state=state)
     return args
@@ -243,12 +346,20 @@ def enrich_mcp_tool_arguments(
 
 def _validate_mcp_tool_arguments(tool_name: str, args: dict, *, state: TravelAgentState) -> None:
     """Raise ValueError when required args cannot be satisfied (post-enrichment)."""
-    from app.orchestrator.ticket_lookup_helpers import collect_ticket_search_urls, has_ticket_url_inputs
-
+    if tool_name == "baidu_route_matrix_mcp":
+        origin, dest = _route_endpoints_from_text(state.raw_user_query)
+        if origin and dest:
+            raise ValueError("baidu_route_matrix_mcp skipped for one-to-one route; use baidu_route_mcp")
+    if tool_name == "baidu_traffic_mcp":
+        text = state.raw_user_query or ""
+        if not (args.get("road_name") or args.get("road")):
+            raise ValueError("baidu_traffic_mcp requires a road_name or explicit traffic query")
+        if not re.search(r"路况|拥堵|堵|道路|公路|高速", text):
+            raise ValueError("baidu_traffic_mcp skipped when user did not ask traffic status")
     if tool_name == "official_source_discovery_mcp":
         urls = list(args.get("urls") or [])
         hits = list(args.get("search_results") or [])
-        if not urls and not hits and not has_ticket_url_inputs(state):
+        if not urls and not hits:
             raise ValueError(
                 "official_source_discovery_mcp requires urls or search_results; skip when none available"
             )
@@ -261,8 +372,19 @@ def _validate_mcp_tool_arguments(tool_name: str, args: dict, *, state: TravelAge
             args.pop("uid", None)
     if tool_name in {"official_page_reader_mcp", "browser_mcp"}:
         url = str(args.get("url") or args.get("source_url") or "").strip()
-        urls = args.get("urls") or []
-        if not url and not urls and not collect_ticket_search_urls(state):
+        urls = [str(u).strip() for u in (args.get("urls") or []) if str(u).strip()]
+        if tool_name == "official_page_reader_mcp":
+            from tools.official_source.url_normalizer import is_official_reader_url
+
+            urls = [u for u in urls if is_official_reader_url(u)]
+            if url and not is_official_reader_url(url):
+                url = ""
+                args.pop("url", None)
+                args.pop("source_url", None)
+            if urls:
+                args["urls"] = urls
+                args.setdefault("url", urls[0])
+        if not url and not urls:
             raise ValueError(f"{tool_name} requires a readable url")
 
 
@@ -342,9 +464,11 @@ def _enrich_route_arguments(
 
     frame = state.semantic_frame
     goal = state.user_goal
+    parsed_origin, parsed_dest = _route_endpoints_from_text(state.raw_user_query)
     dest = (
         args.get("destination")
         or args.get("to")
+        or parsed_dest
         or place_name
         or (frame.entities.places[0] if frame and frame.entities and frame.entities.places else None)
     )
@@ -352,6 +476,8 @@ def _enrich_route_arguments(
         args.setdefault("destination", dest)
         args.setdefault("place_name", dest)
     origin = args.get("origin") or args.get("from")
+    if not origin:
+        origin = parsed_origin
     if not origin:
         origin = goal.start_location if goal and goal.start_location else None
     if not origin and frame and is_day_trip_query(frame):
@@ -363,5 +489,11 @@ def _enrich_route_arguments(
     if origin:
         args.setdefault("origin", origin)
     if tool_name == "baidu_route_matrix_mcp":
-        args.setdefault("origins", origin)
-        args.setdefault("destinations", dest)
+        if origin:
+            args.setdefault("origins", origin)
+        if dest:
+            args.setdefault("destinations", dest)
+    if re.search(r"地铁|公交|换乘", state.raw_user_query or ""):
+        args.setdefault("mode", "transit")
+    elif re.search(r"打车|出租车|网约车|开车|驾车", state.raw_user_query or ""):
+        args.setdefault("mode", "driving")

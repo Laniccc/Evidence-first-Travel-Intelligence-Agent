@@ -256,9 +256,27 @@ def normalize_fliggy_ticket_payload(
                     confidence=_clamp(float(item.get("confidence", 0.55)), 0.45, 0.70),
                 )
             )
-        if item.get("ticket_type"):
+        ticket_title = str(item.get("ticket_title") or "").strip()
+        ticket_name = str(item.get("ticket_name") or "").strip()
+        ticket_type = str(item.get("ticket_type") or "").strip()
+        if ticket_title:
             claims.append(
-                Claim(claim_type=ClaimType.TICKET_TYPE, value=str(item["ticket_type"]), confidence=0.55)
+                Claim(
+                    claim_type=ClaimType.ACTIVITY_PRICE,
+                    value=ticket_title,
+                    normalized_value={
+                        "ticket_title": ticket_title,
+                        "ticket_name": ticket_name or ticket_type,
+                    },
+                    confidence=0.58,
+                )
+            )
+        if ticket_type or ticket_name:
+            display_type = ticket_type or ticket_name
+            if ticket_title and ticket_name and ticket_name not in ticket_title:
+                display_type = f"{ticket_title} - {ticket_name}"
+            claims.append(
+                Claim(claim_type=ClaimType.TICKET_TYPE, value=display_type, confidence=0.55)
             )
         if item.get("sales_status"):
             claims.append(
@@ -285,9 +303,15 @@ def normalize_fliggy_ticket_payload(
         claims.append(Claim(claim_type=ClaimType.TRAVEL_ADVICE, value=f"captured_at:{captured}", confidence=0.4))
         if not claims:
             continue
+        source = str(item.get("source") or "").lower()
+        source_name = "Fliggy Open API"
+        if "flyai" in source:
+            source_name = "Fliggy FlyAI"
+        elif "subprocess" in source or "crawler" in source:
+            source_name = "Fliggy Crawler"
         evidence_list.append(
             Evidence(
-                source_name="Fliggy Open API",
+                source_name=source_name,
                 source_type=SourceType.TICKET_PLATFORM,
                 source_url=url,
                 country=country,

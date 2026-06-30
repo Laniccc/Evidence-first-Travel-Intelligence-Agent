@@ -5,9 +5,7 @@
 ## 快速入口
 
 ```powershell
-cd apps/agent-python
-$env:PYTHONPATH = (Get-Location).Path
-python -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8001
+.\scripts\start-agent.ps1
 ```
 
 详见 [RUNBOOK.md](RUNBOOK.md)、[README.md](README.md)、[REPO_MAP.md](REPO_MAP.md)。

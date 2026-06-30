@@ -26,6 +26,118 @@ _DOMAIN_IN_TEXT_RE = re.compile(
     re.I,
 )
 
+_BLOCKED_READER_DOMAINS = frozenset(
+    {
+        "lbsyun.baidu.com",
+        "api.map.baidu.com",
+        "map.baidu.com",
+        "lbs.baidu.com",
+        "apis.map.qq.com",
+        "map.qq.com",
+        "qixin.com",
+        "www.qixin.com",
+    }
+)
+
+_THIRD_PARTY_PLATFORM_DOMAINS = frozenset(
+    {
+        "ly.com",
+        "17u.cn",
+        "elong.com",
+        "lvmama.com",
+        "ctrip.com",
+        "trip.com",
+        "fliggy.com",
+        "alitrip.com",
+        "dianping.com",
+        "meituan.com",
+        "qunar.com",
+        "tuniu.com",
+        "mafengwo.cn",
+        "tripadvisor.com",
+        "booking.com",
+    }
+)
+
+_BLOCKED_READER_PATH_HINTS = (
+    "/index.php?title=open/",
+    "/open/poitags",
+    "/faq/api",
+)
+
+
+def is_snippet_pseudo_url(url: str) -> bool:
+    """Detect URLs that are not real page targets (snippet extraction noise)."""
+    candidate = str(url or "").strip()
+    if not candidate:
+        return True
+    if not candidate.lower().startswith("http"):
+        return True
+    if is_redirect_wrapper_url(candidate):
+        return True
+    try:
+        parsed = urlparse(candidate)
+    except Exception:
+        return True
+    host = (parsed.netloc or "").lower()
+    if not host or "." not in host:
+        return True
+    path = (parsed.path or "").strip()
+    # Root-only homepages on official-style TLDs are valid reader entry points.
+    if path in {"", "/"}:
+        official_tlds = (".gov.cn", ".org.cn", ".museum", ".com.cn")
+        if any(host.endswith(tld) for tld in official_tlds):
+            return False
+        return True
+    if re.search(r"[\u4e00-\u9fff]", candidate):
+        return True
+    return False
+
+
+def is_blocked_reader_url(url: str) -> bool:
+    lower = str(url or "").lower().strip()
+    if not lower:
+        return True
+    domain = extract_domain(lower)
+    if domain in _BLOCKED_READER_DOMAINS:
+        return True
+    if domain.endswith(".lbsyun.baidu.com"):
+        return True
+    return any(hint in lower for hint in _BLOCKED_READER_PATH_HINTS)
+
+
+def is_third_party_platform_url(url: str) -> bool:
+    """True for OTA/review/company pages that are not scenic official pages."""
+    domain = extract_domain(str(url or "").lower().strip())
+    if not domain:
+        return False
+    return any(domain == d or domain.endswith("." + d) for d in _THIRD_PARTY_PLATFORM_DOMAINS)
+
+
+def is_readable_page_url(url: str) -> bool:
+    """True when URL is safe to pass to official_page_reader_mcp / browser_mcp."""
+    if not is_fetchable_url(url):
+        return False
+    if is_snippet_pseudo_url(url):
+        return False
+    if is_blocked_reader_url(url):
+        return False
+    return True
+
+
+def is_official_reader_url(url: str) -> bool:
+    """True when URL is suitable for official_page_reader_mcp."""
+    return is_readable_page_url(url) and not is_third_party_platform_url(url)
+
+
+def filter_readable_page_urls(urls: list[str]) -> list[str]:
+    out: list[str] = []
+    for url in urls or []:
+        u = str(url or "").strip()
+        if u and is_readable_page_url(u) and u not in out:
+            out.append(u)
+    return out
+
 
 def extract_domain(url: str) -> str:
     try:
@@ -185,6 +297,55 @@ def hits_from_evidence_list(evidence_list: list) -> list[dict]:
             continue
         hits.append({"url": url, "title": title, "snippet": snippet})
     return dedupe_hits(hits)
+
+
+def resolve_redirect_url(
+    url: str,
+    *,
+    snippet: str | None = None,
+    title: str | None = None,
+) -> str:
+    """Pick a fetchable destination URL, unwrapping search-engine redirect links."""
+    candidate = str(url or "").strip()
+    if candidate and not is_redirect_wrapper_url(candidate) and is_fetchable_url(candidate):
+        return candidate
+    for text in (snippet, title):
+        if not text:
+            continue
+        for extracted in extract_urls_from_text(text):
+            if is_fetchable_url(extracted) and not is_redirect_wrapper_url(extracted):
+                return extracted
+    return candidate if candidate and is_fetchable_url(candidate) else ""
+
+
+def clean_search_hit_for_official_chain(hit: dict) -> dict | None:
+    normalized = normalize_search_hit(hit) if not hit.get("_normalized") else dict(hit)
+    if not normalized:
+        return None
+    resolved = resolve_redirect_url(
+        str(normalized.get("url") or ""),
+        snippet=normalized.get("snippet"),
+        title=normalized.get("title"),
+    )
+    if resolved and is_readable_page_url(resolved):
+        normalized["url"] = resolved
+    elif is_redirect_wrapper_url(str(normalized.get("url") or "")):
+        normalized["url"] = ""
+    elif resolved and not is_readable_page_url(resolved):
+        normalized["url"] = ""
+    if not normalized.get("url") and not normalized.get("title") and not normalized.get("snippet"):
+        return None
+    return normalized
+
+
+def clean_search_hits_for_official_chain(hits: list[dict]) -> list[dict]:
+    """Normalize, unwrap redirect URLs, and dedupe before official discovery / page read."""
+    cleaned: list[dict] = []
+    for hit in hits or []:
+        row = clean_search_hit_for_official_chain(hit)
+        if row:
+            cleaned.append(row)
+    return dedupe_hits(cleaned)
 
 
 def place_name_in_text(place_name: str, *texts: str | None) -> bool:

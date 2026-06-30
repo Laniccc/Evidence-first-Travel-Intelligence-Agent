@@ -30,7 +30,15 @@ class OfficialPageFetchAdapter(BaseTravelTool):
         if not self.is_available():
             raise RuntimeError(self._client.server_block_reason("search"))
 
+        from tools.official_source.url_normalizer import is_official_reader_url
+
         url = (kwargs.get("url") or kwargs.get("source_url") or "").strip()
+        if not url:
+            for candidate in kwargs.get("urls") or []:
+                candidate_url = str(candidate or "").strip()
+                if candidate_url and is_official_reader_url(candidate_url):
+                    url = candidate_url
+                    break
         if not url:
             prior = kwargs.get("prior_evidence") or kwargs.get("evidence") or []
             if isinstance(prior, list):
@@ -66,11 +74,16 @@ class OfficialPageFetchAdapter(BaseTravelTool):
                                 if not isinstance(hit, dict):
                                     continue
                                 candidate = str(hit.get("url") or hit.get("link") or "").strip()
-                                if candidate:
+                                if candidate and is_official_reader_url(candidate):
                                     url = candidate
                                     break
         if not url:
             raise ValueError("official_page_reader_mcp requires url (from search_mcp or kwargs)")
+        if not is_official_reader_url(url):
+            raise ValueError(
+                "official_page_reader_mcp requires an official/government/operator URL; "
+                f"got third-party or non-official URL: {url}"
+            )
 
         information_need = kwargs.get("information_need") or kwargs.get("need_type")
         place_name = kwargs.get("place_name")
@@ -136,7 +149,11 @@ class OfficialPageFetchAdapter(BaseTravelTool):
             max_chars=250_000,
         )
         if not result.ok:
-            raise RuntimeError(result.error or "fetch-web failed")
+            try:
+                return await self._fetch_page_text_direct(url)
+            except Exception as exc:
+                fetch_error = result.error or "fetch-web failed"
+                raise RuntimeError(f"{fetch_error}; direct fetch failed: {exc}") from exc
         text = text_from_mcp_payload(result.data)
         if isinstance(result.data, dict) and result.data.get("truncated"):
             text = await self._fetch_page_text_direct(url)

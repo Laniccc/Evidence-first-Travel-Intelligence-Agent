@@ -58,5 +58,19 @@
     "resolution_source": "local_cache",
     "coordinates": null,
     "metadata": {}
+  },
+  "札幌|札幌|日本": {
+    "mention": "札幌",
+    "canonical_name": "札幌",
+    "country": "日本",
+    "city": "札幌",
+    "region": null,
+    "place_type": "city",
+    "confidence": 0.72,
+    "resolution_source": "local_cache",
+    "coordinates": null,
+    "metadata": {
+      "stub": true
+    }
   }
 }

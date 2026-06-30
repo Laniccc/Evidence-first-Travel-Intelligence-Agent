@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from app.orchestrator.fact_lookup_policy import is_ticket_claim_type
 from app.orchestrator.fact_lookup_anchor_policy import raw_place_label, resolved_place_label
 from app.orchestrator.fact_lookup_policy import fact_need_label, is_geographic_fact_need
 from app.orchestrator.lookup_research_chain import ensure_lookup_chain_initialized, get_lookup_chain
@@ -31,11 +32,62 @@ def _must_include_for_need(need: str) -> list[str]:
 
 
 def _avoid_for_need(need: str) -> list[str]:
-    if need == "ticket_price":
+    if is_ticket_claim_type(need) or need == "ticket_price":
         return ["攻略软文", "未经核实的二手转述"]
     if need == "elevation":
         return ["攻略软文中的未经核实数值"]
     return ["model prior", "knowledge_prior"]
+
+
+def _ticket_multi_query_objectives(
+    state: TravelAgentState,
+    need: str,
+    source_family: SourceFamily,
+    *,
+    anchors: list[str],
+    label: str,
+    must: list[str],
+    avoid: list[str],
+    max_objectives: int,
+) -> list[LookupQueryObjective]:
+    from app.orchestrator.ticket_price_query_ladder import build_ticket_price_escalation_queries
+    from app.orchestrator.ticket_product_policy import ensure_ticket_product_context, ticket_product_keywords
+
+    ensure_ticket_product_context(state)
+    place = resolved_place_label(state) or (anchors[0] if anchors else "")
+    product_kws = ticket_product_keywords(state)
+    tier_by_family = {
+        "official_operator": {"official", "announcement"},
+        "ticket_platform": {"ticket_platform"},
+        "government_tourism": {"official", "announcement"},
+        "web_reference": {"scenic_alias", "ticket_office", "announcement", "official"},
+    }
+    allowed_tiers = tier_by_family.get(source_family, {"official", "ticket_platform", "scenic_alias"})
+    pairs = [
+        (tier, q)
+        for tier, q in build_ticket_price_escalation_queries(state, max_queries=max_objectives * 3)
+        if tier in allowed_tiers
+    ]
+    prefix = {
+        "ticket_platform": "platform",
+        "official_operator": "official",
+        "government_tourism": "gov",
+        "web_reference": "web",
+    }.get(source_family, "ticket")
+    objectives: list[LookupQueryObjective] = []
+    for tier, q in pairs:
+        objectives.append(
+            LookupQueryObjective(
+                objective=f"{prefix}_{tier}_{need}_{abs(hash(q)) % 10_000}",
+                source_family=source_family,
+                query_intent=f"检索{place}{label}（{tier}/{source_family}）",
+                anchor_terms=[place] if place else anchors[:2],
+                must_include=product_kws[:4] or must,
+                avoid_as_final=avoid,
+                search_query=q,
+            )
+        )
+    return objectives[:max_objectives]
 
 
 def build_lookup_query_objectives(
@@ -52,30 +104,28 @@ def build_lookup_query_objectives(
     avoid = _avoid_for_need(need)
     objectives: list[LookupQueryObjective] = []
 
-    if source_family == "ticket_platform" or (need == "ticket_price" and source_family == "ticket_platform"):
-        from app.orchestrator.ticket_product_policy import (
-            build_ticket_price_search_queries,
-            ensure_ticket_product_context,
-            ticket_product_keywords,
+    if is_ticket_claim_type(need) and source_family in {
+        "ticket_platform",
+        "official_operator",
+        "government_tourism",
+        "web_reference",
+    }:
+        ticket_objs = _ticket_multi_query_objectives(
+            state,
+            need,
+            source_family,
+            anchors=anchors,
+            label=label,
+            must=must,
+            avoid=avoid,
+            max_objectives=max_objectives,
         )
-
-        ensure_ticket_product_context(state)
-        place = resolved_place_label(state) or (anchors[0] if anchors else "")
-        product_kws = ticket_product_keywords(state)
-        for q in build_ticket_price_search_queries(state):
-            objectives.append(
-                LookupQueryObjective(
-                    objective=f"platform_{need}_{q[:24]}",
-                    source_family="ticket_platform",
-                    query_intent=f"检索{place}{label}平台候选",
-                    anchor_terms=[place] if place else anchors[:2],
-                    must_include=product_kws[:4] or [label, "票价"],
-                    avoid_as_final=avoid,
-                    search_query=q,
-                )
-            )
-        if objectives:
-            return objectives[:max_objectives]
+        if ticket_objs:
+            chain = get_lookup_chain(state)
+            if chain.query_objectives:
+                existing = {o.signature() for o in chain.query_objectives}
+                ticket_objs = [o for o in ticket_objs if o.signature() not in existing]
+            return ticket_objs[:max_objectives]
 
     if source_family == "official_operator":
         objectives.append(
@@ -97,17 +147,6 @@ def build_lookup_query_objectives(
                 anchor_terms=anchors,
                 must_include=must,
                 avoid_as_final=avoid,
-            )
-        )
-    elif source_family == "ticket_platform":
-        objectives.append(
-            LookupQueryObjective(
-                objective=f"platform_{need}",
-                source_family=source_family,
-                query_intent=f"查找授权票务平台的{label}候选信号",
-                anchor_terms=anchors,
-                must_include=[label],
-                avoid_as_final=["作为官方终证"],
             )
         )
     elif source_family == "geo_authority":

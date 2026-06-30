@@ -76,6 +76,9 @@ class EvidenceEvaluator:
                 fact_decomposition=fact_decomposition,
                 intent_strategy=state.intent_strategy,
             )
+            from app.orchestrator.claim_decision_enrichment import enrich_claim_decision
+
+            decision = enrich_claim_decision(decision, evidence=state.evidence)
             decisions.append(decision)
             all_conflicts.extend(claim_conflicts)
             all_rejected.extend(rejected)

@@ -7,6 +7,7 @@ import re
 from app.orchestrator.fact_lookup_anchor_policy import resolved_place_label
 from app.orchestrator.fact_lookup_policy import primary_fact_need_from_state
 from app.schemas.user_query import TravelAgentState
+from tools.ticket_price_text import has_explicit_ticket_price_signal
 
 _TICKET_NOISE_RE = re.compile(
     r"世界杯|楚超|联赛|演唱会|音乐节|足球|篮球|体育赛事|"
@@ -101,6 +102,8 @@ def passes_ticket_price_relevance(blob: str, anchors: list[str], *, boat_only: b
     if boat_only:
         return passes_boat_ticket_relevance(blob, anchors)
     if not _PRICE_SIGNAL_RE.search(blob):
+        return False
+    if not has_explicit_ticket_price_signal(blob):
         return False
     return True
 

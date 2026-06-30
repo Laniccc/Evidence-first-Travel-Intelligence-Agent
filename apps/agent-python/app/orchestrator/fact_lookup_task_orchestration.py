@@ -22,6 +22,13 @@ from app.schemas.intent_profile import PrimaryIntent
 from app.schemas.user_query import TravelAgentState
 
 
+def resolve_fact_s5_task_class(state: TravelAgentState) -> str:
+    need = primary_fact_need_from_state(state)
+    if need == "ticket_price":
+        return "ticket_price_lookup"
+    return "strict_fact_lookup"
+
+
 def fact_lookup_completed(state: TravelAgentState) -> bool:
     """True when at least one fact_lookup phase run completed (not full-chain done)."""
     structured = state.structured_result or {}
@@ -46,9 +53,19 @@ def fact_s5_may_finish_early(state: TravelAgentState, step: int) -> bool:
         return False
     need = primary_fact_need_from_state(state)
     if need == "ticket_price":
-        from app.orchestrator.ticket_lookup_policy import ticket_lookup_retrieval_complete
+        from app.orchestrator.retrieval_attempt_ledger import retrieval_complete
+        from app.orchestrator.ticket_lookup_attempt_tracker import ticket_lookup_has_price_evidence
 
-        if ticket_lookup_retrieval_complete(state) and step >= 2:
+        if (
+            retrieval_complete(state, "ticket_price")
+            and ticket_lookup_has_price_evidence(state, "ticket_price")
+            and step >= 2
+        ):
+            return True
+    if need == "opening_hours":
+        from app.orchestrator.retrieval_attempt_ledger import retrieval_complete
+
+        if retrieval_complete(state, "opening_hours") and step >= 2:
             return True
     actionable = count_actionable_fact_claims(list(state.evidence or []), need)
     audit = lookup_chain_audit(state)
@@ -105,8 +122,9 @@ Geographic numeric facts (elevation, etc.):
 - Use geo_authority source_family (wikidata/wikipedia/osm) in fact_acquisition phase.
 - Do NOT hardcode peak names; refine queries from evidence gaps only."""
     scope_line = f"\nPlace scope: {scope}" if scope else ""
+    task_class = resolve_fact_s5_task_class(state)
     return f"""
-## Task class: strict_fact_lookup — LookupResearchChain (hard fact / {need})
+## Task class: {task_class} — LookupResearchChain (hard fact / {need})
 
 Primary fact need: {need} ({label})
 Resolved place label: {place}{scope_line}
@@ -136,7 +154,7 @@ def fact_s5_planning_context(state: TravelAgentState) -> dict:
     structured = state.structured_result or {}
     ctx = build_lookup_research_context(state)
     return {
-        "s5_task_class": "strict_fact_lookup",
+        "s5_task_class": resolve_fact_s5_task_class(state),
         "primary_fact_need": need,
         "fact_raw_place": raw_place_label(state),
         "fact_resolved_place": resolved_place_label(state),

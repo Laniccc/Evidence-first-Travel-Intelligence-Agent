@@ -523,27 +523,32 @@ class MCPClientManager:
                     seen_keys.add(key)
                 merged_hits.append(hit)
 
-        engines_tried.append(primary)
-        primary_result = await self._post_open_websearch_search(
-            client, base, query, limit, [primary]
-        )
-        last_data = primary_result["data"] if isinstance(primary_result["data"], dict) else {}
-        all_partial_failures.extend(primary_result["partial_failures"])
-        _merge_hits(primary_result["hits"])
-
-        need_fallback = not merged_hits and (
-            primary_result["partial_failures"] or primary_result["total_results"] == 0
-        )
-        if need_fallback:
-            for fallback in self._search_fallback_engines():
-                engines_tried.append(fallback)
-                fb_result = await self._post_open_websearch_search(
-                    client, base, query, limit, [fallback]
+        async def _try_engine(engine: str) -> None:
+            nonlocal last_data
+            engines_tried.append(engine)
+            try:
+                result = await self._post_open_websearch_search(
+                    client, base, query, limit, [engine]
                 )
-                if isinstance(fb_result["data"], dict):
-                    last_data = fb_result["data"]
-                all_partial_failures.extend(fb_result["partial_failures"])
-                _merge_hits(fb_result["hits"])
+            except Exception as exc:
+                all_partial_failures.append(
+                    {
+                        "engine": engine,
+                        "code": "engine_error",
+                        "message": str(exc),
+                    }
+                )
+                return
+            last_data = result["data"] if isinstance(result["data"], dict) else last_data
+            all_partial_failures.extend(result["partial_failures"])
+            _merge_hits(result["hits"])
+
+        await _try_engine(primary)
+        if not merged_hits:
+            for fallback in self._search_fallback_engines():
+                await _try_engine(fallback)
+                if merged_hits:
+                    break
 
         response_data = dict(last_data) if isinstance(last_data, dict) else {}
         response_data["results"] = merged_hits[:limit]

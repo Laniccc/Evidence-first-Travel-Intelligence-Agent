@@ -99,17 +99,23 @@ class FliggyFlyAiService:
             return None, f"flyai-cli launch failed: {exc}"
 
         raw = (proc.stdout or "").strip()
-        if proc.returncode != 0:
-            err = (proc.stderr or raw or f"exit {proc.returncode}").strip()[:400]
-            return None, err
         if not raw:
+            if proc.returncode != 0:
+                err = (proc.stderr or f"exit {proc.returncode}").strip()[:400]
+                return None, err
             return None, "flyai-cli returned empty stdout"
         try:
             payload = json.loads(raw)
         except json.JSONDecodeError:
+            if proc.returncode != 0:
+                err = (proc.stderr or raw or f"exit {proc.returncode}").strip()[:400]
+                return None, err
             return None, "flyai-cli returned non-JSON stdout"
         if payload.get("status") not in (0, None) and payload.get("message") not in ("success", None):
             return None, str(payload.get("message") or payload.get("systemMessage") or "flyai error")
+        if proc.returncode != 0:
+            err = (proc.stderr or f"exit {proc.returncode}").strip()[:400]
+            return payload, err or f"flyai-cli exited {proc.returncode} after returning JSON"
         return payload, None
 
 
@@ -124,19 +130,27 @@ def _flyai_payload_to_items(payload: dict[str, Any], query_term: str) -> list[di
         title = str(info.get("title") or info.get("name") or "").strip()
         if not title:
             continue
+        ticket_info = info.get("ticketInfo") if isinstance(info.get("ticketInfo"), dict) else None
         price = info.get("price")
         price_text = info.get("priceText") or info.get("price_text")
+        ticket_name = None
+        if ticket_info:
+            price = price if price is not None else ticket_info.get("price")
+            price_text = price_text or ticket_info.get("priceText") or ticket_info.get("price")
+            ticket_name = ticket_info.get("ticketName") or ticket_info.get("name")
         if price is not None and not price_text:
             price_text = f"{price}元"
         url = info.get("jumpUrl") or info.get("url") or row.get("jumpUrl")
-        ticket_info = info.get("ticketInfo")
         item: dict[str, Any] = {
-            "ticket_type": title,
+            "ticket_title": title,
+            "ticket_name": str(ticket_name).strip() if ticket_name else None,
+            "ticket_type": str(ticket_name or title),
             "booking_channel": "Fliggy",
             "platform_ticket_url": url,
             "url": url,
             "confidence": 0.62 if price_text else 0.55,
             "raw_query": query_term,
+            "source": "fliggy_flyai_cli",
         }
         if price_text:
             item["price_text"] = str(price_text)

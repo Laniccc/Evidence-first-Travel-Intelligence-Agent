@@ -153,11 +153,26 @@ def should_present_place_disambiguation_at_s8(state: TravelAgentState) -> bool:
     candidates = resolve_disambiguation_candidates(state)
     if len(candidates) < 2 or not candidates_are_ambiguous(candidates):
         return False
+    frame = state.semantic_frame
+    if (
+        state.intent_profile
+        and state.intent_profile.primary_intent.value == "comparison"
+        and frame
+        and frame.entities
+        and len(frame.entities.places or []) >= 2
+    ):
+        return False
     from app.orchestrator.fact_lookup_policy import primary_fact_need_from_state
 
     need = primary_fact_need_from_state(state)
     anchor = _anchor_place_name(state)
-    if need == "ticket_price" and _same_scenic_area_sub_poi_ambiguity(candidates, anchor):
+    if need in {
+        "ticket_price",
+        "entrance_ticket_price",
+        "boat_ticket_price",
+        "shuttle_bus_ticket_price",
+        "cable_car_ticket_price",
+    } and _same_scenic_area_sub_poi_ambiguity(candidates, anchor):
         return False
     if should_apply_unique_resolution(candidates) and _frame_pins_single_candidate(state, candidates):
         return False

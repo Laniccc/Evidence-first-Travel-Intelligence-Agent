@@ -7,7 +7,7 @@ from typing import Any
 
 from app.agents.delegated_mcp_runner import run_delegated_mcp
 from app.orchestrator.fact_lookup_anchor_policy import resolved_place_label
-from app.orchestrator.fact_lookup_policy import primary_fact_need_from_state
+from app.orchestrator.fact_lookup_policy import is_ticket_claim_type, primary_fact_need_from_state
 from app.orchestrator.lookup_query_objectives import (
     build_lookup_query_objectives,
     build_peak_elevation_objectives,
@@ -19,7 +19,7 @@ from app.orchestrator.lookup_research_chain import (
     merge_chain_updates,
 )
 from app.orchestrator.s5_tool_attempt_ledger import get_ledger
-from app.orchestrator.ticket_lookup_helpers import has_ticket_url_inputs
+from app.orchestrator.official_candidate_bridge import has_readable_url_inputs
 from app.schemas.lookup_research_chain import LookupPhase, SourceFamily
 from app.schemas.search_task import SearchTask
 from app.schemas.user_query import TravelAgentState
@@ -54,7 +54,7 @@ _SOURCE_FAMILY_TOOLS: dict[SourceFamily, list[str]] = {
 
 
 def _has_url_inputs(state: TravelAgentState) -> bool:
-    if has_ticket_url_inputs(state):
+    if has_readable_url_inputs(state):
         return True
     for ev in state.evidence or []:
         url = getattr(ev, "source_url", None)
@@ -123,7 +123,9 @@ async def run_lookup_phase(
     tool_traces: list = []
     tools = _SOURCE_FAMILY_TOOLS.get(source_family, ["search_mcp"])
     max_calls = 4 if lookup_phase in {"peak_elevation_lookup", "platform_ticket_candidate"} else (
-        3 if source_family == "geo_authority" else 2
+        4 if is_ticket_claim_type(need) else (
+            3 if source_family == "geo_authority" else 2
+        )
     )
     whitelist = (prompt_context or {}).get("tool_whitelist")
     place = resolved_place_label(state)

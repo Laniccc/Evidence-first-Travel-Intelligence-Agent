@@ -429,16 +429,23 @@ class ToolWhitelistBuilder:
 
     def build_gap_whitelist(self, gap) -> ToolWhitelist:
         from app.schemas.evidence_gap_request import EvidenceGapRequest
+        from app.orchestrator.claim_gap_fill_planner import gap_tools_for_claim
+        from app.orchestrator.claim_tool_policy import filter_allowed_tools, forbidden_tools_for_claims
         from app.orchestrator.ticket_lookup_helpers import TICKET_GAP_FILL_TOOLS
 
         if isinstance(gap, dict):
             gap = EvidenceGapRequest.model_validate(gap)
         forbidden = set(gap.forbidden_tools or [])
         forbidden.add("knowledge_prior")
+        forbidden |= forbidden_tools_for_claims([gap.claim_type])
         failed = set(gap.failed_tools or [])
         tried = {resolve_tool_name(t) for t in (gap.already_tried_tools or [])}
 
-        if gap.claim_type == "ticket_price":
+        from app.orchestrator.fact_lookup_policy import is_ticket_claim_type
+
+        if is_ticket_claim_type(gap.claim_type) or gap.claim_type == "opening_hours":
+            pool = filter_allowed_tools(gap_tools_for_claim(gap.claim_type), [gap.claim_type])
+        elif gap.claim_type == "ticket_price":
             pool = [resolve_tool_name(t) for t in TICKET_GAP_FILL_TOOLS]
         else:
             pool = [
@@ -521,21 +528,31 @@ class ToolWhitelistBuilder:
             for tool in state.intent_strategy.tool_tiers.forbidden:
                 forbidden.add(tool)
         candidates |= contract_preferred
-        candidates -= forbidden
-        candidates &= set(EVIDENCE_PLANNING_TOOL_NAMES)
 
         settings = get_settings()
         elevation_only = _contract_is_geo_fact_elevation(contract)
-        has_ticket = any(c.claim_type == "ticket_price" for c in contract.claim_requirements)
-        if has_ticket:
+        claim_types = [c.claim_type for c in contract.claim_requirements]
+        has_ticket = "ticket_price" in claim_types
+
+        from app.orchestrator.claim_tool_policy import (
+            forbidden_tools_for_claims,
+            primary_tools_for_claims,
+        )
+
+        policy_primary = primary_tools_for_claims(claim_types)
+        policy_forbidden = forbidden_tools_for_claims(claim_types)
+        if policy_primary:
+            candidates |= policy_primary
+        forbidden |= policy_forbidden
+
+        if has_ticket and not elevation_only:
             from app.orchestrator.ticket_lookup_helpers import TICKET_BOOKING_PRIMARY_TOOLS
 
             candidates |= set(TICKET_BOOKING_PRIMARY_TOOLS)
-        if not elevation_only:
             for tool_name in TICKET_PROVIDER_TOOL_NAMES:
                 if provider_configured_for_tool(tool_name, settings):
                     candidates.add(tool_name)
-        else:
+        elif elevation_only:
             for tool in (
                 "dianping_ticket_signal_crawler_mcp",
                 "dianping_review_crawler_mcp",
@@ -549,6 +566,9 @@ class ToolWhitelistBuilder:
             ):
                 forbidden.add(tool)
             candidates &= _GEO_FACT_ELEVATION_ALLOWLIST | candidates
+
+        candidates -= forbidden
+        candidates &= set(EVIDENCE_PLANNING_TOOL_NAMES)
 
         allow_prior = any(c.model_prior_allowed for c in contract.claim_requirements)
         blocked: dict[str, str] = {}
@@ -618,9 +638,16 @@ class ToolWhitelistBuilder:
         candidates &= set(EVIDENCE_PLANNING_TOOL_NAMES)
 
         settings = get_settings()
-        for tool_name in TICKET_PROVIDER_TOOL_NAMES:
-            if provider_configured_for_tool(tool_name, settings):
-                candidates.add(tool_name)
+        hard_claim_types = [n for n in needs if n in _HARD_FACT_NEEDS]
+        from app.orchestrator.claim_tool_policy import forbidden_tools_for_claims, primary_tools_for_claims
+
+        forbidden_policy = forbidden_tools_for_claims(hard_claim_types)
+        if "ticket_price" in hard_claim_types:
+            for tool_name in TICKET_PROVIDER_TOOL_NAMES:
+                if provider_configured_for_tool(tool_name, settings):
+                    candidates.add(tool_name)
+        candidates |= primary_tools_for_claims(hard_claim_types)
+        candidates -= forbidden_policy
 
         blocked: dict[str, str] = {}
         policy_notes: list[str] = []

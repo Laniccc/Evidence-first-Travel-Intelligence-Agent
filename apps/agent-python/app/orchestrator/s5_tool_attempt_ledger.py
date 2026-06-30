@@ -144,3 +144,29 @@ def record_tool_attempt(
         )
     )
     save_ledger(state, ledger)
+    try:
+        from app.orchestrator.retrieval_attempt_ledger import record_tool_attempt as record_retrieval_attempt
+
+        record_retrieval_attempt(
+            state,
+            tool_name=tool_name,
+            claim_type=claim_type,
+            phase=phase,
+            evidence_count=evidence_count,
+            error=error,
+        )
+    except Exception:
+        pass
+    try:
+        from app.orchestrator.retrieval_attempt_ledger import record_tool_attempt as record_retrieval_attempt
+
+        record_retrieval_attempt(
+            state,
+            tool_name=tool_name,
+            claim_type=claim_type,
+            phase=phase,
+            evidence_count=evidence_count,
+            error=error,
+        )
+    except Exception:
+        pass

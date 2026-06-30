@@ -48,8 +48,8 @@ async def run_nearby_enrichment_after_retrieval(
 
     whitelist = (prompt_context or {}).get("tool_whitelist")
     tools = enrichment_tools_for_category(nearby_claim)
-    top_n = enrichment_top_n_for_category(nearby_claim)
-    review_n = review_enrichment_top_n_for_category(nearby_claim)
+    top_n = min(enrichment_top_n_for_category(nearby_claim), 2)
+    review_n = min(review_enrichment_top_n_for_category(nearby_claim), 1)
     want_reviews = requires_nearby_reputation_signal(state)
 
     candidates = enrichment_candidates_from_evidence(working_evidence, nearby_claim, limit=top_n)

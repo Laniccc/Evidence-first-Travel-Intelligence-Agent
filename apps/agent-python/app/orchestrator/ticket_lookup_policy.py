@@ -42,53 +42,42 @@ _PLATFORM_PHASES = frozenset(
         "retrieval_audit",
     }
 )
+_TICKET_PRICE_NEEDS = frozenset(
+    {
+        "ticket_price",
+        "entrance_ticket_price",
+        "boat_ticket_price",
+        "shuttle_bus_ticket_price",
+        "cable_car_ticket_price",
+    }
+)
 _TICKET_LIMITATION_DROP = re.compile(
     r"天气|同行人|一般游客|游客画像|画像评估|默认近日",
     re.I,
 )
+_INTERNAL_LIMITATION_DROP = re.compile(
+    r"Cannot FINISH|max_steps|configured tools not yet|official_source_discovery_mcp requires|"
+    r"policy 拒绝|evidence_planning_and_tool_use reached|ticket platform tool|entity_resolution_agent blocked|"
+    r"not allowed in current lookup phase|requires urls or search_results",
+    re.I,
+)
 
 
-def _attempted_tools(state: TravelAgentState) -> set[str]:
-    names: set[str] = set()
-    for trace in state.tool_traces or []:
-        names.add(resolve_tool_name(str(trace.tool_name or "")))
-    return names
+def filter_user_visible_limitations(limitations: list[str]) -> list[str]:
+    return filter_internal_policy_limitations(limitations)
 
 
 def ticket_lookup_retrieval_complete(state: TravelAgentState) -> bool:
-    """True when official + platform + search + map paths were attempted for ticket_price."""
-    if not is_fact_lookup_task(state):
-        return False
-    if primary_fact_need_from_state(state) != "ticket_price":
-        return False
-    attempted = _attempted_tools(state)
-    has_official = bool(attempted & _OFFICIAL_TICKET_TOOLS)
-    has_platform = bool(attempted & _PLATFORM_TICKET_TOOLS)
-    has_search = "search_mcp" in attempted or "keyword_search_agent" in attempted
-    has_map = "baidu_place_detail_mcp" in attempted
-    if not has_search:
-        return False
-    if not (has_official or has_platform or has_map):
-        return False
-    from app.config import get_settings
-    from tools.ticketing.provider_config import provider_configured_for_tool
+    from app.orchestrator.retrieval_attempt_ledger import retrieval_complete
 
-    settings = get_settings()
-    configured_platform = [
-        t
-        for t in _PLATFORM_TICKET_TOOLS
-        if provider_configured_for_tool(t, settings)
-    ]
-    if configured_platform and not any(t in attempted for t in configured_platform):
-        return False
-    return has_search and (has_official or has_platform or has_map)
+    return retrieval_complete(state, "ticket_price")
 
 
 def force_ticket_platform_phase(state: TravelAgentState) -> None:
     """Advance LOOKUP chain to platform_ticket_candidate for ticket platform tools."""
     if not is_fact_lookup_task(state):
         return
-    if primary_fact_need_from_state(state) != "ticket_price":
+    if primary_fact_need_from_state(state) not in _TICKET_PRICE_NEEDS:
         return
     advance_entity_anchor_if_satisfied(state)
     chain = ensure_lookup_chain_initialized(state)
@@ -105,7 +94,7 @@ def apply_ticket_gap_phase_override(state: TravelAgentState, gap) -> bool:
 
     if isinstance(gap, dict):
         gap = EvidenceGapRequest.model_validate(gap)
-    if gap.claim_type != "ticket_price":
+    if gap.claim_type not in _TICKET_PRICE_NEEDS:
         return False
     suggested = [resolve_tool_name(t) for t in (gap.suggested_tools or [])]
     if not any(t in _PLATFORM_TICKET_TOOLS or is_ticket_provider_tool(t) for t in suggested):
@@ -118,7 +107,7 @@ def ticket_platform_tool_allowed(state: TravelAgentState, tool_name: str) -> boo
     resolved = resolve_tool_name(tool_name)
     if resolved not in _PLATFORM_TICKET_TOOLS and not is_ticket_provider_tool(resolved):
         return True
-    if primary_fact_need_from_state(state) != "ticket_price":
+    if primary_fact_need_from_state(state) not in _TICKET_PRICE_NEEDS:
         return True
     chain = get_lookup_chain(state)
     current = chain.current_phase
@@ -138,14 +127,58 @@ def ticket_platform_tool_allowed(state: TravelAgentState, tool_name: str) -> boo
 
 
 def filter_ticket_price_limitations(limitations: list[str], *, need: str) -> list[str]:
-    if need != "ticket_price":
-        return limitations
+    if need not in _TICKET_PRICE_NEEDS:
+        return filter_internal_policy_limitations(limitations)
     kept: list[str] = []
     for line in limitations or []:
         text = str(line or "").strip()
         if not text:
             continue
-        if _TICKET_LIMITATION_DROP.search(text):
+        if _TICKET_LIMITATION_DROP.search(text) or _INTERNAL_LIMITATION_DROP.search(text):
             continue
         kept.append(text)
     return kept
+
+
+def filter_internal_policy_limitations(limitations: list[str]) -> list[str]:
+    from app.orchestrator.response_sanitizer import sanitize_limitations
+
+    prelim = [
+        str(line or "").strip()
+        for line in (limitations or [])
+        if str(line or "").strip() and not _INTERNAL_LIMITATION_DROP.search(str(line))
+    ]
+    return sanitize_limitations(prelim, max_items=6)
+
+
+def is_internal_policy_limitation(message: str) -> bool:
+    return bool(_INTERNAL_LIMITATION_DROP.search(str(message or "")))
+
+
+def baidu_place_search_allowed_for_ticket(state: TravelAgentState) -> bool:
+    if primary_fact_need_from_state(state) not in _TICKET_PRICE_NEEDS:
+        return True
+    chain = get_lookup_chain(state)
+    phase = chain.current_phase
+    if phase in {
+        "platform_ticket_candidate",
+        "ticket_price_extraction",
+        "official_ticket_page_discovery",
+        "retrieval_audit",
+    }:
+        return False
+    from app.orchestrator.lookup_entity_resolution_policy import lookup_entity_anchor_satisfied
+
+    if lookup_entity_anchor_satisfied(state):
+        for trace in state.tool_traces or []:
+            if resolve_tool_name(str(trace.tool_name or "")) == "baidu_place_search_mcp":
+                return False
+        structured = state.structured_result or {}
+        n = sum(
+            1
+            for row in (structured.get("subagent_results") or [])
+            if row.get("subagent") == "entity_resolution_agent"
+        )
+        if n >= 1:
+            return False
+    return True

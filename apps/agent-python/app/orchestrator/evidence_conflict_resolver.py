@@ -6,6 +6,7 @@ import re
 
 from app.orchestrator.evidence_scorer import EvidenceScore
 from app.orchestrator.official_source_judgement import parse_candidate_from_evidence, source_class_priority
+from app.orchestrator.ticket_price_audit import evidence_has_main_ticket_scope
 from app.schemas.evidence import Evidence
 from app.schemas.evidence_decision_report import EvidenceConflict
 
@@ -37,14 +38,16 @@ class EvidenceConflictResolver:
 
         conflicts: list[EvidenceConflict] = []
         if claim_type == "ticket_price":
-            prices = self._extract_prices(scores)
+            scoped_scores = self._main_ticket_scores(scores, evidence=evidence, claim_type=claim_type)
+            price_scores = scoped_scores or scores
+            prices = self._extract_prices(price_scores)
             if len(prices) >= 2 and max(prices) - min(prices) > 1:
-                preferred = self._pick_preferred(scores, claim_type=claim_type, evidence=evidence)
+                preferred = self._pick_preferred(price_scores, claim_type=claim_type, evidence=evidence)
                 conflicts.append(
                     EvidenceConflict(
                         claim_type=claim_type,
                         conflict_type="price_mismatch",
-                        evidence_ids=[s.evidence_id for s in scores[:5]],
+                        evidence_ids=[s.evidence_id for s in price_scores[:5]],
                         preferred_evidence_id=preferred,
                         conflict_note=(
                             f"多个来源票价不一致（约 {min(prices):.0f}–{max(prices):.0f} 元），"
@@ -113,6 +116,23 @@ class EvidenceConflictResolver:
                         out.append(v)
                 except ValueError:
                     continue
+        return out
+
+    @staticmethod
+    def _main_ticket_scores(
+        scores: list[EvidenceScore],
+        *,
+        evidence: list | None,
+        claim_type: str,
+    ) -> list[EvidenceScore]:
+        if not evidence:
+            return scores
+        ev_by_id = {ev.evidence_id: ev for ev in evidence if isinstance(ev, Evidence)}
+        out: list[EvidenceScore] = []
+        for score in scores:
+            ev = ev_by_id.get(score.evidence_id)
+            if not ev or evidence_has_main_ticket_scope(ev, claim_type=claim_type):
+                out.append(score)
         return out
 
     @staticmethod

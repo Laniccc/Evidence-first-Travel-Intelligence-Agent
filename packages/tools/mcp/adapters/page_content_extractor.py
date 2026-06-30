@@ -6,6 +6,7 @@ from datetime import datetime
 from typing import Any
 
 from app.schemas.evidence import Claim, ClaimType, DataFreshness, Evidence, LicenseScope, SourceType
+from tools.ticket_price_text import first_ticket_price_mention, has_explicit_ticket_price_signal
 
 _NAV_HOURS_NOISE = (
     "在线购票",
@@ -210,7 +211,7 @@ def extract_claims_from_text(
 
     field_extractors = {
         ClaimType.OPENING_HOURS: lambda: _extract_opening_hours(text, clean),
-        ClaimType.TICKET_PRICE: lambda: _extract_first(_PRICE_PATTERNS, clean),
+        ClaimType.TICKET_PRICE: lambda: first_ticket_price_mention(clean),
         ClaimType.RESERVATION: lambda: _extract_first(_RESERVATION_PATTERNS, clean),
         ClaimType.TRAVEL_ADVICE: lambda: _extract_first(_CLOSURE_PATTERNS, clean),
     }
@@ -247,7 +248,7 @@ def extract_claims_from_text(
 
 
 def pick_url_from_evidence(evidence_list: list[Evidence], *, prefer_official: bool = True) -> str | None:
-    from tools.official_source.url_normalizer import is_fetchable_url, is_redirect_wrapper_url
+    from tools.official_source.url_normalizer import is_official_reader_url, is_redirect_wrapper_url, is_readable_page_url
 
     candidates: list[tuple[int, str]] = []
     for ev in evidence_list:
@@ -267,7 +268,9 @@ def pick_url_from_evidence(evidence_list: list[Evidence], *, prefer_official: bo
                         if isinstance(v, str) and v.startswith("http"):
                             url = v
                             break
-        if not url or is_redirect_wrapper_url(url):
+        if not url or is_redirect_wrapper_url(url) or not is_readable_page_url(url):
+            continue
+        if prefer_official and not is_official_reader_url(url):
             continue
         score = 0
         blob = f"{url} {ev.source_name}".lower()
@@ -277,8 +280,7 @@ def pick_url_from_evidence(evidence_list: list[Evidence], *, prefer_official: bo
             score += 5
         if "official source discovery" in (ev.source_name or "").lower():
             score += 8
-        if is_fetchable_url(url):
-            score += 3
+        score += 3
         candidates.append((score, url))
     if not candidates:
         return None
@@ -343,7 +345,7 @@ def claim_substantively_satisfies_need(claim: Claim, information_need: str | Non
     if target == ClaimType.OPENING_HOURS:
         return _hours_looks_valid(value)
     if target == ClaimType.TICKET_PRICE:
-        return bool(re.search(r"\d", value)) and any(k in value for k in ("元", "票", "yen", "JPY", "CNY", "RMB"))
+        return has_explicit_ticket_price_signal(value)
     return len(value.strip()) >= 8
 
 

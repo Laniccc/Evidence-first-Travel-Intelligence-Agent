@@ -5,6 +5,7 @@ from __future__ import annotations
 from app.orchestrator.claim_policy_registry import ClaimPolicyView
 from app.config import get_settings
 from app.orchestrator.comparison_helpers import active_place_name, is_comparison_mode
+from app.orchestrator.fact_lookup_policy import is_ticket_claim_type
 from app.orchestrator.information_need_aliases import is_nearby_need
 from app.orchestrator.official_source_judgement import needs_official_source_gap
 from app.schemas.evidence_decision_report import ClaimDecision
@@ -118,13 +119,18 @@ class EvidenceGapPlanner:
                 return 999
 
         untried = sorted(untried, key=_tool_rank)
-        if claim.claim_type == "ticket_price":
-            ticket_pool = [
-                t
-                for t in TICKET_GAP_FILL_TOOLS
-                if resolve_tool_name(t) not in tried and t not in (policy.forbidden_tools or [])
-            ]
-            untried = ticket_pool or untried
+        from app.orchestrator.claim_gap_fill_planner import gap_tools_for_claim, order_gap_tools
+        from app.orchestrator.claim_tool_policy import filter_allowed_tools, primary_tools_for_claims
+
+        claim_pool = list(primary_tools_for_claims([claim.claim_type])) or gap_tools_for_claim(claim.claim_type)
+        claim_pool = [
+            t
+            for t in claim_pool
+            if resolve_tool_name(t) not in tried and t not in (policy.forbidden_tools or [])
+        ]
+        if is_ticket_claim_type(claim.claim_type) or claim.claim_type == "opening_hours":
+            claim_pool = order_gap_tools(state, claim_pool, claim_type=claim.claim_type)
+            untried = filter_allowed_tools(claim_pool or untried, [claim.claim_type])
         if not untried and decision.coverage_quality not in {"none", "weak"}:
             return None
         if decision.coverage_quality == "none" and not untried:
@@ -153,14 +159,13 @@ class EvidenceGapPlanner:
 
         planner_ctx = ClaimSearchPlanner.planning_context(state)
         rewriter = SearchQueryRewriter.from_planning_context(planner_ctx, state)
-        if claim.claim_type == "ticket_price":
-            from app.orchestrator.ticket_product_policy import build_ticket_price_search_queries, ensure_ticket_product_context
+        if is_ticket_claim_type(claim.claim_type):
+            from app.orchestrator.ticket_price_query_ladder import escalation_queries_flat
+            from app.orchestrator.ticket_product_policy import ensure_ticket_product_context
 
             ensure_ticket_product_context(state)
-            product_queries = build_ticket_price_search_queries(state)
-            if product_queries:
-                rendered = product_queries[:4]
-            else:
+            rendered = escalation_queries_flat(state, max_queries=8)
+            if not rendered and claim.claim_type in _GAP_TEMPLATES:
                 templates = _GAP_TEMPLATES[claim.claim_type]
                 rendered = [
                     t.format(
@@ -189,10 +194,16 @@ class EvidenceGapPlanner:
         else:
             rendered = rewriter.gap_query_templates(claim.claim_type, max_queries=4)
 
-        suggested_tools = untried[:9] if claim.claim_type == "ticket_price" else (untried[:4] or ["search_mcp"])
+        suggested_tools = untried[:9] if is_ticket_claim_type(claim.claim_type) else (untried[:4] or ["search_mcp"])
+        if is_ticket_claim_type(claim.claim_type):
+            suggested_tools = order_gap_tools(state, suggested_tools or list(TICKET_GAP_FILL_TOOLS), claim_type=claim.claim_type)
+        elif claim.claim_type == "opening_hours":
+            from app.orchestrator.claim_gap_fill_planner import order_gap_tools
+
+            suggested_tools = order_gap_tools(state, suggested_tools, claim_type=claim.claim_type)
         if needs_official_source_gap(state.evidence, claim.claim_type, decision):
             if "official_source_discovery_mcp" not in suggested_tools:
-                cap = 9 if claim.claim_type == "ticket_price" else 4
+                cap = 9 if is_ticket_claim_type(claim.claim_type) else 4
                 suggested_tools = ["official_source_discovery_mcp", *suggested_tools][:cap]
             reason = (
                 decision.reason
@@ -246,6 +257,10 @@ class EvidenceGapPlanner:
 
         lookup_needs = {
             "ticket_price",
+            "entrance_ticket_price",
+            "boat_ticket_price",
+            "shuttle_bus_ticket_price",
+            "cable_car_ticket_price",
             "opening_hours",
             "reservation_policy",
             "seasonal_operation_status",

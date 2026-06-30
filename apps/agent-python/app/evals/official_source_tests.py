@@ -91,6 +91,27 @@ def test_official_source_classifier_rejects_ota_as_official():
     assert cand.official_confidence < 0.65
 
 
+def test_official_source_classifier_rejects_ly_ota_as_official():
+    clf = OfficialSourceClassifier()
+    cand = clf.classify(
+        "https://www.ly.com/scenery/BookSceneryTicket_228816.html",
+        title="那拉提景区门票预订_同程旅行",
+        snippet="评分4.0/5，49条点评，开放时间10:00-19:00。",
+        place_name="那拉提景区",
+    )
+    assert cand.source_class == SOURCE_CLASS_OTA_PLATFORM
+    assert "ota_domain" in cand.negative_signals
+
+
+def test_official_reader_url_filters_platform_and_company_pages():
+    from tools.official_source.url_normalizer import is_official_reader_url
+
+    assert not is_official_reader_url("https://www.ly.com/scenery/BookSceneryTicket_132.html")
+    assert not is_official_reader_url("https://www.qixin.com/company/fake")
+    assert not is_official_reader_url("https://apis.map.qq.com/uri/v1/search?keyword=栖霞山")
+    assert is_official_reader_url("https://www.nanjing.gov.cn/ticket")
+
+
 def test_official_source_candidate_does_not_cover_ticket_without_price():
     cand = OfficialSourceCandidate(
         url="https://www.lijiang.gov.cn/",

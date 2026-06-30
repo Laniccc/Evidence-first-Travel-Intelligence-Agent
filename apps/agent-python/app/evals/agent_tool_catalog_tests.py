@@ -73,6 +73,26 @@ def test_agent_tool_definitions_include_task_class_when_resolved():
     assert any("美食" in line for line in defs[0].get("when_to_use") or [])
 
 
+def test_ticket_price_lookup_resolves_specific_task_class():
+    from app.orchestrator.agent_tool_catalog import resolve_s5_task_class
+
+    state = TravelAgentState(session_id="s", query_id="q", raw_user_query="兵马俑门票多少钱？")
+    state.semantic_frame = SemanticFrame(
+        raw_query=state.raw_user_query,
+        task_family=TaskFamily.FACT_LOOKUP,
+        decision_type=DecisionType.FACT_LOOKUP,
+        entities=SemanticEntities(country="China", city="西安", places=["兵马俑"]),
+        information_needs=["ticket_price"],
+        requires_exact_fact=True,
+    )
+    state.response_contract = ResponseContractCompiler().compile(state.semantic_frame)
+    task_class = resolve_s5_task_class(state)
+    assert task_class == "ticket_price_lookup"
+    defs = agent_tool_definitions_for_allowed(["fact_lookup_agent"], task_class=task_class)
+    assert defs[0]["s5_task_class"] == "ticket_price_lookup"
+    assert "official_ticket_page_discovery" in defs[0]["parameters"]["lookup_phase"]
+
+
 def test_route_tools_injected_for_day_trip_contract_queue():
     state = TravelAgentState(session_id="s", query_id="q", raw_user_query="可可托海一天够玩吗？")
     state.semantic_frame = SemanticFrame(

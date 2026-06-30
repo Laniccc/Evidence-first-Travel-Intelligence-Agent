@@ -58,6 +58,9 @@ class KeywordSearchAgent:
         cls,
         task: SearchTask,
         whitelist: ToolWhitelist | None,
+        *,
+        state: TravelAgentState | None = None,
+        prompt_context: dict | None = None,
     ) -> str | None:
         """Return explicit preferred tool when safe to honor (not a mis-delegated route tool)."""
         preferred = cls._resolve_preferred_tool(task)
@@ -67,6 +70,18 @@ class KeywordSearchAgent:
             return None
         if whitelist is not None and not whitelist.is_allowed(preferred):
             return None
+        if state is not None:
+            from app.orchestrator.mcp_tool_arguments import mcp_tool_invocation_ready
+
+            base_args = dict(task.tool_parameters or {})
+            if task.search_query.strip():
+                base_args.setdefault("query", task.search_query.strip())
+            elif task.lookup_intent.strip():
+                base_args.setdefault("query", task.lookup_intent.strip()[:200])
+            if not mcp_tool_invocation_ready(
+                preferred, base_args, state=state, prompt_context=prompt_context
+            ):
+                return None
         return preferred
 
     @classmethod
@@ -82,7 +97,7 @@ class KeywordSearchAgent:
         """Single diversified selection pass; skip when route task or explicit preferred is set."""
         if cls._is_route_task(task):
             return task
-        if cls._preferred_tool_is_usable(task, whitelist):
+        if cls._preferred_tool_is_usable(task, whitelist, state=state):
             return task
         from app.orchestrator.s5_diversified_tool_selector import select_tool_for_subagent
 
@@ -161,7 +176,7 @@ class KeywordSearchAgent:
                 if whitelist is None or whitelist.is_allowed(resolved):
                     return resolved
 
-        usable = KeywordSearchAgent._preferred_tool_is_usable(task, whitelist)
+        usable = KeywordSearchAgent._preferred_tool_is_usable(task, whitelist, state=state)
         if usable:
             return usable
 
@@ -333,7 +348,13 @@ class KeywordSearchAgent:
                 )
                 self.validate_task(task)
 
-        payload = self.build_tool_payload(tool_name, task, state, prompt_context)
+        try:
+            payload = self.build_tool_payload(tool_name, task, state, prompt_context)
+        except ValueError:
+            if tool_name == "search_mcp":
+                raise
+            tool_name = "search_mcp"
+            payload = self.build_tool_payload(tool_name, task, state, prompt_context)
 
         trace_before = len(self.tools.traces)
         evidence = await self.tools.run_tool(tool_name, **payload)

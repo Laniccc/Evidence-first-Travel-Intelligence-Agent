@@ -1,0 +1,1488 @@
+[
+  {
+    "task_class": "poi_recommendation",
+    "query": "北京故宫附近有什么好吃的？",
+    "elapsed_s": 78.33,
+    "answer": "故宫博物院周边美食推荐\n\n结论：\n以下是故宫博物院（北京市东城区景山前街4号）周边可步行到达的餐饮点，根据百度地图信息整理。\n\n周边美食推荐：\n- 1. 故宫冰窖餐厅 – 北长街故宫博物院慈宁宫南侧（来源：Baidu Maps MCP，置信度68%）\n- 2. 故宫餐厅(景运门店) – 东华门街道景山前街4号故宫博物院内景运门南侧(近钟表馆)（来源：Baidu Maps MCP，置信度68%）\n- 3. 故宫角楼咖啡(故宫店) – 景山前街4号故宫博物院神武门西围房（来源：Baidu Maps MCP，置信度68%）\n- 4. 八爷涮肉(故宫总店) – 南河沿大街1号北京翠明庄宾馆主楼B1层（故宫东华门向东300米）（来源：Baidu Maps MCP，置信度68%）\n\n按入口选择提示：\n- 若您从东华门（东门）进入，八爷涮肉距此约300米，故宫角楼咖啡位于神武门西围房，亦可便捷前往。\n- 若从午门（南门）进入，故宫冰窖餐厅和故宫餐厅(景运门店)较近。\n\n说明：\n- 以上信息来自百度地图搜索结果，无用户评价或评分数据\n- 实际营业状态以现场为准。",
+    "confidence": 0.45,
+    "answer_mode": "evidence_preferred",
+    "resolved_task_class": "poi_recommendation",
+    "evidence_count": 15,
+    "limitations": [
+      "关键证据不足，部分结论置信度受限。"
+    ],
+    "limitations_count": 1,
+    "trace_count": 57,
+    "tool_count": 16,
+    "tool_rollup": {
+      "baidu_place_search_mcp": 7,
+      "baidu_place_detail_mcp": 3,
+      "dianping_review_crawler_mcp": 2,
+      "search_mcp": 2,
+      "baidu_geocode_mcp": 1,
+      "browser_mcp": 1
+    },
+    "semantic_frame": {
+      "query_scope": "place",
+      "task_family": "food",
+      "decision_type": "nearby_search",
+      "time_scope": "flexible",
+      "entities": {
+        "country": "China",
+        "city": "北京",
+        "places": [
+          "故宫博物院"
+        ],
+        "region": "北京"
+      },
+      "information_needs": [
+        "nearby_dining"
+      ],
+      "requires_exact_fact": false,
+      "requires_live_data": false,
+      "can_answer_with_model_prior": false,
+      "confidence": 0.93
+    },
+    "orchestration_summary": {
+      "subagent_results": [
+        {
+          "subagent": "entity_resolution_agent",
+          "task_id": "orch-7dcd8ef0",
+          "lookup_intent": "锚定用户所指地点：故宫博物院",
+          "search_query": "故宫博物院",
+          "selected_tool": "baidu_place_search_mcp",
+          "evidence_count": 15,
+          "effective_evidence_count": 13,
+          "resolution_status": "ambiguous",
+          "lookup_phase": null,
+          "source_family": null
+        }
+      ],
+      "nearby_enrichment_runs": [
+        {
+          "nearby_claim": "nearby_food",
+          "candidate_count": 2,
+          "evidence_count": 2,
+          "want_reviews": false
+        }
+      ],
+      "completed_search_task_ids": [
+        "orch-7dcd8ef0"
+      ],
+      "s5_task_class": "poi_recommendation",
+      "agent_core_projection": {
+        "run_id": "603f51b0-ec5e-4f8d-92cf-48e91aa7600a",
+        "current_phase": "delivery",
+        "phase_status": {
+          "ingress": "succeeded",
+          "input_contract": "succeeded",
+          "research_plan": "approved",
+          "evidence_acquisition": "succeeded",
+          "evidence_review": "succeeded",
+          "answer_draft": "approved",
+          "citation_guard": "approved",
+          "delivery": "succeeded"
+        },
+        "latest_outputs": {
+          "ingress": {
+            "id": "454d4184-82b3-41e8-8f33-a6f1762843e9",
+            "run_id": "603f51b0-ec5e-4f8d-92cf-48e91aa7600a",
+            "phase": "ingress",
+            "kind": "user_input",
+            "status": "succeeded",
+            "payload": {
+              "query": "北京故宫附近有什么好吃的？",
+              "session_id": "63e674e5-673d-4ec7-a965-28e28cf5f6b9",
+              "query_id": "603f51b0-ec5e-4f8d-92cf-48e91aa7600a",
+              "user_context": {}
+            },
+            "evidence_refs": [],
+            "created_by": "state_machine",
+            "created_at": "2026-06-30T03:41:56.229406+00:00"
+          },
+          "input_contract": {
+            "id": "7114ac78-a365-4d22-a14d-25dd9a921017",
+            "run_id": "603f51b0-ec5e-4f8d-92cf-48e91aa7600a",
+            "phase": "input_contract",
+            "kind": "input_contract",
+            "status": "succeeded",
+            "payload": {
+              "semantic_frame": {
+                "raw_query": "北京故宫附近有什么好吃的？",
+                "normalized_request": "北京故宫周边的餐饮推荐",
+                "query_scope": "place",
+                "task_family": "food",
+                "decision_type": "nearby_search",
+                "entities": {
+                  "country": "China",
+                  "city": "北京",
+                  "places": [
+                    "故宫博物院"
+                  ],
+                  "region": "北京"
+                },
+                "time_scope": "flexible",
+                "user_constraints": [],
+                "key_concerns": [
+                  "nearby_dining"
+                ],
+                "information_needs": [
+                  "nearby_dining"
+                ],
+                "missing_slots": [],
+                "confidence": 0.93,
+                "requires_live_data": false,
+                "requires_exact_fact": false,
+                "can_answer_with_model_prior": false,
+                "needs_clarification": false,
+                "place_ambiguity": {
+                  "is_ambiguous": false,
+                  "reason": null,
+                  "candidates": []
+                },
+                "labeled_entities": [
+                  {
+                    "text": "故宫",
+                    "normalized_name": "故宫博物院",
+                    "entity_type": "attraction",
+                    "country": "China",
+                    "region": "北京",
+                    "city": "北京",
+                    "source": "user_explicit",
+                    "confidence": 0.95,
+                    "needs_verification": false,
+                    "labels": [
+                      "primary_subject",
+                      "city_anchor"
+                    ]
+                  }
+                ]
+              },
+              "travel_task": {
+                "task_type": "food_nearby",
+                "rewritten_query": "北京故宫周边的餐饮推荐",
+                "country": "China",
+                "city": "北京",
+                "places": [
+                  {
+                    "original_name": "故宫",
+                    "canonical_name": "故宫博物院",
+                    "country": "China",
+                    "city": "北京",
+                    "confidence": 0.95,
+                    "source": "user_explicit"
+                  }
+                ],
+                "travel_date": null,
+                "start_location": null,
+                "user_profile": {
+                  "party": [],
+                  "pace": null,
+                  "preferences": [],
+                  "budget_level": null,
+                  "transport_preference": null,
+                  "constraints": []
+                },
+                "key_concerns": [
+                  "nearby_dining"
+                ],
+                "required_evidence": [
+                  "nearby_dining"
+                ],
+                "optional_evidence": [
+                  "reviews"
+                ],
+                "constraints": [],
+                "assumptions": [],
+                "followup_context_used": false,
+                "confidence": 0.93
+              },
+              "answer_mode": "evidence_preferred",
+              "response_contract": {
+                "contract_id": "d58e3507-bd98-43ca-ae8b-7e281b7163ff",
+                "user_goal_summary": "北京故宫周边的餐饮推荐",
+                "gated_search_keywords": [
+                  "故宫博物院",
+                  "北京",
+                  "nearby dining"
+                ],
+                "place_ambiguity_context": {
+                  "is_ambiguous": false,
+                  "reason": null,
+                  "candidates": []
+                },
+                "entity_policy": {
+                  "requires_disambiguation": false,
+                  "disambiguation_reason": null,
+                  "preferred_tools": [],
+                  "if_multiple_candidates": "answer_with_limitation",
+                  "if_unresolved": "answer_with_limitation"
+                },
+                "claim_requirements": [
+                  {
+                    "claim_type": "nearby_food",
+                    "claim_family": "nearby_recommendation",
+                    "claim_description": "nearby food",
+                    "priority": "required",
+                    "requires_exact_fact": false,
+                    "requires_live_data": false,
+                    "freshness": "recent",
+                    "allowed_source_types": [
+                      "map",
+                      "review",
+                      "public_web"
+                    ],
+                    "preferred_tools": [
+                      "baidu_place_search_mcp",
+                      "baidu_place_detail_mcp",
+                      "dianping_nearby_crawler_mcp",
+                      "dianping_review_crawler_mcp",
+                      "ctrip_review_crawler_mcp",
+                      "search_mcp",
+                      "browser_mcp"
+                    ],
+                    "forbidden_tools": [
+                      "knowledge_prior"
+                    ],
+                    "model_prior_allowed": false,
+                    "estimation_allowed": false,
+                    "coverage_rule": "must list named POIs with distance or walk/drive time when available",
+                    "missing_behavior": "answer_with_limitation",
+                    "answer_scope": null,
+                    "parent_claim_type": null
+                  }
+                ],
+                "tool_strategy": {
+                  "initial_tools": [
+                    "baidu_place_search_mcp",
+                    "baidu_place_detail_mcp",
+                    "dianping_nearby_crawler_mcp",
+                    "dianping_review_crawler_mcp",
+                    "ctrip_review_crawler_mcp",
+                    "search_mcp",
+                    "browser_mcp"
+                  ],
+                  "fallback_tools": [
+                    "fallback"
+                  ],
+                  "max_tool_steps": 10,
+                  "allow_parallel_tools": false
+                },
+                "fallback_policy": {
+                  "allow_model_prior_fallback": false,
+                  "allow_mock_fallback": true,
+                  "allow_partial_answer": true,
+                  "no_evidence_behavior": "answer_with_limitation"
+                },
+                "clarification_policy": {
+                  "should_ask": false,
+                  "question": null,
+                  "reason": null
+                },
+                "composition_policy": {
+                  "must_cite_evidence": true,
+                  "distinguish_fact_vs_prior": true,
+                  "include_tool_failures_when_relevant": true,
+                  "forbid_unsupported_claims": true,
+                  "answer_style": "advisory"
+                },
+                "overall_risk_level": "low",
+                "derived_debug_answer_mode": "evidence_preferred",
+                "limitations_to_add": []
+              },
+              "region_gate": {
+                "supported": true,
+                "country": "China",
+                "city": "北京",
+                "reason": "Resolved from TravelTask"
+              }
+            },
+            "evidence_refs": [],
+            "created_by": "state_machine",
+            "created_at": "2026-06-30T03:41:59.735418+00:00"
+          },
+          "pipeline_gate": {
+            "id": "ca997ede-71d6-4b87-ab1a-a173db1ecb35",
+            "run_id": "603f51b0-ec5e-4f8d-92cf-48e91aa7600a",
+            "phase": "pipeline_gate",
+            "kind": "tool_visibility",
+            "status": "succeeded",
+            "payload": {
+              "phase": "pipeline_gate",
+              "allowed_tools": [],
+              "control_tools": [],
+              "blocked_tools": [],
+              "required_next_actions": [
+                "run_pipeline_gate"
+              ],
+              "stop_reasons": [],
+              "decision_sources": [
+                "pipeline_gate",
+                "control_tool_policy"
+              ]
+            },
+            "evidence_refs": [],
+            "created_by": "state_machine",
+            "created_at": "2026-06-30T03:41:59.735313+00:00"
+          },
+          "research_plan": {
+            "id": "9bf6c172-6735-4a7d-b5d3-0803a5824334",
+            "run_id": "603f51b0-ec5e-4f8d-92cf-48e91aa7600a",
+            "phase": "research_plan",
+            "kind": "research_plan",
+            "status": "approved",
+            "payload": {
+              "artifact_id": "2483b7fb-6580-4a6e-ad8a-902aacffffd6",
+              "run_id": "603f51b0-ec5e-4f8d-92cf-48e91aa7600a",
+              "task_class": "poi_recommendation",
+              "intent_family": null,
+              "user_goal_summary": "北京故宫周边的餐饮推荐",
+              "anchor_keywords": [
+                "故宫博物院",
+                "北京",
+                "nearby dining"
+              ],
+              "entities": {
+                "country": "China",
+                "region": "北京",
+                "city": "北京",
+                "places": [
+                  "故宫博物院"
+                ]
+              },
+              "claim_plans": [
+                {
+                  "claim_type": "nearby_food",
+                  "claim_family": "nearby_recommendation",
+                  "claim_description": "nearby food",
+                  "priority": "required",
+                  "requires_exact_fact": false,
+                  "requires_live_data": false,
+                  "freshness": "recent",
+                  "allowed_source_types": [
+                    "map",
+                    "review",
+                    "public_web"
+                  ],
+                  "source_families": [
+                    "baidu_lbs_provider",
+                    "search_provider",
+                    "review_platform_provider",
+                    "crawler_provider",
+                    "fallback_provider"
+                  ],
+                  "preferred_tools": [
+                    "baidu_place_search_mcp",
+                    "baidu_place_detail_mcp",
+                    "dianping_nearby_crawler_mcp",
+                    "dianping_review_crawler_mcp",
+                    "ctrip_review_crawler_mcp",
+                    "search_mcp",
+                    "browser_mcp"
+                  ],
+                  "forbidden_tools": [
+                    "knowledge_prior"
+                  ],
+                  "sequence_key": "poi_recommendation",
+                  "tool_sequence": [
+                    "baidu_place_search_mcp",
+                    "baidu_place_detail_mcp",
+                    "dianping_review_crawler_mcp",
+                    "search_mcp",
+                    "browser_mcp"
+                  ],
+                  "must_attempt": [
+                    "baidu_place_search_mcp",
+                    "baidu_place_detail_mcp"
+                  ],
+                  "optional_tools": [
+                    "dianping_review_crawler_mcp",
+                    "search_mcp",
+                    "browser_mcp"
+                  ],
+                  "max_attempts": 4,
+                  "model_prior_allowed": false,
+                  "estimation_allowed": false,
+                  "missing_behavior": "answer_with_limitation",
+                  "notes": [
+                    "claim=nearby_food",
+                    "ResponseContract + S5DomainPlan 驱动白名单；claim_types: nearby_food",
+                    "S5 domains: geo_resolution, nearby_recommendation",
+                    "forbidden: knowledge_prior"
+                  ]
+                }
+              ],
+              "allowed_tools": [
+                "baidu_place_search_mcp",
+                "baidu_place_detail_mcp",
+                "baidu_reverse_geocode_mcp",
+                "baidu_route_mcp",
+                "dianping_review_crawler_mcp",
+                "search_mcp",
+                "browser_mcp",
+                "restaurant",
+                "baidu_geocode_mcp",
+                "fallback"
+              ],
+              "blocked_tools": [
+                {
+                  "tool": "baidu_ip_location_mcp",
+                  "reason": "not_relevant_for_domain"
+                },
+                {
+                  "tool": "baidu_route_matrix_mcp",
+                  "reason": "not_relevant_for_domain"
+                },
+                {
+                  "tool": "baidu_traffic_mcp",
+                  "reason": "not_relevant_for_domain"
+                },
+                {
+                  "tool": "baidu_weather_mcp",
+                  "reason": "not_relevant_for_domain"
+                },
+                {
+                  "tool": "climate_mcp",
+                  "reason": "not_relevant_for_domain"
+                },
+                {
+                  "tool": "ctrip_guide_crawler_mcp",
+                  "reason": "disabled_by_config"
+                },
+                {
+                  "tool": "ctrip_review_crawler_mcp",
+                  "reason": "disabled_by_config"
+                },
+                {
+                  "tool": "ctrip_ticket_signal_crawler_mcp",
+                  "reason": "disabled_by_config"
+                },
+                {
+                  "tool": "dianping_nearby_crawler_mcp",
+                  "reason": "disabled_by_config"
+                },
+                {
+                  "tool": "dianping_ticket_crawler_mcp",
+                  "reason": "disabled_by_config"
+                },
+                {
+                  "tool": "dianping_ticket_signal_crawler_mcp",
+                  "reason": "not_relevant_for_domain"
+                },
+                {
+                  "tool": "elderly_friendly_route_scorer_mcp",
+                  "reason": "disabled_by_config"
+                },
+                {
+                  "tool": "event_calendar_mcp",
+                  "reason": "disabled_by_config"
+                },
+                {
+                  "tool": "evidence_store_mcp",
+                  "reason": "not_relevant_for_domain"
+                },
+                {
+                  "tool": "family_trip_planner_mcp",
+                  "reason": "disabled_by_config"
+                },
+                {
+                  "tool": "fliggy_ticket_api_mcp",
+                  "reason": "not_relevant_for_domain"
+                },
+                {
+                  "tool": "fliggy_ticket_crawler_mcp",
+                  "reason": "disabled_by_config"
+                },
+                {
+                  "tool": "fliggy_ticket_snapshot_crawler_mcp",
+                  "reason": "not_relevant_for_domain"
+                },
+                {
+                  "tool": "geocode_mcp",
+                  "reason": "not_relevant_for_domain"
+                },
+                {
+                  "tool": "itinerary_planner_mcp",
+                  "reason": "disabled_by_config"
+                },
+                {
+                  "tool": "knowledge_prior",
+                  "reason": "forbidden_by_claim_policy: ResponseContract disallows model_prior."
+                },
+                {
+                  "tool": "lodging",
+                  "reason": "No matching information need for lodging."
+                },
+                {
+                  "tool": "mafengwo_note_crawler_mcp",
+                  "reason": "disabled_by_config"
+                },
+                {
+                  "tool": "meituan_nearby_crawler_mcp",
+                  "reason": "disabled_by_config"
+                },
+                {
+                  "tool": "meituan_review_crawler_mcp",
+                  "reason": "disabled_by_config"
+                },
+                {
+                  "tool": "meituan_ticket_crawler_mcp",
+                  "reason": "disabled_by_config"
+                },
+                {
+                  "tool": "nearby_attraction_mcp",
+                  "reason": "disabled_by_config"
+                },
+                {
+                  "tool": "nearby_food_mcp",
+                  "reason": "disabled_by_config"
+                },
+                {
+                  "tool": "nearby_hotel_mcp",
+                  "reason": "disabled_by_config"
+                },
+                {
+                  "tool": "nearby_parking_mcp",
+                  "reason": "disabled_by_config"
+                },
+                {
+                  "tool": "nearby_rest_area_mcp",
+                  "reason": "disabled_by_config"
+                },
+                {
+                  "tool": "nearby_station_mcp",
+                  "reason": "disabled_by_config"
+                },
+                {
+                  "tool": "nearby_toilet_mcp",
+                  "reason": "disabled_by_config"
+                },
+                {
+                  "tool": "official",
+                  "reason": "not_relevant_for_domain"
+                },
+                {
+                  "tool": "official_mcp",
+                  "reason": "not_relevant_for_domain"
+                },
+                {
+                  "tool": "official_page_reader_mcp",
+                  "reason": "not_relevant_for_domain"
+                },
+                {
+                  "tool": "official_source_discovery_mcp",
+                  "reason": "not_relevant_for_domain"
+                },
+                {
+                  "tool": "openmeteo_mcp",
+                  "reason": "not_relevant_for_domain"
+                },
+                {
+                  "tool": "osm_mcp",
+                  "reason": "not_relevant_for_domain"
+                },
+                {
+                  "tool": "places",
+                  "reason": "not_relevant_for_domain"
+                },
+                {
+                  "tool": "places_mcp",
+                  "reason": "not_relevant_for_domain"
+                },
+                {
+                  "tool": "platform_notice_crawler_mcp",
+                  "reason": "disabled_by_config"
+                },
+                {
+                  "tool": "public_review_search_mcp",
+                  "reason": "disabled_by_config"
+                },
+                {
+                  "tool": "qunar_ticket_crawler_mcp",
+                  "reason": "disabled_by_config"
+                },
+                {
+                  "tool": "review_signal_mcp",
+                  "reason": "disabled_by_config"
+                },
+                {
+                  "tool": "reviews",
+                  "reason": "not_relevant_for_domain"
+                },
+                {
+                  "tool": "route_feasibility_checker_mcp",
+                  "reason": "disabled_by_config"
+                },
+                {
+                  "tool": "seasonality",
+                  "reason": "not_relevant_for_domain"
+                },
+                {
+                  "tool": "sqlite_mcp",
+                  "reason": "not_relevant_for_domain"
+                },
+                {
+                  "tool": "ticket_price_history_query",
+                  "reason": "not_relevant_for_domain"
+                },
+                {
+                  "tool": "ticket_snapshot_store",
+                  "reason": "not_relevant_for_domain"
+                },
+                {
+                  "tool": "ticketlens_experience_mcp",
+                  "reason": "missing_api_key"
+                },
+                {
+                  "tool": "ticketlens_experience_review_signal_mcp",
+                  "reason": "missing_api_key"
+                },
+                {
+                  "tool": "tourism_board_notice_mcp",
+                  "reason": "disabled_by_config"
+                },
+                {
+                  "tool": "transit",
+                  "reason": "not_relevant_for_domain"
+                },
+                {
+                  "tool": "tripadvisor_review_crawler_mcp",
+                  "reason": "disabled_by_config"
+                },
+                {
+                  "tool": "weather",
+                  "reason": "not_relevant_for_domain"
+                },
+                {
+                  "tool": "weather_mcp",
+                  "reason": "not_relevant_for_domain"
+                },
+                {
+                  "tool": "wikidata_mcp",
+                  "reason": "not_relevant_for_domain"
+                },
+                {
+                  "tool": "wikipedia_mcp",
+                  "reason": "not_relevant_for_domain"
+                },
+                {
+                  "tool": "xiaohongshu_note_crawler_mcp",
+                  "reason": "disabled_by_config"
+                }
+              ],
+              "source_family_plan": [
+                "baidu_lbs_provider",
+                "search_provider",
+                "review_platform_provider",
+                "crawler_provider",
+                "fallback_provider"
+              ],
+              "budgets": {
+                "max_keyword_searches": 4,
+                "must_attempt_claim_count": 1
+              },
+              "phase_order": [
+                "input_contract",
+                "research_plan",
+                "evidence_acquisition",
+                "evidence_review",
+                "answer_draft",
+                "citation_guard",
+                "delivery"
+              ],
+              "notes": [
+                "Preserve the ResearchPlan claim_plans: do not switch to another task class unless the input_contract changes.",
+                "A tool attempt with no claim-relevant evidence is not sufficient coverage; continue with the next planned source family or finish with an explicit limitation.",
+                "Never let unrelated claims hijack the answer: route questions answer route/duration/distance; ticket questions answer explicit prices; geo facts answer numeric geographic facts.",
+                "When evidence is partial, preserve the usable claim-relevant facts and label their source class instead of replacing the task with a safer adjacent topic.",
+                "Nearby/POI tasks should answer the requested POI category first and avoid adding unrelated sections.",
+                "If candidates are found, do not conclude 'no usable evidence' merely because cross-source corroboration is absent; label them as map candidates.",
+                "ResponseContract + S5DomainPlan 驱动白名单；claim_types: nearby_food",
+                "S5 domains: geo_resolution, nearby_recommendation",
+                "forbidden: knowledge_prior",
+                "blocked_tools: baidu_ip_location_mcp: not_relevant_for_domain; baidu_route_matrix_mcp: not_relevant_for_domain; baidu_traffic_mcp: not_relevant_for_domain; baidu_weather_mcp: not_relevant_for_domain; climate_mcp: not_relevant_for_domain; ctrip_guide_crawler_mcp: disabled_by_config; ctrip_review_crawler_mcp: disabled_by_config; ctrip_ticket_signal_crawler_mcp: disabled_by_config; dianping_nearby_crawler_mcp: disabled_by_config; dianping_ticket_crawler_mcp: disabled_by_config; dianping_ticket_signal_crawler_mcp: not_relevant_for_domain; elderly_friendly_route_scorer_mcp: disabled_by_config",
+                "tool visibility resolved by PipelineGate"
+              ],
+              "created_at": "2026-06-30T03:41:59.752083+00:00"
+            },
+            "evidence_refs": [],
+            "created_by": "root_agent",
+            "created_at": "2026-06-30T03:41:59.752228+00:00"
+          },
+          "evidence_acquisition": {
+            "id": "6014ff6b-cf14-4047-954c-75700f9bcd37",
+            "run_id": "603f51b0-ec5e-4f8d-92cf-48e91aa7600a",
+            "phase": "evidence_acquisition",
+            "kind": "evidence_batch",
+            "status": "succeeded",
+            "payload": {
+              "evidence_count": 15,
+              "tool_trace_count": 16,
+              "completed_search_task_ids": [
+                "orch-7dcd8ef0"
+              ],
+              "attempted_search_task_ids": [
+                "orch-7dcd8ef0"
+              ],
+              "source_names": [
+                "Baidu Maps MCP",
+                "Dianping Crawler",
+                "open-webSearch"
+              ]
+            },
+            "evidence_refs": [
+              "b7fbdda3-4aa0-4da2-84eb-a0b1a3aa1600",
+              "68bcf3ce-7a98-4d73-9a64-976db89fde83",
+              "a4b6f3c5-5f0a-4cac-84da-9c3d3026cb83",
+              "76022f33-13d9-4931-b970-a9c925ec9eeb",
+              "b156507b-ddec-47f8-ac56-e301991743e4",
+              "e26c19bc-3845-405a-8a3b-30db6d492622",
+              "c785387f-f885-4d73-acb9-12bb9f5efbb0",
+              "a03458af-4f9a-46e9-a6ef-7eb5084438e5",
+              "8523d08d-8691-43af-bb55-d491dba01d18",
+              "f266c736-a206-4438-985f-8ff2c5a0e0ee",
+              "edd48cf8-5f74-4710-9e7c-53163845df36",
+              "463a5bb7-ca4e-49e7-a39d-2f79860dfc13",
+              "cf21cc0d-9642-4724-8b29-238fd9721859",
+              "b9348611-1de3-4f9d-90aa-849a515a4b9c",
+              "2b0e4035-1eea-45a6-b794-cb85c9915dae"
+            ],
+            "created_by": "state_machine",
+            "created_at": "2026-06-30T03:43:08.060074+00:00"
+          },
+          "evidence_review": {
+            "id": "c1ca37b2-ff38-4a32-a6e4-093fc8299b26",
+            "run_id": "603f51b0-ec5e-4f8d-92cf-48e91aa7600a",
+            "phase": "evidence_review",
+            "kind": "evidence_review",
+            "status": "succeeded",
+            "payload": {
+              "overall_confidence": 0.699,
+              "claim_decisions": [
+                {
+                  "claim_type": "nearby_food",
+                  "claim_family": "nearby_recommendation",
+                  "claim_description": "nearby food",
+                  "required": true,
+                  "coverage_quality": "strong",
+                  "adoption": "adopt",
+                  "adopted_evidence_ids": [
+                    "f266c736-a206-4438-985f-8ff2c5a0e0ee",
+                    "b7fbdda3-4aa0-4da2-84eb-a0b1a3aa1600",
+                    "b156507b-ddec-47f8-ac56-e301991743e4",
+                    "e26c19bc-3845-405a-8a3b-30db6d492622",
+                    "c785387f-f885-4d73-acb9-12bb9f5efbb0",
+                    "a03458af-4f9a-46e9-a6ef-7eb5084438e5",
+                    "8523d08d-8691-43af-bb55-d491dba01d18"
+                  ],
+                  "rejected_evidence_ids": [],
+                  "supporting_tool_names": [
+                    "Baidu Maps MCP"
+                  ],
+                  "confidence": 0.654,
+                  "reason": "coverage=partial, adoption=adopt_with_limitation, tier=family",
+                  "limitations": [
+                    "多来源对该 claim 给出不同表述，保留差异并标注限制。"
+                  ],
+                  "adoption_level": "strong",
+                  "adopted_value": "[{'name': '故宫冰窖餐厅', 'uid': '0c8acea873718bcfad0457b4', 'city': '北京市', 'province': '北京市', 'address': '北长街故宫博物院慈宁宫南侧', 'latitude': 39.92409980555296, 'longitude': 116.40172261363698, 'tag': None}, {'name': '故宫餐厅(景运门店)', 'uid': '9fbfeef26463035cece4a5ad', 'city': '北京市', 'province': '北京市', 'address': '东华门街道景山前街4号故宫博物院内景运门南侧(近钟表馆)', 'latitude': 39.92551252144672, 'longitude': 116.40475475405535, 'tag': None}, {'name': '故宫角楼咖啡(故宫店)', 'uid': 'a52ef8ebfb2dae591d1d1113', 'city': '北京市', 'province': '北京市', 'address': '景山前街4号故宫博物院神武门西围房', 'latitude': 39.92872130046041, 'longitude': 116.40282384636166, 'tag': None}, {'name': '八爷涮肉(故宫总店)', 'uid': '820d9bf2a4bd3f294207c1cb', 'city': '北京市', 'province': '北京市', 'address': '南河沿大街1号北京翠明庄宾馆主楼B1层（故宫东华门向东300米）', 'latitude': 39.92961429493839, 'longitude': 116.40256783018961, 'tag': None}]",
+                  "can_answer_directly": true,
+                  "must_show_limitation": true,
+                  "missing_evidence": [],
+                  "claim_id": null,
+                  "source_strength_summary": {
+                    "f266c736-a206-4438-985f-8ff2c5a0e0ee": "weak"
+                  },
+                  "user_visible_limitations": [
+                    "多来源对该 claim 给出不同表述，保留差异并标注限制。"
+                  ],
+                  "internal_debug_limitations": []
+                },
+                {
+                  "claim_type": "nearby_poi",
+                  "claim_family": "nearby_recommendation",
+                  "claim_description": "nearby poi",
+                  "required": false,
+                  "coverage_quality": "strong",
+                  "adoption": "adopt",
+                  "adopted_evidence_ids": [
+                    "f266c736-a206-4438-985f-8ff2c5a0e0ee",
+                    "b7fbdda3-4aa0-4da2-84eb-a0b1a3aa1600",
+                    "b156507b-ddec-47f8-ac56-e301991743e4",
+                    "e26c19bc-3845-405a-8a3b-30db6d492622",
+                    "c785387f-f885-4d73-acb9-12bb9f5efbb0",
+                    "a03458af-4f9a-46e9-a6ef-7eb5084438e5",
+                    "8523d08d-8691-43af-bb55-d491dba01d18"
+                  ],
+                  "rejected_evidence_ids": [],
+                  "supporting_tool_names": [
+                    "Baidu Maps MCP"
+                  ],
+                  "confidence": 0.784,
+                  "reason": "coverage=partial, adoption=adopt_with_limitation, tier=known",
+                  "limitations": [],
+                  "adoption_level": "strong",
+                  "adopted_value": "[{'name': '故宫冰窖餐厅', 'uid': '0c8acea873718bcfad0457b4', 'city': '北京市', 'province': '北京市', 'address': '北长街故宫博物院慈宁宫南侧', 'latitude': 39.92409980555296, 'longitude': 116.40172261363698, 'tag': None}, {'name': '故宫餐厅(景运门店)', 'uid': '9fbfeef26463035cece4a5ad', 'city': '北京市', 'province': '北京市', 'address': '东华门街道景山前街4号故宫博物院内景运门南侧(近钟表馆)', 'latitude': 39.92551252144672, 'longitude': 116.40475475405535, 'tag': None}, {'name': '故宫角楼咖啡(故宫店)', 'uid': 'a52ef8ebfb2dae591d1d1113', 'city': '北京市', 'province': '北京市', 'address': '景山前街4号故宫博物院神武门西围房', 'latitude': 39.92872130046041, 'longitude': 116.40282384636166, 'tag': None}, {'name': '八爷涮肉(故宫总店)', 'uid': '820d9bf2a4bd3f294207c1cb', 'city': '北京市', 'province': '北京市', 'address': '南河沿大街1号北京翠明庄宾馆主楼B1层（故宫东华门向东300米）', 'latitude': 39.92961429493839, 'longitude': 116.40256783018961, 'tag': None}]",
+                  "can_answer_directly": true,
+                  "must_show_limitation": true,
+                  "missing_evidence": [],
+                  "claim_id": null,
+                  "source_strength_summary": {
+                    "f266c736-a206-4438-985f-8ff2c5a0e0ee": "weak"
+                  },
+                  "user_visible_limitations": [],
+                  "internal_debug_limitations": []
+                },
+                {
+                  "claim_type": "nearby_dining",
+                  "claim_family": "open_advice",
+                  "claim_description": "nearby dining",
+                  "required": false,
+                  "coverage_quality": "partial",
+                  "adoption": "adopt_with_limitation",
+                  "adopted_evidence_ids": [
+                    "f266c736-a206-4438-985f-8ff2c5a0e0ee"
+                  ],
+                  "rejected_evidence_ids": [],
+                  "supporting_tool_names": [
+                    "Baidu Maps MCP"
+                  ],
+                  "confidence": 0.659,
+                  "reason": "coverage=partial, adoption=adopt_with_limitation, tier=family",
+                  "limitations": [
+                    "多来源对该 claim 给出不同表述，保留差异并标注限制。"
+                  ],
+                  "adoption_level": "partial",
+                  "adopted_value": "[{'name': '故宫冰窖餐厅', 'uid': '0c8acea873718bcfad0457b4', 'city': '北京市', 'province': '北京市', 'address': '北长街故宫博物院慈宁宫南侧', 'latitude': 39.92409980555296, 'longitude': 116.40172261363698, 'tag': None}, {'name': '故宫餐厅(景运门店)', 'uid': '9fbfeef26463035cece4a5ad', 'city': '北京市', 'province': '北京市', 'address': '东华门街道景山前街4号故宫博物院内景运门南侧(近钟表馆)', 'latitude': 39.92551252144672, 'longitude': 116.40475475405535, 'tag': None}, {'name': '故宫角楼咖啡(故宫店)', 'uid': 'a52ef8ebfb2dae591d1d1113', 'city': '北京市', 'province': '北京市', 'address': '景山前街4号故宫博物院神武门西围房', 'latitude': 39.92872130046041, 'longitude': 116.40282384636166, 'tag': None}, {'name': '八爷涮肉(故宫总店)', 'uid': '820d9bf2a4bd3f294207c1cb', 'city': '北京市', 'province': '北京市', 'address': '南河沿大街1号北京翠明庄宾馆主楼B1层（故宫东华门向东300米）', 'latitude': 39.92961429493839, 'longitude': 116.40256783018961, 'tag': None}]",
+                  "can_answer_directly": true,
+                  "must_show_limitation": true,
+                  "missing_evidence": [],
+                  "claim_id": null,
+                  "source_strength_summary": {
+                    "f266c736-a206-4438-985f-8ff2c5a0e0ee": "weak"
+                  },
+                  "user_visible_limitations": [
+                    "多来源对该 claim 给出不同表述，保留差异并标注限制。"
+                  ],
+                  "internal_debug_limitations": []
+                }
+              ],
+              "gaps": []
+            },
+            "evidence_refs": [],
+            "created_by": "state_machine",
+            "created_at": "2026-06-30T03:43:08.060208+00:00"
+          },
+          "answer_draft": {
+            "id": "557d2b03-0542-4a06-8847-d42dbb67ea87",
+            "run_id": "603f51b0-ec5e-4f8d-92cf-48e91aa7600a",
+            "phase": "answer_draft",
+            "kind": "answer_artifact",
+            "status": "approved",
+            "payload": {
+              "artifact_id": "7e9d2e38-7b13-4f97-a39d-82912a835b45",
+              "compose_mode": "nearby_guided",
+              "target_label": "故宫博物院",
+              "answer_preview": "故宫博物院周边美食推荐\n\n结论：\n以下是故宫博物院（北京市东城区景山前街4号）周边可步行到达的餐饮点，根据百度地图信息整理。\n\n周边美食推荐：\n- 1. 故宫冰窖餐厅 – 北长街故宫博物院慈宁宫南侧（来源：Baidu Maps MCP，置信度68%）\n- 2. 故宫餐厅(景运门店) – 东华门街道景山前街4号故宫博物院内景运门南侧(近钟表馆)（来源：Baidu Maps MCP，置信度68%）\n- 3. 故宫角楼咖啡(故宫店) – 景山前街4号故宫博物院神武门西围房（来源：Baidu Maps MCP，置信度68%）\n- 4. 八爷涮肉(故宫总店) – 南河沿大街1号北京翠明庄宾馆主楼B1层（故宫东华门向东300米）（来源：Baidu Maps MCP，置信度68%）\n\n按入口选择提示：\n- 若您从东华门（东门）进入，八爷涮肉距此约300米，故宫角楼咖啡位于神武门西围房，亦可便捷前往。\n- 若从午门（南门）进入，故宫冰窖餐厅和故宫餐厅(景运门店)较近。\n\n说明：\n- 以上信息来自百度地图搜索结果，无用户评价或评分数据\n- 实际营业状态以现场为准。",
+              "has_answer": true
+            },
+            "evidence_refs": [],
+            "created_by": "state_machine",
+            "created_at": "2026-06-30T03:43:12.999685+00:00"
+          },
+          "citation_guard": {
+            "id": "4cac1dc3-00ad-457b-bc8e-20c1fe70d69a",
+            "run_id": "603f51b0-ec5e-4f8d-92cf-48e91aa7600a",
+            "phase": "citation_guard",
+            "kind": "citation_check",
+            "status": "approved",
+            "payload": {
+              "confidence": 0.45,
+              "citation_check_result": {
+                "confidence": 0.45,
+                "limitations": [
+                  "体验判断缺少 fact_sheet 或 review_aspects 支撑。",
+                  "关键证据不足，部分结论置信度受限。",
+                  "答案中某些具体表述未能与证据值完全匹配，已降置信度。"
+                ],
+                "unsupported_or_mismatched_claims": [
+                  {
+                    "field": "experience",
+                    "reason": "no fact_sheet or review aspect"
+                  }
+                ],
+                "supported_claims": [],
+                "unsupported_claims": [],
+                "mismatched_claims": [
+                  {
+                    "field": "experience",
+                    "reason": "no fact_sheet or review aspect"
+                  }
+                ],
+                "confidence_delta": 0.08
+              },
+              "limitation_count": 5
+            },
+            "evidence_refs": [],
+            "created_by": "state_machine",
+            "created_at": "2026-06-30T03:43:13.001139+00:00"
+          },
+          "delivery": {
+            "id": "397b68e0-3051-4a49-b878-cdff143b9714",
+            "run_id": "603f51b0-ec5e-4f8d-92cf-48e91aa7600a",
+            "phase": "delivery",
+            "kind": "final_answer",
+            "status": "succeeded",
+            "payload": {
+              "artifact_id": "8730c071-d0d1-4892-ae9d-8cc4b8fc280e",
+              "confidence": 0.45
+            },
+            "evidence_refs": [],
+            "created_by": "state_machine",
+            "created_at": "2026-06-30T03:43:13.004058+00:00"
+          }
+        },
+        "evidence_summary": {
+          "count": 15,
+          "source_type_counts": {
+            "map": 11,
+            "web": 2,
+            "review_platform": 2
+          },
+          "usage_role_counts": {
+            "answerable": 7,
+            "context": 8
+          },
+          "strength_counts": {
+            "strong": 6,
+            "unknown": 8,
+            "partial": 1
+          },
+          "adopted_evidence_count": 7,
+          "rejected_evidence_count": 0,
+          "effective_query_count": 1
+        },
+        "claim_decisions": [
+          {
+            "claim_type": "nearby_food",
+            "claim_family": "nearby_recommendation",
+            "claim_description": "nearby food",
+            "required": true,
+            "coverage_quality": "strong",
+            "adoption": "adopt",
+            "adopted_evidence_ids": [
+              "f266c736-a206-4438-985f-8ff2c5a0e0ee",
+              "b7fbdda3-4aa0-4da2-84eb-a0b1a3aa1600",
+              "b156507b-ddec-47f8-ac56-e301991743e4",
+              "e26c19bc-3845-405a-8a3b-30db6d492622",
+              "c785387f-f885-4d73-acb9-12bb9f5efbb0",
+              "a03458af-4f9a-46e9-a6ef-7eb5084438e5",
+              "8523d08d-8691-43af-bb55-d491dba01d18"
+            ],
+            "rejected_evidence_ids": [],
+            "supporting_tool_names": [
+              "Baidu Maps MCP"
+            ],
+            "confidence": 0.654,
+            "reason": "coverage=partial, adoption=adopt_with_limitation, tier=family",
+            "limitations": [
+              "多来源对该 claim 给出不同表述，保留差异并标注限制。"
+            ],
+            "adoption_level": "strong",
+            "adopted_value": "[{'name': '故宫冰窖餐厅', 'uid': '0c8acea873718bcfad0457b4', 'city': '北京市', 'province': '北京市', 'address': '北长街故宫博物院慈宁宫南侧', 'latitude': 39.92409980555296, 'longitude': 116.40172261363698, 'tag': None}, {'name': '故宫餐厅(景运门店)', 'uid': '9fbfeef26463035cece4a5ad', 'city': '北京市', 'province': '北京市', 'address': '东华门街道景山前街4号故宫博物院内景运门南侧(近钟表馆)', 'latitude': 39.92551252144672, 'longitude': 116.40475475405535, 'tag': None}, {'name': '故宫角楼咖啡(故宫店)', 'uid': 'a52ef8ebfb2dae591d1d1113', 'city': '北京市', 'province': '北京市', 'address': '景山前街4号故宫博物院神武门西围房', 'latitude': 39.92872130046041, 'longitude': 116.40282384636166, 'tag': None}, {'name': '八爷涮肉(故宫总店)', 'uid': '820d9bf2a4bd3f294207c1cb', 'city': '北京市', 'province': '北京市', 'address': '南河沿大街1号北京翠明庄宾馆主楼B1层（故宫东华门向东300米）', 'latitude': 39.92961429493839, 'longitude': 116.40256783018961, 'tag': None}]",
+            "can_answer_directly": true,
+            "must_show_limitation": true,
+            "missing_evidence": [],
+            "claim_id": null,
+            "source_strength_summary": {
+              "f266c736-a206-4438-985f-8ff2c5a0e0ee": "weak"
+            },
+            "user_visible_limitations": [
+              "多来源对该 claim 给出不同表述，保留差异并标注限制。"
+            ],
+            "internal_debug_limitations": []
+          },
+          {
+            "claim_type": "nearby_poi",
+            "claim_family": "nearby_recommendation",
+            "claim_description": "nearby poi",
+            "required": false,
+            "coverage_quality": "strong",
+            "adoption": "adopt",
+            "adopted_evidence_ids": [
+              "f266c736-a206-4438-985f-8ff2c5a0e0ee",
+              "b7fbdda3-4aa0-4da2-84eb-a0b1a3aa1600",
+              "b156507b-ddec-47f8-ac56-e301991743e4",
+              "e26c19bc-3845-405a-8a3b-30db6d492622",
+              "c785387f-f885-4d73-acb9-12bb9f5efbb0",
+              "a03458af-4f9a-46e9-a6ef-7eb5084438e5",
+              "8523d08d-8691-43af-bb55-d491dba01d18"
+            ],
+            "rejected_evidence_ids": [],
+            "supporting_tool_names": [
+              "Baidu Maps MCP"
+            ],
+            "confidence": 0.784,
+            "reason": "coverage=partial, adoption=adopt_with_limitation, tier=known",
+            "limitations": [],
+            "adoption_level": "strong",
+            "adopted_value": "[{'name': '故宫冰窖餐厅', 'uid': '0c8acea873718bcfad0457b4', 'city': '北京市', 'province': '北京市', 'address': '北长街故宫博物院慈宁宫南侧', 'latitude': 39.92409980555296, 'longitude': 116.40172261363698, 'tag': None}, {'name': '故宫餐厅(景运门店)', 'uid': '9fbfeef26463035cece4a5ad', 'city': '北京市', 'province': '北京市', 'address': '东华门街道景山前街4号故宫博物院内景运门南侧(近钟表馆)', 'latitude': 39.92551252144672, 'longitude': 116.40475475405535, 'tag': None}, {'name': '故宫角楼咖啡(故宫店)', 'uid': 'a52ef8ebfb2dae591d1d1113', 'city': '北京市', 'province': '北京市', 'address': '景山前街4号故宫博物院神武门西围房', 'latitude': 39.92872130046041, 'longitude': 116.40282384636166, 'tag': None}, {'name': '八爷涮肉(故宫总店)', 'uid': '820d9bf2a4bd3f294207c1cb', 'city': '北京市', 'province': '北京市', 'address': '南河沿大街1号北京翠明庄宾馆主楼B1层（故宫东华门向东300米）', 'latitude': 39.92961429493839, 'longitude': 116.40256783018961, 'tag': None}]",
+            "can_answer_directly": true,
+            "must_show_limitation": true,
+            "missing_evidence": [],
+            "claim_id": null,
+            "source_strength_summary": {
+              "f266c736-a206-4438-985f-8ff2c5a0e0ee": "weak"
+            },
+            "user_visible_limitations": [],
+            "internal_debug_limitations": []
+          },
+          {
+            "claim_type": "nearby_dining",
+            "claim_family": "open_advice",
+            "claim_description": "nearby dining",
+            "required": false,
+            "coverage_quality": "partial",
+            "adoption": "adopt_with_limitation",
+            "adopted_evidence_ids": [
+              "f266c736-a206-4438-985f-8ff2c5a0e0ee"
+            ],
+            "rejected_evidence_ids": [],
+            "supporting_tool_names": [
+              "Baidu Maps MCP"
+            ],
+            "confidence": 0.659,
+            "reason": "coverage=partial, adoption=adopt_with_limitation, tier=family",
+            "limitations": [
+              "多来源对该 claim 给出不同表述，保留差异并标注限制。"
+            ],
+            "adoption_level": "partial",
+            "adopted_value": "[{'name': '故宫冰窖餐厅', 'uid': '0c8acea873718bcfad0457b4', 'city': '北京市', 'province': '北京市', 'address': '北长街故宫博物院慈宁宫南侧', 'latitude': 39.92409980555296, 'longitude': 116.40172261363698, 'tag': None}, {'name': '故宫餐厅(景运门店)', 'uid': '9fbfeef26463035cece4a5ad', 'city': '北京市', 'province': '北京市', 'address': '东华门街道景山前街4号故宫博物院内景运门南侧(近钟表馆)', 'latitude': 39.92551252144672, 'longitude': 116.40475475405535, 'tag': None}, {'name': '故宫角楼咖啡(故宫店)', 'uid': 'a52ef8ebfb2dae591d1d1113', 'city': '北京市', 'province': '北京市', 'address': '景山前街4号故宫博物院神武门西围房', 'latitude': 39.92872130046041, 'longitude': 116.40282384636166, 'tag': None}, {'name': '八爷涮肉(故宫总店)', 'uid': '820d9bf2a4bd3f294207c1cb', 'city': '北京市', 'province': '北京市', 'address': '南河沿大街1号北京翠明庄宾馆主楼B1层（故宫东华门向东300米）', 'latitude': 39.92961429493839, 'longitude': 116.40256783018961, 'tag': None}]",
+            "can_answer_directly": true,
+            "must_show_limitation": true,
+            "missing_evidence": [],
+            "claim_id": null,
+            "source_strength_summary": {
+              "f266c736-a206-4438-985f-8ff2c5a0e0ee": "weak"
+            },
+            "user_visible_limitations": [
+              "多来源对该 claim 给出不同表述，保留差异并标注限制。"
+            ],
+            "internal_debug_limitations": []
+          }
+        ],
+        "gaps": [],
+        "latest_artifacts": {
+          "research_plan": {
+            "id": "2483b7fb-6580-4a6e-ad8a-902aacffffd6",
+            "run_id": "603f51b0-ec5e-4f8d-92cf-48e91aa7600a",
+            "artifact_type": "research_plan",
+            "status": "approved",
+            "payload": {
+              "run_id": "603f51b0-ec5e-4f8d-92cf-48e91aa7600a",
+              "task_class": "poi_recommendation",
+              "intent_family": null,
+              "user_goal_summary": "北京故宫周边的餐饮推荐",
+              "anchor_keywords": [
+                "故宫博物院",
+                "北京",
+                "nearby dining"
+              ],
+              "entities": {
+                "country": "China",
+                "region": "北京",
+                "city": "北京",
+                "places": [
+                  "故宫博物院"
+                ]
+              },
+              "claim_plans": [
+                {
+                  "claim_type": "nearby_food",
+                  "claim_family": "nearby_recommendation",
+                  "claim_description": "nearby food",
+                  "priority": "required",
+                  "requires_exact_fact": false,
+                  "requires_live_data": false,
+                  "freshness": "recent",
+                  "allowed_source_types": [
+                    "map",
+                    "review",
+                    "public_web"
+                  ],
+                  "source_families": [
+                    "baidu_lbs_provider",
+                    "search_provider",
+                    "review_platform_provider",
+                    "crawler_provider",
+                    "fallback_provider"
+                  ],
+                  "preferred_tools": [
+                    "baidu_place_search_mcp",
+                    "baidu_place_detail_mcp",
+                    "dianping_nearby_crawler_mcp",
+                    "dianping_review_crawler_mcp",
+                    "ctrip_review_crawler_mcp",
+                    "search_mcp",
+                    "browser_mcp"
+                  ],
+                  "forbidden_tools": [
+                    "knowledge_prior"
+                  ],
+                  "sequence_key": "poi_recommendation",
+                  "tool_sequence": [
+                    "baidu_place_search_mcp",
+                    "baidu_place_detail_mcp",
+                    "dianping_review_crawler_mcp",
+                    "search_mcp",
+                    "browser_mcp"
+                  ],
+                  "must_attempt": [
+                    "baidu_place_search_mcp",
+                    "baidu_place_detail_mcp"
+                  ],
+                  "optional_tools": [
+                    "dianping_review_crawler_mcp",
+                    "search_mcp",
+                    "browser_mcp"
+                  ],
+                  "max_attempts": 4,
+                  "model_prior_allowed": false,
+                  "estimation_allowed": false,
+                  "missing_behavior": "answer_with_limitation",
+                  "notes": [
+                    "claim=nearby_food",
+                    "ResponseContract + S5DomainPlan 驱动白名单；claim_types: nearby_food",
+                    "S5 domains: geo_resolution, nearby_recommendation",
+                    "forbidden: knowledge_prior"
+                  ]
+                }
+              ],
+              "allowed_tools": [
+                "baidu_place_search_mcp",
+                "baidu_place_detail_mcp",
+                "baidu_reverse_geocode_mcp",
+                "baidu_route_mcp",
+                "dianping_review_crawler_mcp",
+                "search_mcp",
+                "browser_mcp",
+                "restaurant",
+                "baidu_geocode_mcp",
+                "fallback"
+              ],
+              "blocked_tools": [
+                {
+                  "tool": "baidu_ip_location_mcp",
+                  "reason": "not_relevant_for_domain"
+                },
+                {
+                  "tool": "baidu_route_matrix_mcp",
+                  "reason": "not_relevant_for_domain"
+                },
+                {
+                  "tool": "baidu_traffic_mcp",
+                  "reason": "not_relevant_for_domain"
+                },
+                {
+                  "tool": "baidu_weather_mcp",
+                  "reason": "not_relevant_for_domain"
+                },
+                {
+                  "tool": "climate_mcp",
+                  "reason": "not_relevant_for_domain"
+                },
+                {
+                  "tool": "ctrip_guide_crawler_mcp",
+                  "reason": "disabled_by_config"
+                },
+                {
+                  "tool": "ctrip_review_crawler_mcp",
+                  "reason": "disabled_by_config"
+                },
+                {
+                  "tool": "ctrip_ticket_signal_crawler_mcp",
+                  "reason": "disabled_by_config"
+                },
+                {
+                  "tool": "dianping_nearby_crawler_mcp",
+                  "reason": "disabled_by_config"
+                },
+                {
+                  "tool": "dianping_ticket_crawler_mcp",
+                  "reason": "disabled_by_config"
+                },
+                {
+                  "tool": "dianping_ticket_signal_crawler_mcp",
+                  "reason": "not_relevant_for_domain"
+                },
+                {
+                  "tool": "elderly_friendly_route_scorer_mcp",
+                  "reason": "disabled_by_config"
+                },
+                {
+                  "tool": "event_calendar_mcp",
+                  "reason": "disabled_by_config"
+                },
+                {
+                  "tool": "evidence_store_mcp",
+                  "reason": "not_relevant_for_domain"
+                },
+                {
+                  "tool": "family_trip_planner_mcp",
+                  "reason": "disabled_by_config"
+                },
+                {
+                  "tool": "fliggy_ticket_api_mcp",
+                  "reason": "not_relevant_for_domain"
+                },
+                {
+                  "tool": "fliggy_ticket_crawler_mcp",
+                  "reason": "disabled_by_config"
+                },
+                {
+                  "tool": "fliggy_ticket_snapshot_crawler_mcp",
+                  "reason": "not_relevant_for_domain"
+                },
+                {
+                  "tool": "geocode_mcp",
+                  "reason": "not_relevant_for_domain"
+                },
+                {
+                  "tool": "itinerary_planner_mcp",
+                  "reason": "disabled_by_config"
+                },
+                {
+                  "tool": "knowledge_prior",
+                  "reason": "forbidden_by_claim_policy: ResponseContract disallows model_prior."
+                },
+                {
+                  "tool": "lodging",
+                  "reason": "No matching information need for lodging."
+                },
+                {
+                  "tool": "mafengwo_note_crawler_mcp",
+                  "reason": "disabled_by_config"
+                },
+                {
+                  "tool": "meituan_nearby_crawler_mcp",
+                  "reason": "disabled_by_config"
+                },
+                {
+                  "tool": "meituan_review_crawler_mcp",
+                  "reason": "disabled_by_config"
+                },
+                {
+                  "tool": "meituan_ticket_crawler_mcp",
+                  "reason": "disabled_by_config"
+                },
+                {
+                  "tool": "nearby_attraction_mcp",
+                  "reason": "disabled_by_config"
+                },
+                {
+                  "tool": "nearby_food_mcp",
+                  "reason": "disabled_by_config"
+                },
+                {
+                  "tool": "nearby_hotel_mcp",
+                  "reason": "disabled_by_config"
+                },
+                {
+                  "tool": "nearby_parking_mcp",
+                  "reason": "disabled_by_config"
+                },
+                {
+                  "tool": "nearby_rest_area_mcp",
+                  "reason": "disabled_by_config"
+                },
+                {
+                  "tool": "nearby_station_mcp",
+                  "reason": "disabled_by_config"
+                },
+                {
+                  "tool": "nearby_toilet_mcp",
+                  "reason": "disabled_by_config"
+                },
+                {
+                  "tool": "official",
+                  "reason": "not_relevant_for_domain"
+                },
+                {
+                  "tool": "official_mcp",
+                  "reason": "not_relevant_for_domain"
+                },
+                {
+                  "tool": "official_page_reader_mcp",
+                  "reason": "not_relevant_for_domain"
+                },
+                {
+                  "tool": "official_source_discovery_mcp",
+                  "reason": "not_relevant_for_domain"
+                },
+                {
+                  "tool": "openmeteo_mcp",
+                  "reason": "not_relevant_for_domain"
+                },
+                {
+                  "tool": "osm_mcp",
+                  "reason": "not_relevant_for_domain"
+                },
+                {
+                  "tool": "places",
+                  "reason": "not_relevant_for_domain"
+                },
+                {
+                  "tool": "places_mcp",
+                  "reason": "not_relevant_for_domain"
+                },
+                {
+                  "tool": "platform_notice_crawler_mcp",
+                  "reason": "disabled_by_config"
+                },
+                {
+                  "tool": "public_review_search_mcp",
+                  "reason": "disabled_by_config"
+                },
+                {
+                  "tool": "qunar_ticket_crawler_mcp",
+                  "reason": "disabled_by_config"
+                },
+                {
+                  "tool": "review_signal_mcp",
+                  "reason": "disabled_by_config"
+                },
+                {
+                  "tool": "reviews",
+                  "reason": "not_relevant_for_domain"
+                },
+                {
+                  "tool": "route_feasibility_checker_mcp",
+                  "reason": "disabled_by_config"
+                },
+                {
+                  "tool": "seasonality",
+                  "reason": "not_relevant_for_domain"
+                },
+                {
+                  "tool": "sqlite_mcp",
+                  "reason": "not_relevant_for_domain"
+                },
+                {
+                  "tool": "ticket_price_history_query",
+                  "reason": "not_relevant_for_domain"
+                },
+                {
+                  "tool": "ticket_snapshot_store",
+                  "reason": "not_relevant_for_domain"
+                },
+                {
+                  "tool": "ticketlens_experience_mcp",
+                  "reason": "missing_api_key"
+                },
+                {
+                  "tool": "ticketlens_experience_review_signal_mcp",
+                  "reason": "missing_api_key"
+                },
+                {
+                  "tool": "tourism_board_notice_mcp",
+                  "reason": "disabled_by_config"
+                },
+                {
+                  "tool": "transit",
+                  "reason": "not_relevant_for_domain"
+                },
+                {
+                  "tool": "tripadvisor_review_crawler_mcp",
+                  "reason": "disabled_by_config"
+                },
+                {
+                  "tool": "weather",
+                  "reason": "not_relevant_for_domain"
+                },
+                {
+                  "tool": "weather_mcp",
+                  "reason": "not_relevant_for_domain"
+                },
+                {
+                  "tool": "wikidata_mcp",
+                  "reason": "not_relevant_for_domain"
+                },
+                {
+                  "tool": "wikipedia_mcp",
+                  "reason": "not_relevant_for_domain"
+                },
+                {
+                  "tool": "xiaohongshu_note_crawler_mcp",
+                  "reason": "disabled_by_config"
+                }
+              ],
+              "source_family_plan": [
+                "baidu_lbs_provider",
+                "search_provider",
+                "review_platform_provider",
+                "crawler_provider",
+                "fallback_provider"
+              ],
+              "budgets": {
+                "max_keyword_searches": 4,
+                "must_attempt_claim_count": 1
+              },
+              "phase_order": [
+                "input_contract",
+                "research_plan",
+                "evidence_acquisition",
+                "evidence_review",
+                "answer_draft",
+                "citation_guard",
+                "delivery"
+              ],
+              "notes": [
+                "Preserve the ResearchPlan claim_plans: do not switch to another task class unless the input_contract changes.",
+                "A tool attempt with no claim-relevant evidence is not sufficient coverage; continue with the next planned source family or finish with an explicit limitation.",
+                "Never let unrelated claims hijack the answer: route questions answer route/duration/distance; ticket questions answer explicit prices; geo facts answer numeric geographic facts.",
+                "When evidence is partial, preserve the usable claim-relevant facts and label their source class instead of replacing the task with a safer adjacent topic.",
+                "Nearby/POI tasks should answer the requested POI category first and avoid adding unrelated sections.",
+                "If candidates are found, do not conclude 'no usable evidence' merely because cross-source corroboration is absent; label them as map candidates.",
+                "ResponseContract + S5DomainPlan 驱动白名单；claim_types: nearby_food",
+                "S5 domains: geo_resolution, nearby_recommendation",
+                "forbidden: knowledge_prior",
+                "blocked_tools: baidu_ip_location_mcp: not_relevant_for_domain; baidu_route_matrix_mcp: not_relevant_for_domain; baidu_traffic_mcp: not_relevant_for_domain; baidu_weather_mcp: not_relevant_for_domain; climate_mcp: not_relevant_for_domain; ctrip_guide_crawler_mcp: disabled_by_config; ctrip_review_crawler_mcp: disabled_by_config; ctrip_ticket_signal_crawler_mcp: disabled_by_config; dianping_nearby_crawler_mcp: disabled_by_config; dianping_ticket_crawler_mcp: disabled_by_config; dianping_ticket_signal_crawler_mcp: not_relevant_for_domain; elderly_friendly_route_scorer_mcp: disabled_by_config",
+                "tool visibility resolved by PipelineGate"
+              ],
+              "created_at": "2026-06-30T03:41:59.752083+00:00"
+            },
+            "cited_evidence_refs": [],
+            "created_at": "2026-06-30T03:41:59.752209+00:00"
+          },
+          "answer": {
+            "id": "7e9d2e38-7b13-4f97-a39d-82912a835b45",
+            "run_id": "603f51b0-ec5e-4f8d-92cf-48e91aa7600a",
+            "artifact_type": "answer",
+            "status": "approved",
+            "payload": {
+              "compose_mode": "nearby_guided",
+              "target_label": "故宫博物院",
+              "answer_preview": "故宫博物院周边美食推荐\n\n结论：\n以下是故宫博物院（北京市东城区景山前街4号）周边可步行到达的餐饮点，根据百度地图信息整理。\n\n周边美食推荐：\n- 1. 故宫冰窖餐厅 – 北长街故宫博物院慈宁宫南侧（来源：Baidu Maps MCP，置信度68%）\n- 2. 故宫餐厅(景运门店) – 东华门街道景山前街4号故宫博物院内景运门南侧(近钟表馆)（来源：Baidu Maps MCP，置信度68%）\n- 3. 故宫角楼咖啡(故宫店) – 景山前街4号故宫博物院神武门西围房（来源：Baidu Maps MCP，置信度68%）\n- 4. 八爷涮肉(故宫总店) – 南河沿大街1号北京翠明庄宾馆主楼B1层（故宫东华门向东300米）（来源：Baidu Maps MCP，置信度68%）\n\n按入口选择提示：\n- 若您从东华门（东门）进入，八爷涮肉距此约300米，故宫角楼咖啡位于神武门西围房，亦可便捷前往。\n- 若从午门（南门）进入，故宫冰窖餐厅和故宫餐厅(景运门店)较近。\n\n说明：\n- 以上信息来自百度地图搜索结果，无用户评价或评分数据\n- 实际营业状态以现场为准。",
+              "has_answer": true
+            },
+            "cited_evidence_refs": [],
+            "created_at": "2026-06-30T03:43:12.999641+00:00"
+          },
+          "final_answer": {
+            "id": "8730c071-d0d1-4892-ae9d-8cc4b8fc280e",
+            "run_id": "603f51b0-ec5e-4f8d-92cf-48e91aa7600a",
+            "artifact_type": "final_answer",
+            "status": "succeeded",
+            "payload": {
+              "answer_preview": "故宫博物院周边美食推荐\n\n结论：\n以下是故宫博物院（北京市东城区景山前街4号）周边可步行到达的餐饮点，根据百度地图信息整理。\n\n周边美食推荐：\n- 1. 故宫冰窖餐厅 – 北长街故宫博物院慈宁宫南侧（来源：Baidu Maps MCP，置信度68%）\n- 2. 故宫餐厅(景运门店) – 东华门街道景山前街4号故宫博物院内景运门南侧(近钟表馆)（来源：Baidu Maps MCP，置信度68%）\n- 3. 故宫角楼咖啡(故宫店) – 景山前街4号故宫博物院神武门西围房（来源：Baidu Maps MCP，置信度68%）\n- 4. 八爷涮肉(故宫总店) – 南河沿大街1号北京翠明庄宾馆主楼B1层（故宫东华门向东300米）（来源：Baidu Maps MCP，置信度68%）\n\n按入口选择提示：\n- 若您从东华门（东门）进入，八爷涮肉距此约300米，故宫角楼咖啡位于神武门西围房，亦可便捷前往。\n- 若从午门（南门）进入，故宫冰窖餐厅和故宫餐厅(景运门店)较近。\n\n说明：\n- 以上信息来自百度地图搜索结果，无用户评价或评分数据\n- 实际营业状态以现场为准。",
+              "confidence": 0.45
+            },
+            "cited_evidence_refs": [],
+            "created_at": "2026-06-30T03:43:13.004031+00:00"
+          }
+        },
+        "job_status": {}
+      }
+    }
+  }
+]

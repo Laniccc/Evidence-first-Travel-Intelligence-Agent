@@ -24,6 +24,12 @@ from app.orchestrator.official_source_judgement import (
     parse_candidate_from_evidence,
 )
 from app.schemas.evidence import Claim, ClaimType, Evidence, SourceType
+from app.orchestrator.ticket_price_audit import (
+    PLATFORM_SOURCE_CLASSES,
+    TICKET_CLAIMS,
+    evidence_ticket_blob,
+    is_platform_addon_for_claim,
+)
 
 
 @dataclass
@@ -78,6 +84,21 @@ class EvidenceScorer:
             ClaimType.REVIEW_ASPECT.value,
         }:
             return False
+        if policy.claim_type in TICKET_CLAIMS and ct in {
+            ClaimType.OFFICIAL_SOURCE_CANDIDATE.value,
+            ClaimType.TICKET_PRICE.value,
+            ClaimType.TICKET_PRICE_CANDIDATE.value,
+            ClaimType.PRICE_CANDIDATE.value,
+            ClaimType.ACTIVITY_PRICE.value,
+            ClaimType.TICKET_TYPE.value,
+        }:
+            if not _evidence_has_extractable_ticket_fact(ev, policy.claim_type, claim):
+                return False
+            source_type = ev.source_type.value if hasattr(ev.source_type, "value") else str(ev.source_type)
+            if source_type in PLATFORM_SOURCE_CLASSES and is_platform_addon_for_claim(
+                evidence_ticket_blob(ev), claim_type=policy.claim_type
+            ):
+                return False
         if ct == ClaimType.OFFICIAL_SOURCE_CANDIDATE.value:
             cand = parse_candidate_from_evidence(ev)
             if not cand:
@@ -195,3 +216,48 @@ class EvidenceScorer:
             tool_success=tool_success,
             rank_reason=rank_reason,
         )
+
+
+def _evidence_has_extractable_ticket_fact(ev: Evidence, claim_type: str, claim: Claim) -> bool:
+    from app.orchestrator.search_snippet_policy import _source_type_label
+    from app.orchestrator.ticket_price_extractor import (
+        extract_ticket_price_from_evidence,
+        extract_ticket_price_from_text,
+    )
+
+    source_class = _source_type_label(ev.source_type)
+    ct = claim.claim_type.value if hasattr(claim.claim_type, "value") else str(claim.claim_type)
+    if ct == ClaimType.OFFICIAL_SOURCE_CANDIDATE.value:
+        cand = parse_candidate_from_evidence(ev)
+        if not cand:
+            return False
+        text = " ".join(
+            str(part or "")
+            for part in (
+                cand.title,
+                cand.page_excerpt,
+                cand.url,
+                claim.raw_text,
+                claim.value,
+            )
+        )
+        return (
+            extract_ticket_price_from_text(
+                text,
+                claim_type=claim_type,
+                source_url=cand.url,
+                source_class="official",
+                evidence_strength="partial",
+            )
+            is not None
+        )
+    return bool(extract_ticket_price_from_evidence([ev], claim_type=claim_type)) or (
+        extract_ticket_price_from_text(
+            " ".join(str(part or "") for part in (claim.value, claim.raw_text, claim.normalized_value)),
+            claim_type=claim_type,
+            source_url=ev.source_url,
+            source_class=source_class,
+            evidence_strength="partial",
+        )
+        is not None
+    )

@@ -124,6 +124,20 @@ _REVIEW_CLAIM_TYPES = frozenset(
     }
 )
 
+_TICKET_TEXT_RE = re.compile(r"门票|票价|多少钱|多少元|价格|成人票|购票|预约", re.I)
+_ELEVATION_TEXT_RE = re.compile(r"海拔|主峰|最高峰|山体高度|高度多少|elevation|altitude", re.I)
+_ROUTE_TEXT_RE = re.compile(
+    r"从.+到.+(怎么走|坐地铁|坐公交|打车|开车|多久|多长时间|路线)|"
+    r"地铁|公交|打车|出租车|网约车|怎么去|怎么走|路线|换乘|车程|耗时|多远",
+    re.I,
+)
+_LIVE_TRAFFIC_TEXT_RE = re.compile(r"现在.+堵|路上堵|实时路况|当前路况|堵吗|拥堵", re.I)
+_REVIEW_TEXT_RE = re.compile(
+    r"口碑|评价|评论|好评|差评|避雷|坑不坑|值不值得|排队久不久|排队久|"
+    r"人多不多|商业化|体验怎么样",
+    re.I,
+)
+
 
 class ResponseContractCompiler:
     """SemanticFrame → ResponseContract (claim-level evidence plan)."""
@@ -151,6 +165,15 @@ class ResponseContractCompiler:
             claims.append(self._general_seasonal_context_claim())
         else:
             normalized_needs = normalize_information_needs(list(frame.information_needs or []), text=text)
+            for inferred in self._infer_contract_needs_from_text(text):
+                if inferred not in normalized_needs:
+                    normalized_needs.append(inferred)
+            normalized_needs = self._prioritize_inferred_primary_needs(normalized_needs, text)
+            if intent_profile and intent_profile.primary_intent == PrimaryIntent.NEARBY:
+                raw_needs = {normalize_need(n) for n in frame.information_needs or []}
+                if raw_needs & {"reputation", "review_signal", "review_summary"}:
+                    if "review_summary" not in normalized_needs:
+                        normalized_needs.append("review_summary")
             if intent_profile and intent_profile.primary_intent == PrimaryIntent.LOOKUP:
                 for subtype_need in infer_lookup_needs_from_intent_subtypes(
                     intent_profile.intent_subtypes
@@ -160,7 +183,16 @@ class ResponseContractCompiler:
                 for inferred in infer_lookup_needs_from_text(text):
                     if inferred not in normalized_needs:
                         normalized_needs.append(inferred)
+            elevation_query_without_ticket = bool(_ELEVATION_TEXT_RE.search(text)) and not bool(_TICKET_TEXT_RE.search(text))
             for need in normalized_needs:
+                if elevation_query_without_ticket and need in {
+                    "ticket_price",
+                    "entrance_ticket_price",
+                    "boat_ticket_price",
+                    "shuttle_bus_ticket_price",
+                    "cable_car_ticket_price",
+                }:
+                    continue
                 claim = self._claim_for_need(need, frame)
                 if claim and not any(c.claim_type == claim.claim_type for c in claims):
                     claims.append(claim)
@@ -210,8 +242,43 @@ class ResponseContractCompiler:
 
         claims = self._append_elevation_subclaims(claims, frame)
         claims = self._apply_intent_claim_hints(claims, intent_profile)
+        from app.orchestrator.claim_compiler import compile_lookup_claims, merge_lookup_claims_into_requirements
+
+        lookup_claims = compile_lookup_claims(
+            frame,
+            frame.raw_query,
+            intent_profile=intent_profile,
+        )
+        if lookup_claims:
+            if _ELEVATION_TEXT_RE.search(text) and not _TICKET_TEXT_RE.search(text):
+                lookup_claims = [
+                    c
+                    for c in lookup_claims
+                    if c.claim_type
+                    not in {
+                        "ticket_price",
+                        "entrance_ticket_price",
+                        "boat_ticket_price",
+                        "shuttle_bus_ticket_price",
+                        "cable_car_ticket_price",
+                    }
+                ]
+            claims = merge_lookup_claims_into_requirements(claims, lookup_claims)
         if intent_profile and intent_profile.primary_intent == PrimaryIntent.LOOKUP:
             claims = [c for c in claims if c.claim_type != "general_travel_advice"]
+            if _ELEVATION_TEXT_RE.search(text) and not _TICKET_TEXT_RE.search(text):
+                claims = [
+                    c
+                    for c in claims
+                    if c.claim_type
+                    not in {
+                        "ticket_price",
+                        "entrance_ticket_price",
+                        "boat_ticket_price",
+                        "shuttle_bus_ticket_price",
+                        "cable_car_ticket_price",
+                    }
+                ]
             if is_elevation_lookup_text(text) and not any(c.claim_type == "elevation" for c in claims):
                 elev = self._claim_for_need("elevation", frame)
                 if elev:
@@ -245,6 +312,47 @@ class ResponseContractCompiler:
             overall_risk_level=risk,
             limitations_to_add=self._default_limitations(claims, frame),
         )
+
+    @staticmethod
+    def _infer_contract_needs_from_text(text: str) -> list[str]:
+        """Textual backstop for common Chinese travel intents missed by S2."""
+        needs: list[str] = []
+        if _ELEVATION_TEXT_RE.search(text):
+            needs.append("elevation")
+        if _TICKET_TEXT_RE.search(text):
+            needs.append("ticket_price")
+        if _ROUTE_TEXT_RE.search(text) and not _LIVE_TRAFFIC_TEXT_RE.search(text):
+            needs.append("route_plan")
+            if re.search(r"多久|多长时间|耗时|车程|打车", text):
+                needs.append("duration")
+        if _LIVE_TRAFFIC_TEXT_RE.search(text):
+            needs.append("traffic_status")
+        if _REVIEW_TEXT_RE.search(text):
+            needs.append("review_summary")
+            if re.search(r"排队|人多|拥挤", text):
+                needs.append("crowd_level")
+        out: list[str] = []
+        for need in needs:
+            if need not in out:
+                out.append(need)
+        return out
+
+    @staticmethod
+    def _prioritize_inferred_primary_needs(needs: list[str], text: str) -> list[str]:
+        priority: list[str] = []
+        if _ELEVATION_TEXT_RE.search(text):
+            priority.append("elevation")
+        if _TICKET_TEXT_RE.search(text):
+            priority.append("ticket_price")
+        if _ROUTE_TEXT_RE.search(text) and not _LIVE_TRAFFIC_TEXT_RE.search(text):
+            priority.extend(["route_plan", "duration", "distance"])
+        if _REVIEW_TEXT_RE.search(text):
+            priority.append("review_summary")
+        ordered: list[str] = []
+        for need in [*priority, *needs]:
+            if need in needs and need not in ordered:
+                ordered.append(need)
+        return ordered
 
     @staticmethod
     def _detect_seasonal_operation_status(frame: SemanticFrame, text: str) -> bool:
@@ -407,7 +515,7 @@ class ResponseContractCompiler:
                 missing_behavior="answer_with_limitation",
             )
 
-        if need in {"transit", "transport_planning", "route_plan"}:
+        if need in {"transit", "transport_planning", "route_plan", "duration", "distance"}:
             claim_type = "route_plan" if need == "transit" else need
             return ClaimRequirement(
                 claim_type=claim_type,
@@ -450,6 +558,9 @@ class ResponseContractCompiler:
 
         if need in _ADVISORY_NEEDS:
             return self._best_time_claim(frame, priority="important")
+
+        if need in {"general_information", "general_fact"}:
+            return self._general_advice_claim(frame)
 
         if is_nearby_need(need):
             claim_type = resolve_nearby_need(need, text=f"{frame.raw_query} {frame.normalized_request}")

@@ -51,6 +51,21 @@ RETRIEVAL_TOOL_SEQUENCE: dict[str, list[str]] = {
         "dianping_ticket_signal_crawler_mcp",
         "search_mcp",
     ],
+    "ticket_price_lookup": [
+        "search_mcp",
+        "fliggy_ticket_api_mcp",
+        "official_source_discovery_mcp",
+        "official_page_reader_mcp",
+        "browser_mcp",
+        "fliggy_ticket_snapshot_crawler_mcp",
+        "ticketlens_experience_mcp",
+        "ctrip_ticket_signal_crawler_mcp",
+        "dianping_ticket_signal_crawler_mcp",
+        "baidu_place_search_mcp",
+        "baidu_place_detail_mcp",
+        "ticket_price_history_query",
+        "ticket_snapshot_store",
+    ],
     "geo_fact_lookup": [
         "wikidata_mcp",
         "wikipedia_mcp",
@@ -116,7 +131,7 @@ CLAIM_SEQUENCE_OVERRIDE: dict[str, str] = {
     "nearby_toilet": "poi_recommendation",
     "nearby_parking": "poi_recommendation",
     "nearby_station": "poi_recommendation",
-    "ticket_price": "strict_fact_lookup",
+    "ticket_price": "ticket_price_lookup",
     "opening_hours": "strict_fact_lookup",
     "seasonal_operation_status": "strict_fact_lookup",
     "elevation": "geo_fact_lookup",
@@ -137,6 +152,7 @@ CLAIM_SEQUENCE_OVERRIDE: dict[str, str] = {
 MUST_ATTEMPT_COUNT: dict[str, int] = {
     "poi_recommendation": 2,
     "strict_fact_lookup": 2,
+    "ticket_price_lookup": 3,
     "geo_fact_lookup": 1,
     "live_status": 1,
     "multi_place_parallel": 2,
@@ -162,7 +178,58 @@ _IRRELEVANT_FOR_NEARBY = frozenset(
         "official_page_reader_mcp",
     }
 )
-_IRRELEVANT_FOR_LOOKUP = frozenset({"wikipedia_mcp", "wikidata_mcp", "fallback", "knowledge_prior"})
+_IRRELEVANT_FOR_LOOKUP = frozenset(
+    {
+        "wikipedia_mcp",
+        "wikidata_mcp",
+        "fallback",
+        "knowledge_prior",
+        "baidu_reverse_geocode_mcp",
+        "baidu_ip_location_mcp",
+    }
+)
+_IRRELEVANT_FOR_GEO_FACT = frozenset(
+    {
+        "fliggy_ticket_api_mcp",
+        "fliggy_ticket_snapshot_crawler_mcp",
+        "ticketlens_experience_mcp",
+        "ctrip_ticket_signal_crawler_mcp",
+        "dianping_ticket_signal_crawler_mcp",
+        "ticket_price_history_query",
+        "ticket_snapshot_store",
+        "dianping_review_crawler_mcp",
+        "ctrip_review_crawler_mcp",
+        "fallback",
+        "knowledge_prior",
+    }
+)
+_IRRELEVANT_FOR_ROUTE = frozenset(
+    {
+        "fliggy_ticket_api_mcp",
+        "fliggy_ticket_snapshot_crawler_mcp",
+        "ticketlens_experience_mcp",
+        "ctrip_ticket_signal_crawler_mcp",
+        "dianping_ticket_signal_crawler_mcp",
+        "official_source_discovery_mcp",
+        "official_page_reader_mcp",
+        "browser_mcp",
+        "knowledge_prior",
+    }
+)
+_IRRELEVANT_FOR_REVIEW = frozenset(
+    {
+        "fliggy_ticket_api_mcp",
+        "fliggy_ticket_snapshot_crawler_mcp",
+        "ticketlens_experience_mcp",
+        "ctrip_ticket_signal_crawler_mcp",
+        "dianping_ticket_signal_crawler_mcp",
+        "baidu_route_mcp",
+        "baidu_route_matrix_mcp",
+        "baidu_traffic_mcp",
+        "official_source_discovery_mcp",
+        "official_page_reader_mcp",
+    }
+)
 
 _GEO_RESOLUTION_CLAIMS = frozenset(
     {"entity_resolution", "geo_resolution", "place_lookup", "place_candidates"}
@@ -246,7 +313,7 @@ class S5DiversifiedToolSelector:
             extra.extend(self.strategy.tool_tiers.primary)
             extra.extend(self.strategy.tool_tiers.secondary)
 
-        if claim in _GEO_RESOLUTION_CLAIMS:
+        if claim in _GEO_RESOLUTION_CLAIMS or seq_key in {"ticket_price_lookup", "geo_fact_lookup", "route_first", "review_first"}:
             merged = _dedupe_tools([*base, *extra])
         else:
             merged = _dedupe_tools([*extra, *base])
@@ -292,6 +359,8 @@ class S5DiversifiedToolSelector:
                 continue
             if resolved in attempted:
                 continue
+            if self._blocked_by_prior_tool_failure(resolved):
+                continue
             if exclude_search_mcp_repeat and resolved == "search_mcp":
                 if self.ledger.attempt_count("search_mcp", claim_type=plan.claim_type) >= 2:
                     continue
@@ -327,6 +396,8 @@ class S5DiversifiedToolSelector:
             for tool in plan.must_attempt:
                 resolved = resolve_tool_name(tool)
                 if resolved in attempted_global:
+                    continue
+                if self._blocked_by_prior_tool_failure(resolved):
                     continue
                 if whitelist is not None and not whitelist.is_allowed(resolved):
                     continue
@@ -371,6 +442,8 @@ class S5DiversifiedToolSelector:
                 continue
             if resolved in self.ledger.attempted_tools():
                 continue
+            if self._blocked_by_prior_tool_failure(resolved):
+                continue
             if not self.validate_tool_args(resolved, claim_type=claim):
                 continue
             queue.append(resolved)
@@ -396,11 +469,26 @@ class S5DiversifiedToolSelector:
             frame = self.state.semantic_frame
             if goal and goal.start_location and frame and frame.entities and frame.entities.places:
                 return True
+            from app.orchestrator.mcp_tool_arguments import _route_endpoints_from_text
+
+            origin, dest = _route_endpoints_from_text(self.state.raw_user_query)
+            if origin and dest:
+                return True
             return resolve_coordinates_from_evidence(evidence, structured_result=structured) is not None
         if tool == "baidu_route_matrix_mcp":
             frame = self.state.semantic_frame
             places = list(frame.entities.places or []) if frame and frame.entities else []
-            return len(places) >= 2
+            if len(places) >= 2:
+                return True
+            goal = self.state.user_goal
+            if goal and goal.start_location and frame and frame.entities and frame.entities.places:
+                return True
+            from app.orchestrator.mcp_tool_arguments import _route_endpoints_from_text
+
+            origin, dest = _route_endpoints_from_text(self.state.raw_user_query)
+            return bool(origin and dest)
+        if tool == "baidu_reverse_geocode_mcp":
+            return resolve_coordinates_from_evidence(evidence, structured_result=structured) is not None
         if tool in {"browser_mcp", "official_page_reader_mcp"}:
             return any(getattr(ev, "source_url", None) for ev in evidence) or ClaimSearchPlanner.search_call_count(
                 self.state
@@ -429,8 +517,14 @@ class S5DiversifiedToolSelector:
     ) -> list[str]:
         seq_key = self.sequence_key_for_claim(claim_type)
         irrelevant = _IRRELEVANT_FOR_NEARBY if seq_key == "poi_recommendation" else set()
-        if seq_key == "strict_fact_lookup":
+        if seq_key in {"strict_fact_lookup", "ticket_price_lookup"}:
             irrelevant = _IRRELEVANT_FOR_LOOKUP
+        elif seq_key == "geo_fact_lookup":
+            irrelevant = _IRRELEVANT_FOR_GEO_FACT
+        elif seq_key == "route_first":
+            irrelevant = _IRRELEVANT_FOR_ROUTE
+        elif seq_key == "review_first":
+            irrelevant = _IRRELEVANT_FOR_REVIEW
         out: list[str] = []
         for tool in tools:
             resolved = resolve_tool_name(tool)
@@ -441,6 +535,25 @@ class S5DiversifiedToolSelector:
             if resolved not in out:
                 out.append(resolved)
         return out
+
+    def _blocked_by_prior_tool_failure(self, tool_name: str) -> bool:
+        """Skip tools that already failed for environment/schema reasons in this query."""
+        transient_markers = (
+            "WinError 2",
+            "系统找不到指定的文件",
+            "Input validation error",
+            "is not valid under any of the given schemas",
+            "required property",
+            "请求参数格式错误",
+            "origins is invalid",
+        )
+        for trace in self.state.tool_traces or []:
+            if resolve_tool_name(str(trace.tool_name or "")) != tool_name:
+                continue
+            err = str(trace.error or "")
+            if trace.status == "error" and any(marker in err for marker in transient_markers):
+                return True
+        return False
 
 
 def _dedupe_tools(tools: list[str]) -> list[str]:

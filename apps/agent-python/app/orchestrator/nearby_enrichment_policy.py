@@ -35,7 +35,15 @@ def requires_nearby_reputation_signal(state: TravelAgentState) -> bool:
         for req in contract.claim_requirements:
             if req.claim_type in _REPUTATION_CLAIM_TYPES:
                 return True
-    return bool(_REPUTATION_KW.search(query_text_from_state(state)))
+    text = query_text_from_state(state)
+    generic_food_list = re.search(r"\u6709\u4ec0\u4e48\u597d\u5403|\u597d\u5403\u7684", text)
+    explicit_reputation = re.search(
+        r"\u54ea\u5bb6|\u53e3\u7891|\u8bc4\u4ef7|\u8bc4\u5206|\u63a8\u8350|\u503c\u5f97|\u907f\u96f7",
+        text,
+    )
+    if generic_food_list and not explicit_reputation:
+        return False
+    return bool(_REPUTATION_KW.search(text))
 
 
 def enrichment_candidates_from_evidence(

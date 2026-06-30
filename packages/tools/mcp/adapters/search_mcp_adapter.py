@@ -9,6 +9,7 @@ from urllib.parse import urlparse
 from app.schemas.evidence import Claim, ClaimType, DataFreshness, Evidence, LicenseScope, SourceType
 from tools.base import BaseTravelTool
 from tools.mcp.client_manager import MCPClientManager, MCPInvokeResult, get_mcp_client_manager
+from tools.ticket_price_text import has_explicit_ticket_price_signal
 
 logger = logging.getLogger(__name__)
 
@@ -28,10 +29,7 @@ _OFFICIAL_DOMAIN_HINTS = (
     ".edu",
     "tourism",
     "travel",
-    "景区",
     "official",
-    "ticket",
-    "ctrip.com/spot",
 )
 
 _SPAM_DOMAINS = frozenset({
@@ -53,6 +51,17 @@ class SearchMCPAdapter(BaseTravelTool):
 
     def __init__(self, client: MCPClientManager | None = None) -> None:
         self._client = client or get_mcp_client_manager()
+        self.last_run_meta: dict[str, Any] = {}
+
+    @staticmethod
+    def resolve_search_limit(kwargs: dict[str, Any]) -> int:
+        """Resolve top_k / max_results / limit — default and floor at 5."""
+        candidates = [
+            int(kwargs.get("top_k") or 0),
+            int(kwargs.get("max_results") or 0),
+            int(kwargs.get("limit") or 0),
+        ]
+        return max(max(candidates, default=0), 5)
 
     def is_available(self) -> bool:
         return self._client.is_server_configured(self.server_name)
@@ -70,7 +79,8 @@ class SearchMCPAdapter(BaseTravelTool):
         if not query:
             raise ValueError("search_mcp requires query")
 
-        limit = int(kwargs.get("limit") or 5)
+        self.last_run_meta = {}
+        limit = self.resolve_search_limit(kwargs)
         result: MCPInvokeResult = await self._client.open_websearch_search(
             str(query),
             limit=limit,
@@ -79,7 +89,7 @@ class SearchMCPAdapter(BaseTravelTool):
         if not result.ok:
             raise RuntimeError(result.error or "open-webSearch search failed")
 
-        return self._hits_to_evidence(
+        evidence = self._hits_to_evidence(
             result.data,
             query=str(query),
             country=kwargs.get("country"),
@@ -88,6 +98,9 @@ class SearchMCPAdapter(BaseTravelTool):
             information_need=kwargs.get("information_need") or kwargs.get("need_type"),
             search_meta=result.meta,
         )
+        if self.last_run_meta.get("kept_result_count", 0) <= 1:
+            self.last_run_meta.setdefault("filter_reason", self.last_run_meta.get("filter_reason") or "none")
+        return evidence
 
     def _hits_to_evidence(
         self,
@@ -101,7 +114,21 @@ class SearchMCPAdapter(BaseTravelTool):
         search_meta: dict[str, Any] | None = None,
     ) -> list[Evidence]:
         hits = self._extract_hits(raw)
+        raw_count = len(hits)
+        filter_tally: dict[str, int] = {}
+
+        def _filter(reason: str) -> None:
+            filter_tally[reason] = filter_tally.get(reason, 0) + 1
+
         if not hits:
+            self.last_run_meta.update(
+                {
+                    "raw_result_count": 0,
+                    "kept_result_count": 0,
+                    "filtered_result_count": 0,
+                    "filter_reason": "no_hits",
+                }
+            )
             limitations = [
                 "open-webSearch returned no results.",
                 "Search summary only; official page read not performed.",
@@ -155,22 +182,25 @@ class SearchMCPAdapter(BaseTravelTool):
         )
 
         evidence_list: list[Evidence] = []
-        for hit in hits[:8]:
+        for hit in hits[:12]:
             title = str(hit.get("title") or hit.get("name") or "").strip()
             url = str(hit.get("url") or hit.get("link") or "").strip() or None
             snippet = str(hit.get("snippet") or hit.get("description") or hit.get("content") or "").strip()
             if not title and not snippet:
+                _filter("empty")
                 continue
 
             # Filter out obvious spam / off-topic results
             if self._is_spam(title, snippet, url):
                 logger.debug("search_mcp: filtered spam result title=%r engine=%r",
                              title[:80], hit.get("engine", "?"))
+                _filter("spam")
                 continue
 
             # Filter results clearly unrelated to the queried place
             if relevance_anchors and not self._is_relevant(title, snippet, relevance_anchors):
                 logger.debug("search_mcp: filtered irrelevant result title=%r", title[:80])
+                _filter("irrelevant")
                 continue
 
             officialish = self._looks_official(url, title, snippet)
@@ -185,13 +215,21 @@ class SearchMCPAdapter(BaseTravelTool):
                     claim_type = ClaimType.ROAD_OPENING_PERIOD
                     confidence = 0.55
             elif information_need == "ticket_price":
-                ticketish = re.search(r"门票|票价|收费|免费|元", f"{title} {snippet}", re.I)
-                if officialish:
+                text = f"{title} {snippet}"
+                ticketish = re.search(r"门票|票价|收费|免费|免票|元|¥|￥", text, re.I)
+                has_price = has_explicit_ticket_price_signal(text)
+                if self._is_low_value_ticket_search_hit(title, snippet, url, has_price=has_price):
+                    _filter("low_value_ticket")
+                    continue
+                if officialish and has_price:
                     claim_type = ClaimType.TICKET_PRICE
                     confidence = 0.55
-                elif ticketish:
+                elif has_price:
                     claim_type = ClaimType.TICKET_PRICE_CANDIDATE
                     confidence = 0.48
+                elif ticketish:
+                    claim_type = ClaimType.TICKET_RELATED_MENTIONS
+                    confidence = 0.42
             elif information_need in _ELEVATION_NEEDS:
                 text = f"{title} {snippet}"
                 if _ELEVATION_SNIPPET.search(text):
@@ -235,6 +273,17 @@ class SearchMCPAdapter(BaseTravelTool):
                 )
             )
 
+        kept = len(evidence_list)
+        filtered = raw_count - kept
+        reason = ", ".join(f"{k}:{v}" for k, v in sorted(filter_tally.items())) if filter_tally else "none"
+        self.last_run_meta.update(
+            {
+                "raw_result_count": raw_count,
+                "kept_result_count": kept,
+                "filtered_result_count": filtered,
+                "filter_reason": reason,
+            }
+        )
         return evidence_list
 
     @staticmethod
@@ -259,14 +308,16 @@ class SearchMCPAdapter(BaseTravelTool):
 
     @staticmethod
     def _looks_official(url: str | None, title: str, snippet: str) -> bool:
+        if url:
+            host = (urlparse(url).hostname or "").lower()
+            if host in {"sogou.com", "www.sogou.com", "baidu.com", "www.baidu.com", "bing.com", "www.bing.com"}:
+                return False
+            if host.endswith(".gov.cn") or host.endswith(".gov"):
+                return True
         blob = f"{url or ''} {title} {snippet}".lower()
         if any(hint in blob for hint in _OFFICIAL_DOMAIN_HINTS):
             return True
-        if url:
-            host = (urlparse(url).hostname or "").lower()
-            if host.endswith(".gov.cn") or host.endswith(".gov"):
-                return True
-        return bool(re.search(r"官方|门票|票价|景区官网", f"{title} {snippet}"))
+        return bool(re.search(r"官方|官网|政府|文旅|旅游局|景区官网", f"{title} {snippet}"))
 
     @staticmethod
     def _build_relevance_anchors(
@@ -291,16 +342,26 @@ class SearchMCPAdapter(BaseTravelTool):
     def _is_relevant(title: str, snippet: str, anchors: list[str]) -> bool:
         """Check if a search hit is plausibly about the queried place.
 
-        Returns True if at least one anchor token appears in the title or snippet.
+        When a concrete place is known, prefer the exact place anchor. Falling
+        back to city+alias avoids broad homonym matches such as 栖霞山 vs 山东栖霞.
         Without anchors, default to True (can't filter).
         """
         if not anchors:
             return True
         blob = f"{title} {snippet}"
-        for anchor in anchors:
-            if anchor in blob:
-                return True
-        return False
+        primary = anchors[0] if anchors else ""
+        city = anchors[1] if len(anchors) > 1 else ""
+        generic = {"门票", "票价", "价格", "官网", "官方", "景区", "预约", "购票", "多少钱"}
+        if primary and primary in blob:
+            return True
+        if primary:
+            aliases = [a for a in anchors[2:] if a and a != primary and a not in generic]
+            if not aliases:
+                return False
+            if city:
+                return bool(city in blob and any(alias in blob for alias in aliases))
+            return any(alias in blob for alias in aliases)
+        return any(anchor in blob for anchor in anchors)
 
     @staticmethod
     def _is_spam(title: str, snippet: str, url: str | None) -> bool:
@@ -324,3 +385,18 @@ class SearchMCPAdapter(BaseTravelTool):
         blob = f"{title} {snippet}".lower()
         signal_count = sum(1 for s in _SPAM_TITLE_SIGNALS if s.lower() in blob)
         return signal_count >= 2
+
+    @staticmethod
+    def _is_low_value_ticket_search_hit(title: str, snippet: str, url: str | None, *, has_price: bool) -> bool:
+        """Drop broad travel articles that only mention tickets in passing."""
+        if has_price:
+            return False
+        blob = f"{title} {snippet}".lower()
+        host = (urlparse(url).hostname or "").lower() if url else ""
+        low_value_domains = {"zhihu.com", "zhuanlan.zhihu.com", "sohu.com", "baike.baidu.com"}
+        if host in low_value_domains or any(host.endswith("." + d) for d in low_value_domains):
+            return True
+        if re.search(r"攻略|游记|值得去|怎么玩|景点推荐|旅游景区|知乎|zhuanlan", blob, re.I):
+            if not re.search(r"官方购票|购票入口|优惠政策|半票|免票|收费标准|成人票|儿童票|学生票", blob, re.I):
+                return True
+        return False

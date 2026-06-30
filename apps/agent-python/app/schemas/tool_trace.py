@@ -26,3 +26,7 @@ class ToolTrace(BaseModel):
     urls_checked_count: int | None = None
     official_candidates_count: int | None = None
     top_source_classes: list[str] | None = None
+    raw_result_count: int | None = None
+    kept_result_count: int | None = None
+    filtered_result_count: int | None = None
+    filter_reason: str | None = None

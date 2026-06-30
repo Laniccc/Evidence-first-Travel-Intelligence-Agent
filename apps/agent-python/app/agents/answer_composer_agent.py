@@ -273,7 +273,10 @@ class AnswerComposerAgent:
         presentation = arguments.get("fact_lookup_presentation") or build_fact_lookup_presentation(state)
         return {
             "fact_lookup_presentation": presentation,
-            "has_actionable_evidence": bool(presentation.get("fact_clues")),
+            "has_actionable_evidence": bool(presentation.get("fact_clues"))
+            or bool(presentation.get("ticket_price_facts"))
+            or bool(presentation.get("opening_hours_facts"))
+            or bool(presentation.get("ticket_area_policy")),
         }
 
     async def _compose_fact_lookup_guided(
@@ -284,6 +287,10 @@ class AnswerComposerAgent:
         from app.orchestrator.fact_lookup_guided_composition import build_fact_lookup_draft
 
         fallback = build_fact_lookup_draft(state, bundle.get("fact_lookup_presentation"))
+        if self._should_use_deterministic_ticket_fact_draft(bundle):
+            fallback.answer_text = fallback.render_text().strip()
+            TraceRecorder.add(state, "✓ AnswerComposition 票价结构化证据模板")
+            return fallback
         if not self.llm._should_use_anthropic():
             TraceRecorder.add(state, "✓ AnswerComposition 硬事实引导（无 LLM）")
             return fallback
@@ -301,6 +308,48 @@ class AnswerComposerAgent:
 
         TraceRecorder.add(state, "✓ AnswerComposition 硬事实引导（兜底模板）")
         return fallback
+
+    @staticmethod
+    def _should_use_deterministic_ticket_fact_draft(bundle: dict) -> bool:
+        presentation = bundle.get("fact_lookup_presentation") or {}
+        ticket_facts = presentation.get("ticket_price_facts") or []
+        if not AnswerComposerAgent._has_structured_ticket_authority(ticket_facts):
+            return False
+        ticket_claims = {
+            "ticket_price",
+            "entrance_ticket_price",
+            "boat_ticket_price",
+            "shuttle_bus_ticket_price",
+            "cable_car_ticket_price",
+        }
+        if str(presentation.get("primary_fact_need") or "") not in ticket_claims:
+            return False
+        for claim in presentation.get("lookup_claims") or []:
+            if not isinstance(claim, dict):
+                continue
+            claim_type = str(claim.get("claim_type") or "")
+            if claim_type and claim_type not in ticket_claims:
+                return False
+        return True
+
+    @staticmethod
+    def _has_structured_ticket_authority(ticket_facts: list) -> bool:
+        trusted_sources = {
+            "official",
+            "official_page",
+            "government",
+            "tourism_board",
+        }
+        for fact in ticket_facts or []:
+            if not isinstance(fact, dict):
+                continue
+            source_class = str(fact.get("source_class") or "").lower()
+            strength = str(fact.get("evidence_strength") or "").lower()
+            price = fact.get("adult_price")
+            has_amount = isinstance(price, int | float)
+            if source_class in trusted_sources and strength in {"strong", "partial"} and has_amount:
+                return True
+        return False
 
     @staticmethod
     def _disambiguation_bundle_fields(
@@ -381,8 +430,12 @@ class AnswerComposerAgent:
             rules.extend(
                 [
                     "compose_mode is fact_lookup_guided: LEAD with a one-sentence factual conclusion (price/hours/policy).",
+                    "Follow fact_lookup_presentation.claim_decision.adoption_level — do NOT upgrade or downgrade S7.",
+                    "strong: cite official/structured source; partial: add 未完全官方确认; candidate_only: 官方未确认, not a definitive price/hour.",
+                    "no_evidence/rejected/weak or can_answer_directly=false: headline must be 无法确认 — never invent numbers.",
+                    "If must_show_limitation=true, include a limitations section with evidence gaps.",
+                    "Use opening_hours_facts when present; respect evidence_strength per row.",
                     "List every fact_clues entry with source_name; mark 官方 when official=true.",
-                    "If no adoptable fact_clues: state 无法确认 explicitly — never invent 兵马俑/景区 prices.",
                     "Do NOT recommend food, routes, or weather unless asked.",
                 ]
             )
@@ -655,6 +708,18 @@ class AnswerComposerAgent:
         if not isinstance(data, dict):
             return data
 
+        raw_limitations = data.get("limitations") or []
+        if isinstance(raw_limitations, str):
+            raw_limitations = [
+                part.strip(" -\t")
+                for part in re.split(r"[\n；;]+", raw_limitations)
+                if part.strip(" -\t")
+            ]
+        elif not isinstance(raw_limitations, list):
+            raw_limitations = [str(raw_limitations)]
+        from app.orchestrator.response_sanitizer import sanitize_limitations
+
+        limitations = sanitize_limitations([str(x) for x in raw_limitations], max_items=5)
         cited = [
             str(x).strip()
             for x in (data.get("cited_evidence_ids") or [])
@@ -662,7 +727,7 @@ class AnswerComposerAgent:
         ]
         sections = data.get("sections")
         if not isinstance(sections, list):
-            return {**data, "cited_evidence_ids": cited}
+            return {**data, "limitations": limitations, "cited_evidence_ids": cited}
 
         normalized_sections: list[dict] = []
         for sec in sections:
@@ -696,7 +761,12 @@ class AnswerComposerAgent:
                     bullets_out.append(text)
             normalized_sections.append({**sec, "bullets": bullets_out})
 
-        return {**data, "sections": normalized_sections, "cited_evidence_ids": cited}
+        return {
+            **data,
+            "limitations": limitations,
+            "sections": normalized_sections,
+            "cited_evidence_ids": cited,
+        }
 
     def _accept_draft(self, draft: FinalAnswerDraft, bundle: dict) -> bool:
         return (

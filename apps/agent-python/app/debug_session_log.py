@@ -119,6 +119,102 @@ def _format_lookup_orchestration(summary: dict) -> list[str]:
     return lines
 
 
+def _format_agent_core_projection(summary: dict) -> list[str]:
+    projection = summary.get("agent_core_projection") or {}
+    if not isinstance(projection, dict):
+        return []
+
+    lines: list[str] = []
+    lines.append(f"- **Run ID**: `{projection.get('run_id') or '-'}`")
+    lines.append(f"- **Current phase**: `{projection.get('current_phase') or '-'}`")
+
+    phase_status = projection.get("phase_status") or {}
+    if phase_status:
+        lines.extend(["", "| Phase | Status | Latest Output | Output Status |", "| --- | --- | --- | --- |"])
+        latest_outputs = projection.get("latest_outputs") or {}
+        for phase, status in phase_status.items():
+            output = latest_outputs.get(phase) or {}
+            lines.append(
+                f"| `{phase}` | `{status}` | `{output.get('kind') or '-'}` | "
+                f"`{output.get('status') or '-'}` |"
+            )
+
+    latest_artifacts = projection.get("latest_artifacts") or {}
+    research_artifact = latest_artifacts.get("research_plan") or {}
+    research_plan = research_artifact.get("payload") or {}
+    if research_plan:
+        lines.extend(["", "### Research Plan", ""])
+        lines.append(f"- **Task class**: `{research_plan.get('task_class') or '-'}`")
+        if research_plan.get("intent_family"):
+            lines.append(f"- **Intent family**: `{research_plan.get('intent_family')}`")
+        if research_plan.get("allowed_tools"):
+            lines.append(
+                "- **Allowed data tools**: "
+                + ", ".join(f"`{tool}`" for tool in research_plan.get("allowed_tools", [])[:12])
+            )
+        if research_plan.get("source_family_plan"):
+            lines.append(
+                "- **Source families**: "
+                + ", ".join(f"`{family}`" for family in research_plan.get("source_family_plan", [])[:12])
+            )
+        budgets = research_plan.get("budgets") or {}
+        if budgets:
+            lines.append(
+                "- **Budgets**: "
+                + ", ".join(f"{key}={value}" for key, value in sorted(budgets.items()))
+            )
+        claim_plans = research_plan.get("claim_plans") or []
+        if claim_plans:
+            lines.extend(["", "| Claim | Priority | Sequence | Must Attempt |", "| --- | --- | --- | --- |"])
+            for claim in claim_plans[:12]:
+                lines.append(
+                    f"| `{claim.get('claim_type') or '-'}` | `{claim.get('priority') or '-'}` | "
+                    f"`{claim.get('sequence_key') or '-'}` | "
+                    f"{', '.join(f'`{tool}`' for tool in (claim.get('must_attempt') or [])[:5]) or '-'} |"
+                )
+
+    evidence_summary = projection.get("evidence_summary") or {}
+    if evidence_summary:
+        source_counts = evidence_summary.get("source_type_counts") or {}
+        usage_counts = evidence_summary.get("usage_role_counts") or {}
+        strength_counts = evidence_summary.get("strength_counts") or {}
+        lines.extend(["", "### Evidence Projection", ""])
+        lines.append(f"- **Evidence records**: {evidence_summary.get('count', 0)}")
+        lines.append(f"- **Effective query count**: {evidence_summary.get('effective_query_count', 0)}")
+        lines.append(f"- **Adopted evidence**: {evidence_summary.get('adopted_evidence_count', 0)}")
+        lines.append(f"- **Rejected evidence**: {evidence_summary.get('rejected_evidence_count', 0)}")
+        if source_counts:
+            lines.append(
+                "- **Source type counts**: "
+                + ", ".join(f"`{key}`={value}" for key, value in sorted(source_counts.items()))
+            )
+        if usage_counts:
+            lines.append(
+                "- **Usage role counts**: "
+                + ", ".join(f"`{key}`={value}" for key, value in sorted(usage_counts.items()))
+            )
+        if strength_counts:
+            lines.append(
+                "- **Strength counts**: "
+                + ", ".join(f"`{key}`={value}" for key, value in sorted(strength_counts.items()))
+            )
+
+    job_status = projection.get("job_status") or {}
+    if job_status:
+        lines.extend(["", "### Jobs", ""])
+        lines.append(", ".join(f"`{status}`={count}" for status, count in sorted(job_status.items())))
+
+    gaps = projection.get("gaps") or []
+    if gaps:
+        lines.extend(["", "### Gaps", ""])
+        for gap in gaps[:8]:
+            claim_type = gap.get("claim_type") or gap.get("information_need") or "-"
+            reason = gap.get("reason") or gap.get("gap_reason") or ""
+            lines.append(f"- `{claim_type}` {reason}".strip())
+
+    return lines
+
+
 def write_debug_session_md(query: str, result: TravelQueryResponse) -> Path:
     """Overwrite debug markdown with the latest conversation output and trace."""
     now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
@@ -151,6 +247,11 @@ def write_debug_session_md(query: str, result: TravelQueryResponse) -> Path:
             )
 
     if result.orchestration_summary:
+        agent_core_lines = _format_agent_core_projection(result.orchestration_summary)
+        if agent_core_lines:
+            lines.extend(["", "## Agent Core Projection", ""])
+            lines.extend(agent_core_lines)
+
         lookup_lines = _format_lookup_orchestration(result.orchestration_summary)
         lines.extend(["", "## Orchestration Summary", ""])
         if lookup_lines:

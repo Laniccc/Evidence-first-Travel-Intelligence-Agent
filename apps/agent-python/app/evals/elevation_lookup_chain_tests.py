@@ -177,6 +177,34 @@ def test_elevation_claim_can_be_curated_from_search_evidence():
     assert elev_item.covered
 
 
+def test_elevation_general_fact_is_collected_as_fact_clue():
+    from app.orchestrator.fact_lookup_policy import collect_fact_clues
+
+    state = _huangshan_elevation_state()
+    state.evidence = [
+        Evidence(
+            evidence_id="ev-elev",
+            source_name="search_mcp",
+            source_type=SourceType.WEB,
+            country="China",
+            place_name="榛勫北",
+            claims=[
+                Claim(
+                    claim_type=ClaimType.GENERAL_FACT,
+                    value="\u9ec4\u5c71\u98ce\u666f\u533a\u4e3b\u5cf0\u83b2\u82b1\u5cf0\u6d77\u62d41864\u7c73",
+                    confidence=0.7,
+                )
+            ],
+            confidence=0.7,
+        )
+    ]
+
+    clues = collect_fact_clues(state)
+
+    assert clues
+    assert "1864" in clues[0]["text"]
+
+
 def test_elevation_subclaims_in_contract():
     state = _huangshan_elevation_state()
     types = {c.claim_type for c in state.response_contract.claim_requirements}
@@ -265,6 +293,73 @@ def test_s8_elevation_answer_includes_peak_table_when_available():
     text = draft.render_text()
     assert "1864" in text
     assert "莲花" in text
+
+
+def test_s8_elevation_answer_uses_general_fact_elevation_clue():
+    from app.orchestrator.fact_lookup_guided_composition import build_fact_lookup_draft
+
+    state = _huangshan_elevation_state()
+    state.evidence = [
+        Evidence(
+            evidence_id="ev1",
+            source_name="search_mcp",
+            source_type=SourceType.WEB,
+            country="China",
+            claims=[
+                Claim(
+                    claim_type=ClaimType.GENERAL_FACT,
+                    value="\u9ec4\u5c71\u4e3b\u5cf0\u83b2\u82b1\u5cf0\u6d77\u62d41864\u7c73",
+                    confidence=0.7,
+                )
+            ],
+            confidence=0.7,
+        )
+    ]
+
+    draft = build_fact_lookup_draft(state)
+    text = draft.render_text()
+
+    assert "1864" in text
+    assert "\u83b2\u82b1\u5cf0" in text
+
+
+def test_geo_fact_gazetteer_supplements_when_elevation_sources_fail():
+    from app.orchestrator.geo_fact_gazetteer import supplement_elevation_from_gazetteer
+
+    state = _huangshan_elevation_state()
+
+    added = supplement_elevation_from_gazetteer(state)
+
+    assert added
+    assert any("1864" in str(claim.value) for claim in added[0].claims)
+    assert state.structured_result["geo_fact_gazetteer_used"]
+
+
+def test_geo_fact_gazetteer_does_not_duplicate_existing_elevation_clues():
+    from app.orchestrator.geo_fact_gazetteer import supplement_elevation_from_gazetteer
+
+    state = _huangshan_elevation_state()
+    state.evidence = [
+        Evidence(
+            evidence_id="ev-existing",
+            source_name="search_mcp",
+            source_type=SourceType.WEB,
+            country="China",
+            place_name="\u9ec4\u5c71",
+            claims=[
+                Claim(
+                    claim_type=ClaimType.ELEVATION,
+                    value="\u9ec4\u5c71\u83b2\u82b1\u5cf0\u6d77\u62d41864\u7c73",
+                    confidence=0.7,
+                )
+            ],
+            confidence=0.7,
+        )
+    ]
+
+    added = supplement_elevation_from_gazetteer(state)
+
+    assert added == []
 
 
 def test_official_source_discovery_skips_without_urls():

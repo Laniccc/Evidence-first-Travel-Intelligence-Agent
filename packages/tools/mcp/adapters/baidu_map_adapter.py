@@ -389,7 +389,7 @@ class BaiduMapMCPAdapter(BaseTravelTool):
         if not road:
             raise ValueError("baidu_traffic_mcp requires road_name or query")
 
-        args: dict[str, Any] = {"road_name": str(road)}
+        args: dict[str, Any] = {"road_name": str(road), "model": kwargs.get("model") or "road"}
         if kwargs.get("city"):
             args["city"] = str(kwargs["city"])
 

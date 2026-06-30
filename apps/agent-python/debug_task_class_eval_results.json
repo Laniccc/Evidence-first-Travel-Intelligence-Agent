@@ -1,0 +1,1174 @@
+[
+  {
+    "task_class": "poi_recommendation",
+    "query": "北京故宫附近有什么好吃的？",
+    "elapsed_s": 91.43,
+    "answer": "故宫博物院附近美食、地点（片区级，基于当前证据）\n\n结论：\n下列店铺/餐饮线索来自本轮地图检索，覆盖同一步行圈内。共 4 条可采纳证据。\n\n故宫博物院片区周边美食：\n- 周边美食：故宫餐厅(景运门店)（东华门街道景山前街4号故宫博物院内景运门南侧(近钟表馆)）（来源：Baidu Maps MCP，置信度 68%）\n- 周边美食：老北京炸酱面·渝湘美食（东华门大街81号）（来源：Baidu Maps MCP，置信度 68%）\n- 周边美食：故宫冰窖餐厅（北长街故宫博物院慈宁宫南侧）（来源：Baidu Maps MCP，置信度 68%）\n- 周边美食：四季民福烤鸭店(故宫店)（南池子大街11号）（来源：Baidu Maps MCP，置信度 68%）\n\n故宫博物院片区周边地点：\n- 本轮检索暂未获得可采纳的周边地点结构化证据。\n\n说明：\n- 未特别说明时，以下结果按「故宫博物院」所在片区汇总，不区分具体门点/出入口；若您从不同入口进入，步行距离可能略有差异。\n\n若需按具体入口/门点细化：\n- 1. 北京市 北京市（故宫餐厅(景运门店)）\n- 2. 北京市 北京市（老北京炸酱面·渝湘美食）\n- 3. 北京市 北京市（故宫冰窖餐厅）\n- 4. 北京市 北京市（四季民福烤鸭店(故宫店)）\n- 请回复序号（如「1」）或说明您从哪个门进入，以便按锚点再检索。\n\n说明：\n- 未提供出行日期，天气评估使用默认近日假设。\n- 未提供同行人画像，按一般游客评估。\n- 故宫博物院 暂无结构化 mock 数据，部分结论可能不完整。",
+    "confidence": 0.399,
+    "answer_mode": "evidence_required",
+    "resolved_task_class": "poi_recommendation",
+    "evidence_count": 4,
+    "limitations": [
+      "未提供出行日期，天气评估使用默认近日假设。",
+      "未提供同行人画像，按一般游客评估。",
+      "故宫博物院 暂无结构化 mock 数据，部分结论可能不完整。",
+      "体验判断缺少 fact_sheet 或 review_aspects 支撑。",
+      "关键证据不足，部分结论置信度受限。",
+      "答案中某些具体表述未能与证据值完全匹配，已降置信度。"
+    ],
+    "limitations_count": 6,
+    "trace_count": 68,
+    "tool_count": 6,
+    "tool_rollup": {
+      "baidu_place_detail_mcp": 1,
+      "baidu_place_search_mcp": 1,
+      "dianping_review_crawler_mcp": 1,
+      "fallback": 1,
+      "restaurant": 1,
+      "search_mcp": 1
+    },
+    "semantic_frame": {
+      "query_scope": "place",
+      "task_family": "food",
+      "decision_type": "nearby_search",
+      "time_scope": "flexible",
+      "entities": {
+        "country": "China",
+        "city": "北京",
+        "places": [
+          "故宫博物院"
+        ],
+        "region": "北京"
+      },
+      "information_needs": [
+        "nearby_food",
+        "general_travel_advice"
+      ],
+      "requires_exact_fact": true,
+      "requires_live_data": false,
+      "can_answer_with_model_prior": false,
+      "confidence": 0.9
+    },
+    "orchestration_summary": {
+      "s5_task_class": "poi_recommendation"
+    }
+  },
+  {
+    "task_class": "poi_recommendation",
+    "query": "杭州西湖附近有没有公共厕所？",
+    "elapsed_s": 81.03,
+    "answer": "西湖附近厕所、地点、美食（片区级，基于当前证据）\n\n结论：\n尚未检索到可采纳的周边厕所、周边地点、周边美食 POI 证据。已解析锚点位置，建议按具体出入口补充说明后重新检索。\n\n西湖片区周边厕所：\n- 本轮检索暂未获得可采纳的周边厕所结构化证据。\n\n西湖片区周边地点：\n- 本轮检索暂未获得可采纳的周边地点结构化证据。\n\n西湖片区周边美食：\n- 本轮检索暂未获得可采纳的周边美食结构化证据。\n\n说明：\n- 未特别说明时，以下结果按「西湖」所在片区汇总，不区分具体门点/出入口；若您从不同入口进入，步行距离可能略有差异。\n\n若需按具体入口/门点细化：\n- 1. 浙江省 杭州市（公共厕所）\n- 2. 浙江省 杭州市（公共厕所(水乐洞)）\n- 3. 浙江省 杭州市（公共卫生间）\n- 4. 浙江省 杭州市（公共厕所(ZJ-HAZ-1394)）\n- 5. 浙江省 杭州市（小隐西湖-洗手间）\n- 请回复序号（如「1」）或说明您从哪个门进入，以便按锚点再检索。\n\n说明：\n- 未提供出行日期，天气评估使用默认近日假设。\n- 未提供同行人画像，按一般游客评估。\n- 西湖 暂无结构化 mock 数据，部分结论可能不完整。\n- S5 gap-fill completed for nearby_toilet\n- 未检索到周边厕所、周边地点、周边美食相关地图 POI，结论受限。",
+    "confidence": 0.2,
+    "answer_mode": "evidence_required",
+    "resolved_task_class": "poi_recommendation",
+    "evidence_count": 7,
+    "limitations": [
+      "未提供出行日期，天气评估使用默认近日假设。",
+      "未提供同行人画像，按一般游客评估。",
+      "西湖 暂无结构化 mock 数据，部分结论可能不完整。",
+      "S5 gap-fill completed for nearby_toilet",
+      "体验判断缺少 fact_sheet 或 review_aspects 支撑。",
+      "关键证据不足，部分结论置信度受限。",
+      "答案中某些具体表述未能与证据值完全匹配，已降置信度。"
+    ],
+    "limitations_count": 7,
+    "trace_count": 77,
+    "tool_count": 5,
+    "tool_rollup": {
+      "search_mcp": 2,
+      "baidu_place_detail_mcp": 1,
+      "baidu_place_search_mcp": 1,
+      "dianping_review_crawler_mcp": 1
+    },
+    "semantic_frame": {
+      "query_scope": "place",
+      "task_family": "fact_lookup",
+      "decision_type": "general_advice",
+      "time_scope": "current",
+      "entities": {
+        "country": "China",
+        "city": "杭州",
+        "places": [
+          "西湖"
+        ],
+        "region": "浙江省"
+      },
+      "information_needs": [
+        "nearby_amenities"
+      ],
+      "requires_exact_fact": true,
+      "requires_live_data": false,
+      "can_answer_with_model_prior": false,
+      "confidence": 0.92
+    },
+    "orchestration_summary": {
+      "s5_task_class": "poi_recommendation"
+    }
+  },
+  {
+    "task_class": "strict_fact_lookup",
+    "query": "故宫博物院开放时间？",
+    "elapsed_s": 87.78,
+    "answer": "故宫博物院今日开放时间：08:00–20:00（来源：故宫博物院官方网站）。\n\n结论：\n根据故宫博物院官方网站显示，故宫博物院当前开放时间为08:00–20:00。\n\n开放时间证据详情：\n- 官方网站（Official Page (fetch-web)）显示开放时间为08:00–20:00（置信度93%，来源：https://www.dpm.org.cn/）。\n- 另有一项第三方搜索摘要的候选项显示适用时段为10月16日至4月15日，但未提供具体开放/闭馆时间，证据强度仅为候选（candidate_only），不作为最终确认依据。\n\n说明：\n- 开放时间信息来自官方网页抓取，但未注明检索具体日期，可能存在临时调整。\n- 故宫博物院当前无结构化mock数据，部分结论可能不完整。",
+    "confidence": 0.45,
+    "answer_mode": "evidence_required",
+    "resolved_task_class": "strict_fact_lookup",
+    "evidence_count": 6,
+    "limitations": [
+      "未提供出行日期，天气评估使用默认近日假设。",
+      "未提供同行人画像，按一般游客评估。",
+      "故宫博物院 暂无结构化 mock 数据，部分结论可能不完整。",
+      "关键证据不足，部分结论置信度受限。"
+    ],
+    "limitations_count": 4,
+    "trace_count": 77,
+    "tool_count": 8,
+    "tool_rollup": {
+      "baidu_place_search_mcp": 2,
+      "baidu_geocode_mcp": 1,
+      "baidu_place_detail_mcp": 1,
+      "browser_mcp": 1,
+      "official_page_reader_mcp": 1,
+      "osm_mcp": 1,
+      "search_mcp": 1
+    },
+    "semantic_frame": {
+      "query_scope": "place",
+      "task_family": "fact_lookup",
+      "decision_type": "fact_lookup",
+      "time_scope": "current",
+      "entities": {
+        "country": "China",
+        "city": "北京",
+        "places": [
+          "故宫博物院"
+        ],
+        "region": "北京"
+      },
+      "information_needs": [
+        "opening_hours"
+      ],
+      "requires_exact_fact": true,
+      "requires_live_data": false,
+      "can_answer_with_model_prior": false,
+      "confidence": 0.95
+    },
+    "orchestration_summary": {
+      "s5_task_class": "strict_fact_lookup"
+    }
+  },
+  {
+    "task_class": "strict_fact_lookup",
+    "query": "牛首山文化旅游区需要预约吗？",
+    "elapsed_s": 114.36,
+    "answer": "无法确认牛首山文化旅游区是否需要预约。\n\n结论：\n现有证据中不包含牛首山文化旅游区预约政策的官方确认信息，无法给出肯定或否定的回答。\n\n证据线索：\n- 搜索摘要中提及南京博物院需要预约，但牛首山条目仅列出了开放时间，未明确是否需要预约（来源：本地宝游玩攻略摘要，置信度0.5）\n- 多条搜索结果指向门票购买入口，但未明确预约要求（来源：本地宝搜索结果，置信度0.5）\n- 其他证据均为地名、坐标、购票平台信息，不涉及预约政策。\n\n说明：\n- 检索日期为2026年6月27日，后续政策可能变动。\n- 缺乏牛首山文化旅游区官方页面或结构化预约政策声明。\n- 所有相关证据均来自第三方网站摘要或购票平台，未见官方确认。",
+    "confidence": 0.2,
+    "answer_mode": "evidence_required",
+    "resolved_task_class": "strict_fact_lookup",
+    "evidence_count": 22,
+    "limitations": [
+      "未提供出行日期，天气评估使用默认近日假设。",
+      "未提供同行人画像，按一般游客评估。",
+      "牛首山 暂无结构化 mock 数据，部分结论可能不完整。",
+      "S5 gap-fill completed for reservation_policy",
+      "Missing source URL for Official Source Discovery",
+      "Missing source URL for Official Source Discovery",
+      "No claims in evidence from Official Page (fetch-web)",
+      "No claims in evidence from Official Page (fetch-web)",
+      "关键证据不足，部分结论置信度受限。"
+    ],
+    "limitations_count": 9,
+    "trace_count": 97,
+    "tool_count": 12,
+    "tool_rollup": {
+      "baidu_place_search_mcp": 2,
+      "official_page_reader_mcp": 2,
+      "baidu_geocode_mcp": 1,
+      "baidu_place_detail_mcp": 1,
+      "browser_mcp": 1,
+      "dianping_ticket_signal_crawler_mcp": 1,
+      "fliggy_ticket_api_mcp": 1,
+      "official": 1,
+      "official_source_discovery_mcp": 1,
+      "search_mcp": 1
+    },
+    "semantic_frame": {
+      "query_scope": "place",
+      "task_family": "fact_lookup",
+      "decision_type": "general_advice",
+      "time_scope": "flexible",
+      "entities": {
+        "country": "China",
+        "city": "南京",
+        "places": [
+          "牛首山"
+        ],
+        "region": "江苏"
+      },
+      "information_needs": [
+        "reservation_policy"
+      ],
+      "requires_exact_fact": true,
+      "requires_live_data": false,
+      "can_answer_with_model_prior": false,
+      "confidence": 0.93
+    },
+    "orchestration_summary": {
+      "s5_task_class": "strict_fact_lookup"
+    }
+  },
+  {
+    "task_class": "ticket_price_lookup",
+    "query": "栖霞山门票价格多少？",
+    "elapsed_s": 109.45,
+    "answer": "结论：\n\n\n栖霞山门票价格：\n- 当前证据中包含栖霞山门票价格线索；以下按证据强度列出。\n- ticket price 50 CNY（来源类型：web，证据强度：candidate_only） https://www.sogou.com/link?url=6IqLFeTuIyh1izA18nbfFx7I1CF5xjY8UEv7enYDKZhFi17E4JJRk7hJ2DJSmvzU\n- ticket price 0 CNY（来源类型：web，证据强度：candidate_only） https://www.sogou.com/link?url=6IqLFeTuIyh1izA18nbfFx7I1CF5xjY8UEv7enYDKZhFi17E4JJRk_h-jYb114eC\n\n说明：\n- 以上仅基于本轮工具证据，不以模型常识补全硬事实。\n- 价格、开放政策与地理数据可能调整，出行前请以官方最新公告为准。\n\n说明：\n- 栖霞山 暂无结构化 mock 数据，部分结论可能不完整。\n- official_page_reader_mcp requires a readable url\n- S5 gap-fill completed for entrance_ticket_price\n- Missing source URL for Official Source Discovery\n- Missing source URL for Official Source Discovery\n- Missing source URL for Official Source Discovery\n- Missing source URL for Official Source Discovery\n- Missing source URL for open-webSearch\n- Missing source URL for open-webSearch\n- Missing source URL for open-webSearch\n- Missing source URL for open-webSearch\n- Missing source URL for open-webSearch",
+    "confidence": 0.45,
+    "answer_mode": "evidence_required",
+    "resolved_task_class": "ticket_price_lookup",
+    "evidence_count": 24,
+    "limitations": [
+      "未提供出行日期，天气评估使用默认近日假设。",
+      "未提供同行人画像，按一般游客评估。",
+      "栖霞山 暂无结构化 mock 数据，部分结论可能不完整。",
+      "official_page_reader_mcp requires a readable url",
+      "S5 gap-fill completed for entrance_ticket_price",
+      "Missing source URL for Official Source Discovery",
+      "Missing source URL for Official Source Discovery",
+      "Missing source URL for Official Source Discovery",
+      "Missing source URL for Official Source Discovery",
+      "Missing source URL for open-webSearch",
+      "Missing source URL for open-webSearch",
+      "Missing source URL for open-webSearch",
+      "Missing source URL for open-webSearch",
+      "Missing source URL for open-webSearch",
+      "关键证据不足，部分结论置信度受限。"
+    ],
+    "limitations_count": 15,
+    "trace_count": 105,
+    "tool_count": 14,
+    "tool_rollup": {
+      "search_mcp": 9,
+      "baidu_geocode_mcp": 1,
+      "baidu_place_detail_mcp": 1,
+      "baidu_place_search_mcp": 1,
+      "official": 1,
+      "official_source_discovery_mcp": 1
+    },
+    "semantic_frame": {
+      "query_scope": "place",
+      "task_family": "fact_lookup",
+      "decision_type": "fact_lookup",
+      "time_scope": "flexible",
+      "entities": {
+        "country": "China",
+        "city": "南京",
+        "places": [
+          "栖霞山"
+        ],
+        "region": "江苏"
+      },
+      "information_needs": [
+        "ticket_price"
+      ],
+      "requires_exact_fact": true,
+      "requires_live_data": false,
+      "can_answer_with_model_prior": false,
+      "confidence": 0.9
+    },
+    "orchestration_summary": {
+      "s5_task_class": "ticket_price_lookup"
+    }
+  },
+  {
+    "task_class": "ticket_price_lookup",
+    "query": "兵马俑门票多少钱？",
+    "elapsed_s": 181.37,
+    "error": "TimeoutError: "
+  },
+  {
+    "task_class": "geo_fact_lookup",
+    "query": "黄山主峰海拔多少米？",
+    "elapsed_s": 76.04,
+    "answer": "无法确认黄山主峰的海拔高度。\n\n结论：\n目前的检索结果中未包含黄山主峰海拔的官方确认数据，无法给出精确米数。\n\n证据详情：\n- Official Page (fetch-web) 返回百度安全验证，未能获取有效内容（置信度0.55）。\n- open-webSearch 搜索结果多为旅游攻略和图片，未包含海拔信息（置信度0.5）。\n- open-webSearch 结果“黄山旅游官方平台”仅提示使用360极速模式，无具体数据（置信度0.5）。\n- 未从任何来源获得海拔数值的官方确认。\n\n说明：\n- 检索结果中不包含黄山主峰海拔的官方或可靠第三方数据。\n- 未提供检索日期，数据可能存在时效性问题。\n- 无法确认当前准确海拔，建议查阅黄山风景区官方渠道或权威百科。",
+    "confidence": 0.2,
+    "answer_mode": "evidence_preferred",
+    "resolved_task_class": "geo_fact_lookup",
+    "evidence_count": 18,
+    "limitations": [
+      "该数据未从官方来源实时验证，基于常识知识，建议查阅权威资料确认。",
+      "未提供出行日期，天气评估使用默认近日假设。",
+      "未提供同行人画像，按一般游客评估。",
+      "黄山 暂无结构化 mock 数据，部分结论可能不完整。",
+      "S5 gap-fill completed for elevation",
+      "Missing source URL for Official Source Discovery",
+      "Missing source URL for Official Source Discovery",
+      "Low confidence evidence from Official Source Discovery",
+      "Missing source URL for Official Source Discovery",
+      "Low confidence evidence from Official Source Discovery",
+      "Missing source URL for Official Source Discovery",
+      "Low confidence evidence from Official Source Discovery",
+      "Missing source URL for Official Source Discovery",
+      "Low confidence evidence from Official Source Discovery",
+      "关键证据不足，部分结论置信度受限。"
+    ],
+    "limitations_count": 15,
+    "trace_count": 77,
+    "tool_count": 15,
+    "tool_rollup": {
+      "baidu_place_search_mcp": 5,
+      "baidu_geocode_mcp": 1,
+      "baidu_place_detail_mcp": 1,
+      "baidu_reverse_geocode_mcp": 1,
+      "browser_mcp": 1,
+      "official_page_reader_mcp": 1,
+      "official_source_discovery_mcp": 1,
+      "osm_mcp": 1,
+      "search_mcp": 1,
+      "wikidata_mcp": 1,
+      "wikipedia_mcp": 1
+    },
+    "semantic_frame": {
+      "query_scope": "place",
+      "task_family": "fact_lookup",
+      "decision_type": "general_advice",
+      "time_scope": "flexible",
+      "entities": {
+        "country": "China",
+        "city": null,
+        "places": [
+          "黄山"
+        ],
+        "region": null
+      },
+      "information_needs": [
+        "elevation"
+      ],
+      "requires_exact_fact": true,
+      "requires_live_data": false,
+      "can_answer_with_model_prior": false,
+      "confidence": 0.93
+    },
+    "orchestration_summary": {
+      "s5_task_class": "geo_fact_lookup"
+    }
+  },
+  {
+    "task_class": "geo_fact_lookup",
+    "query": "泰山海拔多少米？",
+    "elapsed_s": 151.74,
+    "answer": "无法确认当前泰山的官方门票价格，因为证据中未查到经官方页面确认的票价信息。\n\n结论：\n目前证据显示泰山门票存在多个非官方来源的候选价格，但均未经官方景区页面确认。\n\n门票价格线索：\n- Official Source Discovery 提供了同程旅行门票预订页面候选，置信度0.551，但该页面未直接显示票价。\n- Fliggy Open API 提供大门票成人票¥96，来源为票务平台，证据强度 partial，未完全官方确认。\n- Fliggy Open API 提供畅玩通票成人票¥87.9，来源为票务平台，证据强度 partial，未完全官方确认。\n- 知乎文章提到2023年初泰山免费活动的候选，来源为 web，置信度0.48，仅为第三方信息。\n- 旅行社页面显示全价退100元、旺季160元/淡季120元等候选价，来源为 web，置信度0.48，非官方。\n\n海拔信息：\n- 本查询未发现关于泰山海拔高度的任何证据，无法提供确切海拔数据。\n\n说明：\n- 证据中无官方景区页面确认的票价或海拔数据。\n- 票价线索来自票务平台或第三方网站，可能未反映当前最新价格或淡旺季差异。\n- 检索时间点为近期的通用数据，未特别标注具体日期。\n- 多个来源票价不一致（0~2025元范围），存在明显冲突。",
+    "confidence": 0.245,
+    "answer_mode": "evidence_required",
+    "resolved_task_class": "ticket_price_lookup",
+    "evidence_count": 32,
+    "limitations": [
+      "未提供出行日期，天气评估使用默认近日假设。",
+      "未提供同行人画像，按一般游客评估。",
+      "泰山 暂无结构化 mock 数据，部分结论可能不完整。",
+      "official_source_discovery_mcp requires urls or search_results; skip when none available",
+      "S5 gap-fill completed for ticket_price",
+      "Missing source URL for Official Source Discovery",
+      "No claims in evidence from Official Page (fetch-web)",
+      "Missing source URL for Official Source Discovery",
+      "Missing source URL for Official Source Discovery",
+      "Missing source URL for Official Source Discovery",
+      "关键证据不足，部分结论置信度受限。"
+    ],
+    "limitations_count": 11,
+    "trace_count": 109,
+    "tool_count": 17,
+    "tool_rollup": {
+      "official_source_discovery_mcp": 4,
+      "baidu_place_search_mcp": 3,
+      "search_mcp": 3,
+      "baidu_geocode_mcp": 1,
+      "baidu_place_detail_mcp": 1,
+      "browser_mcp": 1,
+      "dianping_ticket_signal_crawler_mcp": 1,
+      "fliggy_ticket_api_mcp": 1,
+      "official": 1,
+      "official_page_reader_mcp": 1
+    },
+    "semantic_frame": {
+      "query_scope": "place",
+      "task_family": "fact_lookup",
+      "decision_type": "fact_lookup",
+      "time_scope": "flexible",
+      "entities": {
+        "country": "China",
+        "city": "泰安",
+        "places": [
+          "泰山"
+        ],
+        "region": "山东"
+      },
+      "information_needs": [
+        "ticket_price"
+      ],
+      "requires_exact_fact": true,
+      "requires_live_data": false,
+      "can_answer_with_model_prior": false,
+      "confidence": 0.93
+    },
+    "orchestration_summary": {
+      "s5_task_class": "ticket_price_lookup"
+    }
+  },
+  {
+    "task_class": "live_status",
+    "query": "北京今天天气适合逛故宫吗？",
+    "elapsed_s": 128.11,
+    "answer": "无法确认故宫博物院今日是否临时闭园或当前交通状况。\n\n结论：\n目前没有来自官方或实时数据源的确切信息，无法确认故宫博物院的临时闭园状态、当前交通、客流或步行强度是否适合游览。\n\n天气参考（部分可用，但非实时官方数据）：\n- 据模拟天气API数据，故宫今日天气为多云，24-29°C，降雨风险低（证据ID: 46b66678-f5cc-4063-a89f-1216932bf5b4），该数据来自Mock源，非官方渠道，仅供参考。\n\n说明：\n- 所有实时数据（天气、客流、交通、临时闭园、步行强度）均来自模拟Mock源，非官方实时接口。\n- 故宫博物院的临时闭园状态、当前客流和交通状况均无官方证据，无法确认。\n- 步行强度无任何证据覆盖，无法评估。\n- 检索日期未提供，天气数据为默认近日假设，可能已过时。",
+    "confidence": 0.2,
+    "answer_mode": "evidence_required",
+    "resolved_task_class": "live_status",
+    "evidence_count": 20,
+    "limitations": [
+      "未提供出行日期，天气评估使用默认近日假设。",
+      "未提供同行人画像，按一般游客评估。",
+      "故宫博物院 暂无结构化 mock 数据，部分结论可能不完整。",
+      "S5 gap-fill completed for walking_intensity",
+      "体验判断缺少 fact_sheet 或 review_aspects 支撑。",
+      "关键证据不足，部分结论置信度受限。",
+      "答案中某些具体表述未能与证据值完全匹配，已降置信度。"
+    ],
+    "limitations_count": 7,
+    "trace_count": 96,
+    "tool_count": 14,
+    "tool_rollup": {
+      "baidu_place_search_mcp": 3,
+      "baidu_place_detail_mcp": 2,
+      "search_mcp": 2,
+      "baidu_geocode_mcp": 1,
+      "baidu_weather_mcp": 1,
+      "dianping_ticket_signal_crawler_mcp": 1,
+      "fliggy_ticket_api_mcp": 1,
+      "openmeteo_mcp": 1,
+      "weather": 1,
+      "weather_mcp": 1
+    },
+    "semantic_frame": {
+      "query_scope": "place",
+      "task_family": "suitability",
+      "decision_type": "whether_to_go",
+      "time_scope": "current",
+      "entities": {
+        "country": "China",
+        "city": "北京",
+        "places": [
+          "故宫博物院"
+        ],
+        "region": null
+      },
+      "information_needs": [
+        "weather_today",
+        "walking_intensity"
+      ],
+      "requires_exact_fact": true,
+      "requires_live_data": true,
+      "can_answer_with_model_prior": false,
+      "confidence": 0.92
+    },
+    "orchestration_summary": {
+      "s5_task_class": "live_status"
+    }
+  },
+  {
+    "task_class": "live_status",
+    "query": "现在去八达岭长城路上堵吗？",
+    "elapsed_s": 83.92,
+    "answer": "无法确认八达岭长城当前实时交通拥堵情况——未获取到有效实时数据\n\n结论：\n经过数据搜索，目前未能获取八达岭长城当前实时交通拥堵状况的可靠数据。所有尝试（包括天气API等工具）返回的信息均不是实时路况或人流量数据。因此暂时无法回答当前路上是否拥堵。\n\n当前实时路况：\n- 无法确认：未检索到任何关于八达岭长城当前实时交通拥堵情况的证据。工具尝试返回的天气数据（Partly cloudy, 24-29°C）与路况无关，已被拒绝作为答案。\n- 缺少实时交通数据：系统中未接入实时路况/人流数据源，无法提供准确的当下拥堵程度。\n\n拥堵程度估算：\n- 无法确认：实时人流没有可靠来源，不能给出当前拥挤等级。系统尝试了多种工具（如crowd_estimation_mcp等），但均未返回有效数据。\n- 背景提示：通常八达岭长城在周末、节假日及旅游旺季上午时段会出现拥堵，但此仅为一般规律，并非当前实时情况。\n\n天气与临时关闭：\n- 天气：当前可获取的信息为天气预报（多云，24-29°C，降雨概率低），但该数据来自模拟天气API，并非官方实时数据，仅供参考。\n- 临时关闭：目前未发现关于八达岭长城临时关闭的任何证据，但也不能完全排除，建议出行前查询官方渠道确认。\n\n说明：\n- 未接入实时人流/排队/路况数据，拥挤判断缺乏可靠来源。\n- 使用的天气数据为模拟来源，不可视为官方实时数据。\n- 所有 required 类 claim（traffic_status, temporary_closure, current_weather）均因 coverage=none 而 adopt_with_limitation，无法直接回答。",
+    "confidence": 0.2,
+    "answer_mode": "evidence_required",
+    "resolved_task_class": "live_status",
+    "evidence_count": 9,
+    "limitations": [
+      "未提供出行日期，天气评估使用默认近日假设。",
+      "未提供同行人画像，按一般游客评估。",
+      "未接入实时人流/排队数据，拥挤判断基于评价摘要、地图热门程度代理与日期因素估算。",
+      "S5 gap-fill completed for current_crowd",
+      "体验判断缺少 fact_sheet 或 review_aspects 支撑。",
+      "关键证据不足，部分结论置信度受限。",
+      "答案中某些具体表述未能与证据值完全匹配，已降置信度。"
+    ],
+    "limitations_count": 7,
+    "trace_count": 89,
+    "tool_count": 12,
+    "tool_rollup": {
+      "baidu_place_detail_mcp": 2,
+      "baidu_traffic_mcp": 1,
+      "baidu_weather_mcp": 1,
+      "dianping_review_crawler_mcp": 1,
+      "fallback": 1,
+      "openmeteo_mcp": 1,
+      "places_mcp": 1,
+      "reviews": 1,
+      "search_mcp": 1,
+      "weather": 1,
+      "weather_mcp": 1
+    },
+    "semantic_frame": {
+      "query_scope": "place",
+      "task_family": "crowd",
+      "decision_type": "risk_check",
+      "time_scope": "current",
+      "entities": {
+        "country": "China",
+        "city": "北京",
+        "places": [
+          "八达岭长城"
+        ],
+        "region": "北京"
+      },
+      "information_needs": [
+        "current_crowd",
+        "crowd_level"
+      ],
+      "requires_exact_fact": false,
+      "requires_live_data": true,
+      "can_answer_with_model_prior": false,
+      "confidence": 0.92
+    },
+    "orchestration_summary": {
+      "s5_task_class": "live_status"
+    }
+  },
+  {
+    "task_class": "multi_place_parallel",
+    "query": "故宫和颐和园哪个更适合带老人？",
+    "elapsed_s": 113.67,
+    "answer": "故宫博物院有多个同名地点，请先确认您指的是哪一个\n\n结论：\n在无法唯一确定地点前，暂不能给出关于crowd_risk的确定结论。下列为各候选地点及本轮检索到的信息。请回复序号（如「1」）或补充更具体的省/市/景区名称，以便继续查询。\n\n1. 北京市 北京市（故宫博物院）：\n- 地址：北京市东城区景山前街4号\n- 坐标：39.924091367210636, 116.4034138534206\n- 关于crowd_risk：本轮检索未找到可采纳的相关证据。\n\n2. 北京市 北京市（故宫博物院-午门(南门)）：\n- 地址：北京市东城区景山前街4号故宫博物院内\n- 坐标：39.92150773266053, 116.40931787655438\n- 关于crowd_risk：本轮检索未找到可采纳的相关证据。\n\n3. 北京市 北京市（故宫博物院-北门）：\n- 地址：北京市东城区景山前街4号故宫博物院内\n- 坐标：39.92115197758326, 116.39791555446193\n- 关于crowd_risk：本轮检索未找到可采纳的相关证据。\n\n4. 北京市 北京市（故宫博物院-东华门(东门)）：\n- 地址：北京市东城区景山前街4号故宫博物院内\n- 坐标：39.929635181510555, 116.40313117668188\n- 关于crowd_risk：本轮检索未找到可采纳的相关证据。\n\n5. 北京市 北京市（故宫博物院-西华门(西门)）：\n- 地址：北京市东城区景山前街4号故宫博物院内\n- 坐标：39.92151292036349, 116.40927260195667\n- 关于crowd_risk：本轮检索未找到可采纳的相关证据。\n\n说明：\n- 未提供出行日期，天气评估使用默认近日假设。\n- crowd_level: refuse_to_guess — coverage=none, adoption=refuse_to_guess, tier=known; evidence_asymmetry\n- duration: refuse_to_guess — coverage=none, adoption=refuse_to_guess, tier=family; evidence_asymmetry\n- crowd_risk: refuse_to_guess — coverage=none, adoption=refuse_to_guess, tier=family; evidence_asymmetry\n- walking_intensity: refuse_to_guess — coverage=none, adoption=refuse_to_guess, tier=family; evidence_asymmetry\n- accessibility: refuse_to_guess — coverage=none, adoption=refuse_to_guess, tier=family; evidence_asymmetry\n- place_disambiguation",
+    "confidence": 0.24,
+    "answer_mode": "model_prior_allowed",
+    "resolved_task_class": "multi_place_parallel",
+    "evidence_count": 12,
+    "limitations": [
+      "未提供出行日期，天气评估使用默认近日假设。",
+      "体验判断缺少 fact_sheet 或 review_aspects 支撑。",
+      "关键证据不足，部分结论置信度受限。",
+      "答案中某些具体表述未能与证据值完全匹配，已降置信度。"
+    ],
+    "limitations_count": 4,
+    "trace_count": 143,
+    "tool_count": 22,
+    "tool_rollup": {
+      "baidu_place_search_mcp": 3,
+      "baidu_route_matrix_mcp": 2,
+      "baidu_route_mcp": 2,
+      "baidu_geocode_mcp": 1,
+      "baidu_place_detail_mcp": 1,
+      "browser_mcp": 1,
+      "climate_mcp": 1,
+      "dianping_review_crawler_mcp": 1,
+      "fallback": 1,
+      "fliggy_ticket_api_mcp": 1,
+      "official_page_reader_mcp": 1,
+      "openmeteo_mcp": 1,
+      "osm_mcp": 1,
+      "places_mcp": 1,
+      "reviews": 1,
+      "search_mcp": 1,
+      "seasonality": 1,
+      "transit": 1
+    },
+    "semantic_frame": {
+      "query_scope": "place",
+      "task_family": "comparison",
+      "decision_type": "how_to_choose",
+      "time_scope": "flexible",
+      "entities": {
+        "country": "China",
+        "city": "Beijing",
+        "places": [
+          "故宫博物院",
+          "颐和园"
+        ],
+        "region": null
+      },
+      "information_needs": [
+        "walking_intensity",
+        "accessibility",
+        "crowd_level"
+      ],
+      "requires_exact_fact": false,
+      "requires_live_data": false,
+      "can_answer_with_model_prior": true,
+      "confidence": 0.85
+    },
+    "orchestration_summary": {
+      "subagent_results": [
+        {
+          "subagent": "entity_resolution_agent",
+          "task_id": "llm-5691aeb4",
+          "lookup_intent": "resolve_place_candidates",
+          "search_query": "故宫博物院 颐和园 北京",
+          "selected_tool": "baidu_place_search_mcp",
+          "evidence_count": 6,
+          "effective_evidence_count": 6,
+          "resolution_status": "ambiguous",
+          "lookup_phase": null,
+          "source_family": null
+        }
+      ],
+      "s5_task_class": "multi_place_parallel"
+    }
+  },
+  {
+    "task_class": "multi_place_parallel",
+    "query": "黄山和泰山哪个更适合第一次爬山？",
+    "elapsed_s": 180.52,
+    "error": "TimeoutError: "
+  },
+  {
+    "task_class": "route_first",
+    "query": "从北京南站到天安门广场坐地铁怎么走？",
+    "elapsed_s": 82.13,
+    "answer": "北京南站到天安门广场地铁路线\n\n结论：\n证据不足/未核实。无法提供完整路线信息，仅有一条未核实的地铁参考：可乘地铁1号线至天安门东/西站，出站步行约10-15分钟。具体换乘方案、耗时和距离均无法确认。\n\n当前已知的地铁线索：\n- 地铁1号线天安门东/西站，出站步行10-15分钟可达天安门广场（证据来源：Transit API (Mock)，置信度0.69）。注意：该信息为部分覆盖且标注存在差异，实际路线和换乘方式未核实。\n- 未能确认从北京南站出发的详细换乘方案（如是否需换乘2号线或4号线至1号线）、总耗时及总距离。工具已尝试：transit API，但未提供完整路线。\n- 请用户提供出发日期或期望的出发时间，以便获取更准确的实时路线建议。\n\n无法确认的信息：\n- 开放时间：无法确认，已拒绝推测。\n- 具体换乘站、总耗时和距离：证据覆盖为零，已标注限制。\n\n说明：\n- 未提供出行日期，天气评估使用默认近日假设。\n- 未提供同行人画像，按一般游客评估。\n- 多来源对该 claim 给出不同表述，保留差异并标注限制。",
+    "confidence": 0.2,
+    "answer_mode": "evidence_required",
+    "resolved_task_class": "strict_fact_lookup",
+    "evidence_count": 4,
+    "limitations": [
+      "未提供出行日期，天气评估使用默认近日假设。",
+      "未提供同行人画像，按一般游客评估。",
+      "体验判断缺少 fact_sheet 或 review_aspects 支撑。",
+      "关键证据不足，部分结论置信度受限。",
+      "答案中某些具体表述未能与证据值完全匹配，已降置信度。"
+    ],
+    "limitations_count": 5,
+    "trace_count": 151,
+    "tool_count": 11,
+    "tool_rollup": {
+      "baidu_place_search_mcp": 2,
+      "baidu_geocode_mcp": 1,
+      "baidu_place_detail_mcp": 1,
+      "baidu_route_matrix_mcp": 1,
+      "baidu_route_mcp": 1,
+      "baidu_traffic_mcp": 1,
+      "dianping_ticket_signal_crawler_mcp": 1,
+      "fliggy_ticket_api_mcp": 1,
+      "osm_mcp": 1,
+      "transit": 1
+    },
+    "semantic_frame": {
+      "query_scope": "itinerary",
+      "task_family": "planning",
+      "decision_type": "route_plan",
+      "time_scope": "flexible",
+      "entities": {
+        "country": "China",
+        "city": "Beijing",
+        "places": [
+          "北京南站",
+          "天安门广场"
+        ],
+        "region": "Beijing"
+      },
+      "information_needs": [
+        "transit"
+      ],
+      "requires_exact_fact": true,
+      "requires_live_data": false,
+      "can_answer_with_model_prior": false,
+      "confidence": 0.9
+    },
+    "orchestration_summary": {
+      "s5_task_class": "strict_fact_lookup"
+    }
+  },
+  {
+    "task_class": "route_first",
+    "query": "从杭州东站到西湖打车大概多久？",
+    "elapsed_s": 126.93,
+    "answer": "无法确认从杭州东站到西湖打车所需的确切时间——当前证据库中无实时交通或行程时长数据。\n\n结论：\n由于缺乏实时路况和交通信息，无法提供准确的打车时长。建议您使用地图App（如高德、百度地图）查询实时预估时间。\n\n证据说明：\n- 证据库中仅有一条天气模拟数据（实时天气、交通状况、拥挤度、临时关闭均无结构化数据），claim_type为current_weather，source_name为Weather API (Mock)，evidence_id为a2e54bc6-85ca-4f8f-8cbe-ce2d7aa91f14，confidence为0.0，官方标记为否。该数据与打车时长无关。\n- transit_time（行程时长）claim coverage=none，adoption=refuse_to_guess，无任何证据支持。\n\n说明：\n- 未提供出行日期和时间，无法获取实时路况。\n- 无任何官方或第三方关于杭州东站至西湖打车时间的数据源。\n- 证据库仅包含一条低置信度的天气模拟记录，无法推导交通信息。\n- 检索日期未指定，数据可能过时。",
+    "confidence": 0.2,
+    "answer_mode": "evidence_required",
+    "resolved_task_class": "live_status",
+    "evidence_count": 7,
+    "limitations": [
+      "未提供出行日期，天气评估使用默认近日假设。",
+      "未提供同行人画像，按一般游客评估。",
+      "杭州东站 暂无结构化 mock 数据，部分结论可能不完整。",
+      "S5 gap-fill completed for general_travel_advice",
+      "体验判断缺少 fact_sheet 或 review_aspects 支撑。",
+      "关键证据不足，部分结论置信度受限。",
+      "答案中某些具体表述未能与证据值完全匹配，已降置信度。"
+    ],
+    "limitations_count": 7,
+    "trace_count": 103,
+    "tool_count": 18,
+    "tool_rollup": {
+      "search_mcp": 4,
+      "baidu_weather_mcp": 3,
+      "baidu_geocode_mcp": 1,
+      "baidu_place_detail_mcp": 1,
+      "baidu_place_search_mcp": 1,
+      "baidu_traffic_mcp": 1,
+      "fallback": 1,
+      "openmeteo_mcp": 1,
+      "osm_mcp": 1,
+      "weather": 1,
+      "weather_mcp": 1,
+      "wikidata_mcp": 1,
+      "wikipedia_mcp": 1
+    },
+    "semantic_frame": {
+      "query_scope": "place",
+      "task_family": "transport",
+      "decision_type": "general_advice",
+      "time_scope": "flexible",
+      "entities": {
+        "country": "China",
+        "city": "Hangzhou",
+        "places": [
+          "杭州东站",
+          "西湖"
+        ],
+        "region": "浙江"
+      },
+      "information_needs": [
+        "transit_time"
+      ],
+      "requires_exact_fact": false,
+      "requires_live_data": true,
+      "can_answer_with_model_prior": false,
+      "confidence": 0.9
+    },
+    "orchestration_summary": {
+      "s5_task_class": "live_status"
+    }
+  },
+  {
+    "task_class": "review_first",
+    "query": "南京大牌档口碑怎么样？",
+    "elapsed_s": 112.55,
+    "answer": "【证据不足/未核实】关于南京大牌档：{'latitude': 32.07358283753694, 'longitude': 118.7827461356608}（来源：Baidu Maps MCP，置信度 60%）；南京大牌档是南京知名的连锁餐饮品牌，以传统金陵小吃和民国风情装修著称，口碑两极分化。喜欢地道风味、热闹氛围的游客通常体验较好，但高峰期可能需要长时间等位，且部分游客反映菜品口味偏咸或服务质量不稳定。建议错峰用餐（如下午5点前到店），并提前查看近期食客评价以确认分店口碑。（来源：Travel Knowledge Prior (LLM)，置信度 55%）。建议出发前再核实官方渠道。",
+    "confidence": 0.287,
+    "answer_mode": "evidence_preferred",
+    "resolved_task_class": "mixed_advisory",
+    "evidence_count": 9,
+    "limitations": [
+      "答案由证据摘要自动生成（LLM 合成未通过校验）。",
+      "关键证据不足，部分结论置信度受限。"
+    ],
+    "limitations_count": 2,
+    "trace_count": 71,
+    "tool_count": 10,
+    "tool_rollup": {
+      "baidu_geocode_mcp": 1,
+      "baidu_place_detail_mcp": 1,
+      "baidu_place_search_mcp": 1,
+      "dianping_review_crawler_mcp": 1,
+      "fallback": 1,
+      "knowledge_prior": 1,
+      "osm_mcp": 1,
+      "search_mcp": 1,
+      "wikidata_mcp": 1,
+      "wikipedia_mcp": 1
+    },
+    "semantic_frame": {
+      "query_scope": "place",
+      "task_family": "suitability",
+      "decision_type": "whether_to_go",
+      "time_scope": "flexible",
+      "entities": {
+        "country": "China",
+        "city": "南京",
+        "places": [
+          "南京大牌档"
+        ],
+        "region": "江苏"
+      },
+      "information_needs": [
+        "general_travel_advice"
+      ],
+      "requires_exact_fact": false,
+      "requires_live_data": false,
+      "can_answer_with_model_prior": true,
+      "confidence": 0.85
+    },
+    "orchestration_summary": {
+      "subagent_results": [
+        {
+          "subagent": "entity_resolution_agent",
+          "task_id": "step1_entity_resolve",
+          "lookup_intent": "resolve_entity",
+          "search_query": "南京大牌档 江苏 南京",
+          "selected_tool": "dianping_review_crawler_mcp",
+          "evidence_count": 1,
+          "effective_evidence_count": 1,
+          "resolution_status": "pending",
+          "lookup_phase": null,
+          "source_family": null
+        },
+        {
+          "subagent": "fact_search_agent",
+          "task_id": "step2_web_search_口碑",
+          "lookup_intent": "open_advice",
+          "search_query": "江苏 南京大牌档 口碑怎么样",
+          "selected_tool": "baidu_place_search_mcp",
+          "evidence_count": 1,
+          "effective_evidence_count": 1,
+          "resolution_status": null,
+          "lookup_phase": null,
+          "source_family": null
+        },
+        {
+          "subagent": "fact_search_agent",
+          "task_id": "llm-3dc44c2a",
+          "lookup_intent": "open_advice",
+          "search_query": "南京大牌档 江苏 南京 口碑 评价",
+          "selected_tool": "baidu_place_detail_mcp",
+          "evidence_count": 1,
+          "effective_evidence_count": 1,
+          "resolution_status": null,
+          "lookup_phase": null,
+          "source_family": null
+        },
+        {
+          "subagent": "fact_search_agent",
+          "task_id": "llm-f5f7acaf",
+          "lookup_intent": "open_advice",
+          "search_query": "南京 江苏 南京大牌档 口碑怎么样",
+          "selected_tool": "baidu_geocode_mcp",
+          "evidence_count": 1,
+          "effective_evidence_count": 1,
+          "resolution_status": null,
+          "lookup_phase": null,
+          "source_family": null
+        },
+        {
+          "subagent": "fact_search_agent",
+          "task_id": "llm-8a8b46d8",
+          "lookup_intent": "open_advice",
+          "search_query": "南京大牌档 口碑 评价 怎么样",
+          "selected_tool": "search_mcp",
+          "evidence_count": 3,
+          "effective_evidence_count": 3,
+          "resolution_status": null,
+          "lookup_phase": null,
+          "source_family": null
+        }
+      ],
+      "completed_search_task_ids": [
+        "step1_entity_resolve",
+        "step2_web_search_口碑",
+        "llm-3dc44c2a",
+        "llm-f5f7acaf",
+        "llm-8a8b46d8"
+      ],
+      "s5_task_class": "mixed_advisory"
+    }
+  },
+  {
+    "task_class": "review_first",
+    "query": "广州长隆野生动物世界排队久不久？",
+    "elapsed_s": 105.04,
+    "answer": "无法确认广州长隆野生动物世界当前拥挤程度\n\n结论：\n由于未获取到实时人流数据，无法确认广州长隆野生动物世界当前的排队时间与拥挤程度。\n\n证据缺失说明：\n- 未找到任何实时或近期的人流拥挤程度的可靠证据。已尝试通过搜索和评论爬虫获取信息，但均未返回有效结果。\n- 由于缺乏实时数据，对当前拥挤程度的查询无法给出确认性回答。\n\n其他信息：\n- 根据一条低置信度的线索（来源为Fallback Web Lookup），有一个估计值0.65（约65%），但该数据并非来自官方或可靠渠道，仅供参考，不可作为决定依据。\n- 有信息显示，纪录片《野性四季》在8月21日至25日播出，但该信息与拥挤程度无直接关联。\n- 用户印象中提到该园是“中国最具国际水准的国家级野生动物园”，但其来源不具时效性。\n\n说明：\n- 未接入实时人流/排队数据，拥挤判断无法基于可靠来源。\n- 已尝试搜索、评论爬虫等工具，均未能获取有效证据。\n- 整体证据置信度为0，结论基于缺失状态。",
+    "confidence": 0.2,
+    "answer_mode": "evidence_required",
+    "resolved_task_class": "live_status",
+    "evidence_count": 4,
+    "limitations": [
+      "未提供出行日期，天气评估使用默认近日假设。",
+      "未提供同行人画像，按一般游客评估。",
+      "未接入实时人流/排队数据，拥挤判断基于评价摘要、地图热门程度代理与日期因素估算。",
+      "S5 gap-fill completed for crowd_level",
+      "体验判断缺少 fact_sheet 或 review_aspects 支撑。",
+      "关键证据不足，部分结论置信度受限。",
+      "答案中某些具体表述未能与证据值完全匹配，已降置信度。"
+    ],
+    "limitations_count": 7,
+    "trace_count": 95,
+    "tool_count": 14,
+    "tool_rollup": {
+      "baidu_weather_mcp": 5,
+      "reviews": 3,
+      "dianping_review_crawler_mcp": 1,
+      "fallback": 1,
+      "openmeteo_mcp": 1,
+      "places_mcp": 1,
+      "search_mcp": 1,
+      "weather_mcp": 1
+    },
+    "semantic_frame": {
+      "query_scope": "place",
+      "task_family": "crowd",
+      "decision_type": "risk_check",
+      "time_scope": "current",
+      "entities": {
+        "country": "China",
+        "city": "广州",
+        "places": [
+          "广州长隆野生动物世界"
+        ],
+        "region": "广东"
+      },
+      "information_needs": [
+        "crowd_level",
+        "current_crowd"
+      ],
+      "requires_exact_fact": false,
+      "requires_live_data": true,
+      "can_answer_with_model_prior": false,
+      "confidence": 0.92
+    },
+    "orchestration_summary": {
+      "s5_task_class": "live_status"
+    }
+  },
+  {
+    "task_class": "mixed_advisory",
+    "query": "几月去杭州西湖最合适？",
+    "elapsed_s": 107.43,
+    "answer": "杭州西湖的最佳出行季节建议\n\n结论：\n综合现有信息，春季（3-5月）和秋季（9-11月）是杭州西湖通常适宜游览的季节，但具体天气每年有波动，建议出行前查询天气预报。由于相关证据主要来自一般季节规律，且整体可信度较低，请将此作为参考，并进一步核实具体信息。\n\n推荐季节：\n- 春季（3-5月）和秋季（9-11月）通常为杭州西湖适宜游览的季节，气候温和，景色宜人。\n- 建议出行前查看当地天气预报，因每年天气常有波动。\n\n证据说明与限制：\n- 该季节建议基于一般规律，未找到官方或实时确认的权威来源，属于低可信度背景信息。\n- 当前未能获取到杭州西湖的具体节气规律、节庆活动、住宿和门票等详细信息。\n- 已尝试通过多家旅游、天气和搜索工具获取相关数据，但未找到符合要求的 seasonality 证据。\n- 由于证据覆盖不足（partial coverage），整体可信度较低（overall confidence 0.468）。\n\n其他参考信息：\n- 有个别网络搜索结果提及与西湖住宿相关的讨论，但未提供具体的季节或出行季节建议。\n- 缺少路线规划（route_plan）相关证据，无法提供更多行程安排建议。\n\n说明：\n- 季节建议基于公开资料或一般规律；具体年份天气与节庆日期需进一步核实。\n- 这是基于一般季节规律的建议；具体年份天气、节庆日期、住宿价格需进一步查询。\n- 多来源对该 claim 给出不同表述，保留差异并标注限制。",
+    "confidence": 0.45,
+    "answer_mode": "model_prior_allowed",
+    "resolved_task_class": "mixed_advisory",
+    "evidence_count": 8,
+    "limitations": [
+      "这是基于一般季节规律的建议；具体年份天气、节庆日期、住宿价格需进一步查询。",
+      "季节建议基于公开资料或一般规律；具体年份天气与节庆日期需进一步核实。",
+      "关键证据不足，部分结论置信度受限。"
+    ],
+    "limitations_count": 3,
+    "trace_count": 73,
+    "tool_count": 10,
+    "tool_rollup": {
+      "baidu_geocode_mcp": 1,
+      "baidu_place_detail_mcp": 1,
+      "baidu_place_search_mcp": 1,
+      "climate_mcp": 1,
+      "dianping_review_crawler_mcp": 1,
+      "fallback": 1,
+      "knowledge_prior": 1,
+      "openmeteo_mcp": 1,
+      "search_mcp": 1,
+      "seasonality": 1
+    },
+    "semantic_frame": {
+      "query_scope": "place",
+      "task_family": "advisory",
+      "decision_type": "best_time_to_visit",
+      "time_scope": "seasonal",
+      "entities": {
+        "country": "China",
+        "city": "杭州",
+        "places": [
+          "西湖"
+        ],
+        "region": null
+      },
+      "information_needs": [
+        "best_time_to_visit",
+        "seasonality"
+      ],
+      "requires_exact_fact": false,
+      "requires_live_data": false,
+      "can_answer_with_model_prior": true,
+      "confidence": 0.95
+    },
+    "orchestration_summary": {
+      "subagent_results": [
+        {
+          "subagent": "fact_search_agent",
+          "task_id": "llm-961ccc24",
+          "lookup_intent": "best_time_to_visit",
+          "search_query": "杭州 西湖 几月份去 最好",
+          "selected_tool": "dianping_review_crawler_mcp",
+          "evidence_count": 1,
+          "effective_evidence_count": 1,
+          "resolution_status": null,
+          "lookup_phase": null,
+          "source_family": null
+        }
+      ],
+      "completed_search_task_ids": [
+        "llm-961ccc24"
+      ],
+      "s5_task_class": "mixed_advisory"
+    }
+  },
+  {
+    "task_class": "mixed_advisory",
+    "query": "冬天去哈尔滨旅游需要注意什么？",
+    "elapsed_s": 92.6,
+    "answer": "冬季哈尔滨旅游：必看防寒与出行准备\n\n结论：\n建议冬季前往哈尔滨的游客务必做好充分防寒准备，并提前确认冰雪景点的开放时间。\n\n推荐要点：\n- 哈尔滨冬季气温极低，常低于-20°C，必须准备羽绒服、帽子、手套、雪地靴等防寒衣物（证据来源：Travel Knowledge Prior，低置信度背景信息）。\n- 电子设备在低温下电池续航会显著下降，建议携带移动电源并为设备保暖。\n- 冰雪景观如冰雪大世界等需提前确认开放时间，以免白跑一趟。\n- 路面可能结冰，行走时要特别小心防滑。\n\n注意事项：\n- 季节建议基于公开资料或一般规律；具体年份的天气与节庆日期需进一步核实。\n- 多来源对最佳旅游时间和季节性给出不同表述，已保留差异并标注限制。\n- 缺失关键信息：关于路线规划（route_plan）和综合旅游建议（general_travel_advice），已尝试百度地图、搜索、气候数据等工具，均未获取到相关证据。因此无法提供行程安排或全面旅游贴士。\n\n证据不足说明：\n- 当前整体证据置信度较低（0.344），部分关键信息（路线规划、综合旅游建议）缺失。回答中标注了低置信度背景信息，请谨慎参考。\n\n说明：\n- 季节建议基于公开资料或一般规律；具体年份天气与节庆日期需进一步核实。\n- 多来源对该 claim 给出不同表述，保留差异并标注限制。\n- 缺失 route_plan 和 general_travel_advice 的证据，已说明工具尝试情况。",
+    "confidence": 0.344,
+    "answer_mode": "model_prior_allowed",
+    "resolved_task_class": "mixed_advisory",
+    "evidence_count": 10,
+    "limitations": [
+      "季节建议基于公开资料或一般规律；具体年份天气与节庆日期需进一步核实。",
+      "关键证据不足，部分结论置信度受限。"
+    ],
+    "limitations_count": 2,
+    "trace_count": 75,
+    "tool_count": 10,
+    "tool_rollup": {
+      "baidu_geocode_mcp": 1,
+      "baidu_place_detail_mcp": 1,
+      "baidu_place_search_mcp": 1,
+      "baidu_route_mcp": 1,
+      "climate_mcp": 1,
+      "dianping_review_crawler_mcp": 1,
+      "knowledge_prior": 1,
+      "openmeteo_mcp": 1,
+      "search_mcp": 1,
+      "seasonality": 1
+    },
+    "semantic_frame": {
+      "query_scope": "city",
+      "task_family": "advisory",
+      "decision_type": "general_advice",
+      "time_scope": "seasonal",
+      "entities": {
+        "country": "China",
+        "city": "哈尔滨",
+        "places": [],
+        "region": "黑龙江"
+      },
+      "information_needs": [
+        "general_travel_advice",
+        "seasonality"
+      ],
+      "requires_exact_fact": false,
+      "requires_live_data": false,
+      "can_answer_with_model_prior": true,
+      "confidence": 0.92
+    },
+    "orchestration_summary": {
+      "subagent_results": [
+        {
+          "subagent": "fact_search_agent",
+          "task_id": "llm-0f7347ac",
+          "lookup_intent": "冬季哈尔滨旅游注意事项与最佳旅游时间",
+          "search_query": "哈尔滨冬季旅游注意事项 最佳时间",
+          "selected_tool": "baidu_place_search_mcp",
+          "evidence_count": 1,
+          "effective_evidence_count": 1,
+          "resolution_status": null,
+          "lookup_phase": null,
+          "source_family": null
+        }
+      ],
+      "completed_search_task_ids": [
+        "llm-0f7347ac"
+      ],
+      "s5_task_class": "mixed_advisory"
+    }
+  },
+  {
+    "task_class": "minimal_probe",
+    "query": "去长城玩怎么安排？",
+    "elapsed_s": 116.48,
+    "answer": "无法提供完整的行程规划建议\n\n结论：\n由于缺少长城行程所需的关键信息（路线规划、开放时间、游览时长、景点间距离），当前无法制定可靠的行程计划。以下仅呈现已获取的部分交通线索。\n\n第一步：明确目的地：\n- 用户提及的「长城」可能指八达岭长城、慕田峪长城或司马台长城等多个北京段，或其他省份长城段落。请告知您计划前往哪个具体段落。\n\n交通信息（有限证据）：\n- 目前仅检索到颐和园的交通信息：可乘坐地铁4号线至北宫门站，出站后步行5-10分钟即可抵达（来源：Transit API (Mock)；证据ID：d81cc80a-85e1-4027-b69f-9e31c4d42c5e）。但需注意，多来源对该信息表述不一，请在使用前自行核实。\n- 其他景点（故宫、天坛）的交通方式未能从证据中获得。\n\n缺失的关键信息说明：\n- 路线规划（route_plan）：未检索到任何行程顺序建议，已尝试使用地图/路线搜索工具但未获得有效结果，需要您提供出发地点或明确的首站。\n- 开放时间（opening_hours）：未获得官方确认的开放时间，仅存在一些平台摘要信息但不可靠，无法作为行程依据。\n- 游览时长（duration）：未检索到各景点建议游览时间，请告知您的每天可用时段。\n- 景点间距离（distance）：未检索到各景点之间的直线或驾车距离，无法估算交通耗时。\n\n下一步建议：\n- 请先指定您想参观的是哪个长城段落。\n- 请提供您的出发地点和大致行程天数，以便后续规划。\n\n说明：\n- 用户提及的地名可能存在多地同名：八达岭长城、慕田峪长城、司马台长城；回答将基于检索证据消歧，而非提前假定唯一地点。\n- 未提供出行日期，天气评估使用默认近日假设。\n- 未提供同行人画像，按一般游客评估。\n- S5 gap-fill completed for opening_hours\n- 多来源对该 claim 给出不同表述，保留差异并标注限制。\n- 整体证据置信度极低（0.138），多数必需证据缺失。",
+    "confidence": 0.2,
+    "answer_mode": "evidence_required",
+    "resolved_task_class": "strict_fact_lookup",
+    "evidence_count": 11,
+    "limitations": [
+      "用户提及的地名可能存在多地同名：八达岭长城、慕田峪长城、司马台长城；回答将基于检索证据消歧，而非提前假定唯一地点。",
+      "未提供出行日期，天气评估使用默认近日假设。",
+      "未提供同行人画像，按一般游客评估。",
+      "S5 gap-fill completed for opening_hours",
+      "体验判断缺少 fact_sheet 或 review_aspects 支撑。",
+      "关键证据不足，部分结论置信度受限。",
+      "答案中某些具体表述未能与证据值完全匹配，已降置信度。"
+    ],
+    "limitations_count": 7,
+    "trace_count": 152,
+    "tool_count": 12,
+    "tool_rollup": {
+      "search_mcp": 2,
+      "baidu_geocode_mcp": 1,
+      "baidu_place_detail_mcp": 1,
+      "baidu_place_search_mcp": 1,
+      "baidu_reverse_geocode_mcp": 1,
+      "baidu_route_matrix_mcp": 1,
+      "baidu_route_mcp": 1,
+      "baidu_traffic_mcp": 1,
+      "official_source_discovery_mcp": 1,
+      "osm_mcp": 1,
+      "transit": 1
+    },
+    "semantic_frame": {
+      "query_scope": "place",
+      "task_family": "planning",
+      "decision_type": "route_plan",
+      "time_scope": "flexible",
+      "entities": {
+        "country": "China",
+        "city": null,
+        "places": [
+          "长城"
+        ],
+        "region": null
+      },
+      "information_needs": [
+        "transit",
+        "route_plan",
+        "opening_hours"
+      ],
+      "requires_exact_fact": false,
+      "requires_live_data": false,
+      "can_answer_with_model_prior": false,
+      "confidence": 0.78
+    },
+    "orchestration_summary": {
+      "s5_task_class": "strict_fact_lookup"
+    }
+  },
+  {
+    "task_class": "minimal_probe",
+    "query": "树人中学附近有什么？",
+    "elapsed_s": 104.86,
+    "answer": "关于树人中学周边景点——信息尚不完整\n\n结论：\n由于证据不足，目前无法提供树人中学附近的具体景点推荐。我们识别到多地存在同名学校，且未从地图平台获取到可用的周边POI数据。请您先指明您查询的是哪个城市的树人中学（如北京、上海、杭州等），以便我们进行精准搜索。\n\n识别到的可能同名学校：\n- 北京市树人中学（北京市通州区）——证据来源：Baidu Maps MCP（证据ID: b2692676-576f-42e9-84f3-c86947b19091），低置信度（0.0），仅作为候选列出。\n- 上海市树人中学（上海）\n- 杭州树人中学校（浙江省）\n\n已尝试的搜索及其结果：\n- 周边景点（nearby_scenic）：已调用Baidu Maps MCP搜索，返回结果仅为城市名称列表（如徐州市、秦皇岛市、重庆市、太原市、兰州市、广元市），未返回具体景点名称、距离或详细地址。证据ID: b2692676-576f-42e9-84f3-c86947b19091，置信度为0.0，表明数据质量不足。\n- 周边兴趣点（nearby_poi）：同样返回城市名称列表，未提供具体POI信息。证据ID: b2692676-576f-42e9-84f3-c86947b19091，置信度为0.0，无法使用。\n- 周边美食（nearby_food）：结果同上，无具体餐厅或美食推荐。证据ID: b2692676-576f-42e9-84f3-c86947b19091，置信度为0.0。\n- review_summary：来自Baidu Maps MCP的部分覆盖数据（置信度0.634），但同样仅列出城市名称，未包含任何可用的景点评价或摘要。\n\n说明：\n- 用户提及的地名可能存在多地同名：北京市树人中学（北京市通州区）、上海市树人中学（上海）、杭州树人中学校（浙江省）；回答将基于检索证据消歧，而非提前假定唯一地点。\n- 未提供出行日期，天气评估使用默认近日假设。\n- 未提供同行人画像，按一般游客评估。\n- 树人中学暂无结构化mock数据，部分结论可能不完整。\n- 缺少关键claim: nearby_scenic（证据质量none），已尝试Baidu Maps MCP，但未返回有效数据。\n- 缺少关键claim: nearby_poi（证据质量none），已尝试Baidu Maps MCP，但未返回有效数据。\n- 缺少关键claim: nearby_food（证据质量none），已尝试Baidu Maps MCP，但未返回有效数据。\n- 缺少关键claim: nearby_attractions（证据质量none），已尝试Baidu Maps MCP，但未返回有效数据。",
+    "confidence": 0.2,
+    "answer_mode": "evidence_required",
+    "resolved_task_class": "poi_recommendation",
+    "evidence_count": 7,
+    "limitations": [
+      "用户提及的地名可能存在多地同名：北京市树人中学（北京市通州区）、上海市树人中学（上海）、杭州树人中学校（浙江省）；回答将基于检索证据消歧，而非提前假定唯一地点。",
+      "未提供出行日期，天气评估使用默认近日假设。",
+      "未提供同行人画像，按一般游客评估。",
+      "树人中学 暂无结构化 mock 数据，部分结论可能不完整。",
+      "S5 gap-fill completed for nearby_scenic",
+      "关键证据不足，部分结论置信度受限。"
+    ],
+    "limitations_count": 6,
+    "trace_count": 76,
+    "tool_count": 6,
+    "tool_rollup": {
+      "baidu_place_search_mcp": 2,
+      "baidu_geocode_mcp": 1,
+      "baidu_place_detail_mcp": 1,
+      "dianping_review_crawler_mcp": 1,
+      "search_mcp": 1
+    },
+    "semantic_frame": {
+      "query_scope": "place",
+      "task_family": "unknown",
+      "decision_type": "nearby_search",
+      "time_scope": "flexible",
+      "entities": {
+        "country": "China",
+        "city": null,
+        "places": [
+          "树人中学"
+        ],
+        "region": null
+      },
+      "information_needs": [
+        "nearby_attractions"
+      ],
+      "requires_exact_fact": false,
+      "requires_live_data": true,
+      "can_answer_with_model_prior": false,
+      "confidence": 0.7
+    },
+    "orchestration_summary": {
+      "s5_task_class": "poi_recommendation"
+    }
+  }
+]

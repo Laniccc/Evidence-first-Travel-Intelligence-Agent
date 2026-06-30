@@ -75,19 +75,43 @@ async def run_delegated_mcp(
         payload.update(selection.tool_parameters_patch)
         tool_name = selection.tool_name
 
-    payload = enrich_mcp_tool_arguments(
-        tool_name,
-        payload,
-        state=state,
-        prompt_context=prompt_context or {},
-    )
-    trace_before = len(tools_registry.traces)
     phase_eff: Phase = "gap_fill" if (prompt_context or {}).get("gap_filling") else phase
     claim = task.claim_target or task.information_need
+    try:
+        payload = enrich_mcp_tool_arguments(
+            tool_name,
+            payload,
+            state=state,
+            prompt_context=prompt_context or {},
+        )
+    except ValueError as exc:
+        record_tool_attempt(
+            state,
+            tool_name=tool_name,
+            claim_type=str(claim) if claim else None,
+            subagent=subagent,
+            phase=phase_eff,
+            status="skipped_invalid_args",
+            evidence_count=0,
+            error=str(exc),
+        )
+        return [], []
+    trace_before = len(tools_registry.traces)
 
     evidence = await tools_registry.run_tool(tool_name, **payload)
     new_traces = tools_registry.traces[trace_before:]
     status = "ok" if evidence else "zero_evidence"
+    for tr in new_traces:
+        if isinstance(tr, dict):
+            if tr.get("output_parse_status") == "parse_error" or (
+                tr.get("status") == "error" and not evidence
+            ):
+                status = "error"
+                break
+        else:
+            if tr.output_parse_status == "parse_error" or (tr.status == "error" and not evidence):
+                status = "error"
+                break
     record_tool_attempt(
         state,
         tool_name=tool_name,

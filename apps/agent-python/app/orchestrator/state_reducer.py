@@ -181,16 +181,30 @@ class StateReducer:
             evidence = accepted
             if evidence:
                 state.evidence = list(state.evidence) + list(evidence)
+                from app.orchestrator.official_candidate_bridge import sync_official_candidates_to_structured
+
+                sync_official_candidates_to_structured(state)
             for item in output.get("tool_traces", []):
                 if isinstance(item, ToolTrace):
                     state.tool_traces.append(item)
                 elif isinstance(item, dict):
                     state.tool_traces.append(ToolTrace.model_validate(item))
             structured = dict(state.structured_result or {})
+            attempted = list(structured.get("attempted_search_task_ids", []))
             completed = list(structured.get("completed_search_task_ids", []))
             task_id = output.get("task_id")
-            if task_id and task_id not in completed:
+            if task_id and task_id not in attempted:
+                attempted.append(task_id)
+            from app.orchestrator.claim_search_planner import ClaimSearchPlanner
+
+            effective_count = ClaimSearchPlanner.effective_evidence_count(
+                state,
+                evidence,
+                claim_type=output.get("claim_target") or output.get("information_need"),
+            )
+            if task_id and effective_count > 0 and task_id not in completed:
                 completed.append(task_id)
+            structured["attempted_search_task_ids"] = attempted
             structured["completed_search_task_ids"] = completed
             history = list(structured.get("keyword_search_results") or [])
             history.append(
@@ -202,6 +216,8 @@ class StateReducer:
                     "selected_tool": output.get("selected_tool"),
                     "anchor_keywords": output.get("anchor_keywords"),
                     "evidence_count": len(evidence),
+                    "effective_evidence_count": effective_count,
+                    "counted_as_effective_query": effective_count > 0,
                     "resolution_status": output.get("resolution_status"),
                 }
             )
@@ -215,6 +231,7 @@ class StateReducer:
                     "search_query": output.get("search_query"),
                     "selected_tool": output.get("selected_tool"),
                     "evidence_count": len(evidence),
+                    "effective_evidence_count": effective_count,
                     "resolution_status": output.get("resolution_status"),
                     "lookup_phase": output.get("lookup_phase"),
                     "source_family": output.get("source_family"),
@@ -236,7 +253,8 @@ class StateReducer:
             query_preview = str(output.get("search_query", ""))[:48]
             TraceRecorder.add(
                 state,
-                f"✓ [A2A] {target} ({task_id}) → {len(evidence)} evidence | {query_preview}",
+                f"✓ [A2A] {target} ({task_id}) → {len(evidence)} evidence"
+                f" ({effective_count} effective) | {query_preview}",
             )
         elif target == "evidence_curation_planner_agent" and "curation_plan" in output:
             structured = dict(state.structured_result or {})

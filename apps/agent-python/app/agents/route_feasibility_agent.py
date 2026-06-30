@@ -24,6 +24,16 @@ class RouteFeasibilityAgent:
     def _task_from_arguments(arguments: dict, state: TravelAgentState) -> SearchTask:
         params = dict(arguments.get("tool_parameters") or {})
         frame = state.semantic_frame
+        try:
+            from app.orchestrator.mcp_tool_arguments import _route_endpoints_from_text
+
+            parsed_origin, parsed_dest = _route_endpoints_from_text(state.raw_user_query)
+        except Exception:
+            parsed_origin, parsed_dest = None, None
+        if parsed_origin:
+            params.setdefault("origin", parsed_origin)
+        if parsed_dest:
+            params.setdefault("destination", parsed_dest)
         dest = (
             params.get("destination")
             or arguments.get("place_name")

@@ -30,6 +30,8 @@ from app.config import get_settings
 from app.orchestrator.states.evidence_accumulation_state import EvidenceAccumulationState
 from app.llm_client import LLMClient
 from app.orchestrator.answer_mode_router import AnswerModeRouter
+from app.orchestrator.agent_core_store import ensure_agent_core_store, project_agent_core
+from app.orchestrator.agent_core_supervisor import RootAgentSupervisor
 from app.orchestrator.intent_profile_deriver import IntentProfileDeriver
 from app.orchestrator.intent_strategy_registry import resolve_intent_strategy
 from app.orchestrator.response_contract_compiler import ResponseContractCompiler
@@ -53,6 +55,15 @@ from app.schemas.semantic_frame import AnswerMode, DecisionType, TaskFamily
 from app.schemas.user_query import ConflictRecord, IntentType, RegionGateResult, TravelAgentState, UserContext, UserGoal
 from app.tools import ToolRegistry
 from app.tools.tool_router import ToolRouter
+
+
+def _safe_s5_task_class(state: TravelAgentState) -> str | None:
+    try:
+        from app.orchestrator.agent_tool_catalog import resolve_s5_task_class
+
+        return resolve_s5_task_class(state)
+    except Exception:
+        return None
 
 
 class TravelAgentStateMachine:
@@ -153,6 +164,7 @@ class TravelAgentStateMachine:
             state = await self._run_evidence_accumulation(state, append=True)
             state = await self._run_evidence_evaluation(state, target_label=place_name)
 
+        self._agent_core_record_evidence_pipeline(state)
         return state
 
     @staticmethod
@@ -216,61 +228,16 @@ class TravelAgentStateMachine:
         return "advisory"
 
     async def _run_answer_composition(self, state: TravelAgentState, **compose_kwargs) -> TravelAgentState:
-        return await self.answer_composition_state.run(state, **compose_kwargs)
+        state = await self.answer_composition_state.run(state, **compose_kwargs)
+        self._agent_core_record_answer_draft(state, compose_kwargs)
+        return state
 
     async def run(self, query: str, user_context: dict | None = None, session_id: str | None = None) -> TravelQueryResponse:
-        self.tools.clear_traces()
-        ctx, memory, state = self._build_conversation_context(query, user_context, session_id)
-
-        # S2: QueryUnderstanding → SemanticFrame
-        state = await self._run_query_understanding(state, ctx, user_context)
-        if state.next_state == "clarification_response":
-            confidence = state.query_understanding.confidence if state.query_understanding else 0.3
-            return self._to_response(state, confidence)
-
-        state = self._derive_intent_profile(state)
-
-        # S3: AnswerModeRouting + ResponseContract（早于 RegionGate / place 判断）
-        state = self._run_answer_mode_routing(state)
-
-        dispatch = self._dispatch_from_contract(state)
-        if dispatch == "clarification":
-            return self._clarification_from_contract(state)
-
-        gate_query = state.rewritten_query_result.rewritten_query if state.rewritten_query_result else query
-        intent_soft = get_settings().intent_profile_enabled
-
-        if dispatch == "legacy" and not intent_soft:
-            decision = state.answer_mode_decision
-            mode = decision.answer_mode if decision else AnswerMode.EVIDENCE_REQUIRED
-            if mode == AnswerMode.CLARIFICATION_REQUIRED:
-                return self._clarification_from_answer_mode(state)
-            if mode == AnswerMode.UNSUPPORTED:
-                state.final_response = "暂无法理解该问题类型，请补充国家/城市/景点或换一种问法。"
-                return self._to_response(state, 0.25)
-            if mode == AnswerMode.MODEL_PRIOR_ALLOWED:
-                blocked = self._apply_region_gate(state, query, gate_query, memory)
-                if blocked:
-                    return blocked
-                return await self._run_advisory(state)
-            if mode == AnswerMode.EVIDENCE_PREFERRED and decision and decision.allow_knowledge_prior:
-                return await self._run_evidence_preferred_or_prior(state, ctx, query, gate_query, memory)
-        elif dispatch == "prior_advisory":
-            blocked = self._apply_region_gate(state, query, gate_query, memory)
-            if blocked:
-                return blocked
-            return await self._run_advisory(state)
-
-        # evidence_pipeline (contract-required hard claims or conservative default)
-        blocked = self._apply_region_gate(state, query, gate_query, memory)
-        if blocked:
-            return blocked
-
-        state.user_goal = await self._resolve_user_goal(state, ctx, gate_query)
-        self._complete_context(state, ctx)
-        TraceRecorder.add(state, f"✓ 识别用户画像：{', '.join(p.value for p in state.user_goal.party) or '一般游客'}")
-
-        return await self._dispatch_by_answer_mode(state)
+        return await RootAgentSupervisor(self).run(
+            query=query,
+            user_context=user_context,
+            session_id=session_id,
+        )
 
     async def _dispatch_by_answer_mode(self, state: TravelAgentState) -> TravelQueryResponse:
         decision = state.answer_mode_decision
@@ -359,6 +326,7 @@ class TravelAgentStateMachine:
     ) -> TravelQueryResponse | None:
         state.region_gate = self._resolve_region_gate(state, raw_query, gate_query, memory)
         TraceRecorder.add(state, f"✓ 识别目的地区域：{state.region_gate.country or '未知'}")
+        self._agent_core_record_input_contract(state)
         if not state.region_gate.supported:
             return self._unsupported(state)
         return None
@@ -377,7 +345,228 @@ class TravelAgentStateMachine:
             raw_user_query=query,
             conversation_memory=memory,
         )
+        self._agent_core_init_run(state, user_context)
         return ctx, memory, state
+
+    @staticmethod
+    def _agent_core_init_run(state: TravelAgentState, user_context: dict | None) -> None:
+        try:
+            store = ensure_agent_core_store(state)
+            store.set_phase("ingress", "running")
+            store.add_phase_output(
+                "ingress",
+                kind="user_input",
+                status="succeeded",
+                payload={
+                    "query": state.raw_user_query,
+                    "session_id": state.session_id,
+                    "query_id": state.query_id,
+                    "user_context": user_context or {},
+                },
+            )
+        except Exception:
+            return
+
+    @staticmethod
+    def _agent_core_record_input_contract(state: TravelAgentState) -> None:
+        try:
+            store = ensure_agent_core_store(state)
+            store.add_phase_output(
+                "input_contract",
+                kind="input_contract",
+                status="succeeded" if state.response_contract else "draft",
+                payload={
+                    "semantic_frame": state.semantic_frame.model_dump(mode="json") if state.semantic_frame else None,
+                    "travel_task": state.travel_task.model_dump(mode="json") if state.travel_task else None,
+                    "answer_mode": (
+                        state.answer_mode_decision.answer_mode.value
+                        if state.answer_mode_decision and state.answer_mode_decision.answer_mode
+                        else None
+                    ),
+                    "response_contract": state.response_contract.model_dump(mode="json") if state.response_contract else None,
+                    "region_gate": state.region_gate.model_dump(mode="json") if state.region_gate else None,
+                },
+            )
+        except Exception:
+            return
+
+    @staticmethod
+    def _agent_core_record_evidence_pipeline(state: TravelAgentState) -> None:
+        try:
+            store = ensure_agent_core_store(state)
+            sr = state.structured_result or {}
+            usage_by_id, strength_by_id = TravelAgentStateMachine._agent_core_evidence_roles(state)
+            for ev in state.evidence or []:
+                if isinstance(ev, Evidence):
+                    store.upsert_evidence(
+                        ev,
+                        usage_role=usage_by_id.get(ev.evidence_id, "context"),
+                        strength=strength_by_id.get(ev.evidence_id, "unknown"),
+                    )
+            claim_decisions = []
+            gaps = []
+            if state.evidence_decision_report:
+                claim_decisions = [
+                    c.model_dump(mode="json") for c in state.evidence_decision_report.claim_decisions
+                ]
+                gaps = [
+                    g.model_dump(mode="json") for g in state.evidence_decision_report.evidence_gap_requests
+                ]
+            has_research_plan = store.has_phase_output("research_plan", kind="research_plan")
+            if not has_research_plan:
+                store.add_phase_output(
+                    "research_plan",
+                    kind="research_plan_projection",
+                    status="succeeded",
+                    payload={
+                        "information_needs": [
+                            n.model_dump(mode="json") if hasattr(n, "model_dump") else str(n)
+                            for n in (state.information_needs or [])
+                        ],
+                        "s5_task_class": _safe_s5_task_class(state),
+                        "lookup_research_chain": sr.get("lookup_research_chain"),
+                        "completed_search_task_ids": sr.get("completed_search_task_ids") or [],
+                    },
+                )
+            store.add_phase_output(
+                "evidence_acquisition",
+                kind="evidence_batch",
+                status="succeeded",
+                evidence_refs=[ev.evidence_id for ev in state.evidence or [] if isinstance(ev, Evidence)],
+                payload={
+                    "evidence_count": len([ev for ev in state.evidence or [] if isinstance(ev, Evidence)]),
+                    "tool_trace_count": len(state.tool_traces or []),
+                    "completed_search_task_ids": sr.get("completed_search_task_ids") or [],
+                    "attempted_search_task_ids": sr.get("attempted_search_task_ids") or [],
+                    "source_names": sorted(
+                        {
+                            ev.source_name
+                            for ev in state.evidence or []
+                            if isinstance(ev, Evidence) and ev.source_name
+                        }
+                    ),
+                },
+            )
+            store.add_phase_output(
+                "evidence_review",
+                kind="evidence_review",
+                status="succeeded",
+                payload={
+                    "overall_confidence": (
+                        state.evidence_brief.overall_confidence if state.evidence_brief else None
+                    ),
+                    "claim_decisions": claim_decisions,
+                    "gaps": gaps,
+                },
+            )
+        except Exception:
+            return
+
+    @staticmethod
+    def _agent_core_evidence_roles(state: TravelAgentState) -> tuple[dict[str, str], dict[str, str]]:
+        usage_by_id: dict[str, str] = {}
+        strength_by_id: dict[str, str] = {}
+        report = state.evidence_decision_report
+        if not report:
+            return usage_by_id, strength_by_id
+        for decision in report.claim_decisions or []:
+            if decision.adoption in {"adopt", "adopt_with_limitation"}:
+                role = "answerable"
+            elif decision.adoption == "candidate_only":
+                role = "candidate"
+            else:
+                role = "context"
+            strength = decision.adoption_level or decision.coverage_quality or "unknown"
+            for evidence_id in decision.adopted_evidence_ids or []:
+                usage_by_id[evidence_id] = role
+                strength_by_id[evidence_id] = strength
+            for evidence_id in decision.rejected_evidence_ids or []:
+                usage_by_id[evidence_id] = "rejected"
+                strength_by_id[evidence_id] = "rejected"
+        for rejected in report.rejected_evidence or []:
+            usage_by_id[rejected.evidence_id] = "rejected"
+            strength_by_id[rejected.evidence_id] = "rejected"
+        return usage_by_id, strength_by_id
+
+    @staticmethod
+    def _agent_core_record_answer_draft(state: TravelAgentState, compose_kwargs: dict) -> None:
+        try:
+            store = ensure_agent_core_store(state)
+            payload = {
+                "compose_mode": compose_kwargs.get("compose_mode"),
+                "target_label": compose_kwargs.get("target_label"),
+                "answer_preview": (state.final_response or "")[:500],
+                "has_answer": bool((state.final_response or "").strip()),
+            }
+            artifact = store.add_artifact(artifact_type="answer", status="draft", payload=payload)
+            store.add_phase_output(
+                "answer_draft",
+                kind="answer_artifact",
+                status="pending_review",
+                payload={"artifact_id": artifact.id, **payload},
+            )
+        except Exception:
+            return
+
+    @staticmethod
+    def _agent_core_record_citation_guard(state: TravelAgentState, confidence: float) -> None:
+        try:
+            from app.orchestrator.agent_core_control_tools import AgentCoreControlTools
+
+            store = ensure_agent_core_store(state)
+            output = store.add_phase_output(
+                "citation_guard",
+                kind="citation_check",
+                status="pending_review",
+                payload={
+                    "confidence": confidence,
+                    "citation_check_result": (
+                        state.citation_check_result.model_dump(mode="json")
+                        if state.citation_check_result
+                        else None
+                    ),
+                    "limitation_count": len(state.limitations or []),
+                },
+            )
+            AgentCoreControlTools().approve_phase(
+                state,
+                phase="citation_guard",
+                output_id=output.id,
+                approved_by="root_agent:auto",
+            )
+        except Exception:
+            return
+
+    @staticmethod
+    def _agent_core_record_delivery(state: TravelAgentState, confidence: float) -> None:
+        try:
+            from app.orchestrator.agent_core_control_tools import AgentCoreControlTools
+
+            store = ensure_agent_core_store(state)
+            answer_output = store.latest_phase_output("answer_draft", status="pending_review")
+            if answer_output:
+                AgentCoreControlTools().approve_phase(
+                    state,
+                    phase="answer_draft",
+                    output_id=answer_output.id,
+                    approved_by="root_agent:auto",
+                )
+            artifact = store.add_artifact(
+                artifact_type="final_answer",
+                status="succeeded",
+                payload={
+                    "answer_preview": (state.final_response or "")[:500],
+                    "confidence": confidence,
+                },
+            )
+            store.add_phase_output(
+                "delivery",
+                kind="final_answer",
+                status="succeeded",
+                payload={"artifact_id": artifact.id, "confidence": confidence},
+            )
+        except Exception:
+            return
 
     def _derive_intent_profile(self, state: TravelAgentState) -> TravelAgentState:
         settings = get_settings()
@@ -440,6 +629,7 @@ class TravelAgentStateMachine:
 
         attach_user_need_residual(state)
         TraceRecorder.add(state, "✓ 已生成 UserNeedResidual（S5/S7/S8 需求残差）")
+        self._agent_core_record_input_contract(state)
         return state
 
     @staticmethod
@@ -1100,6 +1290,7 @@ class TravelAgentStateMachine:
         state.citation_check_result = result
         state.limitations.extend(result.limitations)
         TraceRecorder.add(state, "✓ 完成引用与限制检查")
+        self._agent_core_record_citation_guard(state, result.confidence)
         return result.confidence
 
     @staticmethod
@@ -1121,6 +1312,8 @@ class TravelAgentStateMachine:
         }
 
     def _to_response(self, state: TravelAgentState, confidence: float) -> TravelQueryResponse:
+        from app.orchestrator.response_sanitizer import sanitize_answer_text, sanitize_limitations
+
         self._sync_tool_traces(state)
         evidence_summary = [
             {
@@ -1155,19 +1348,23 @@ class TravelAgentStateMachine:
             orchestration_summary["s5_task_class"] = resolve_s5_task_class(state)
         except Exception:
             pass
+        self._agent_core_record_delivery(state, confidence)
+        agent_core_projection = project_agent_core(state)
+        if agent_core_projection:
+            orchestration_summary["agent_core_projection"] = agent_core_projection
         answer_mode = (
             state.response_contract.derived_debug_answer_mode
             if state.response_contract and state.response_contract.derived_debug_answer_mode
             else (state.answer_mode_decision.answer_mode.value if state.answer_mode_decision else None)
         )
         return TravelQueryResponse(
-            answer=state.final_response or "",
+            answer=sanitize_answer_text(state.final_response or ""),
             structured_result=structured,
             visible_trace=state.visible_trace,
             evidence_summary=evidence_summary,
             field_evidence_summary=state.field_evidence_summary,
             conflicts=[c.model_dump() for c in state.conflicts],
-            limitations=state.limitations,
+            limitations=sanitize_limitations(state.limitations),
             confidence=confidence,
             citation_check_result=state.citation_check_result.model_dump() if state.citation_check_result else None,
             tool_traces=[t.model_dump() for t in state.tool_traces],

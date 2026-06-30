@@ -289,6 +289,163 @@ def test_fliggy_open_api_sign_and_scenic_parse():
     assert items[0]["price_text"] == "免费"
 
 
+def test_fliggy_flyai_accepts_json_stdout_with_nonzero_exit(monkeypatch):
+    import json
+    import subprocess
+
+    from tools.ticketing.fliggy_flyai_service import FliggyFlyAiService
+
+    settings = Settings(
+        enable_ticket_crawler_providers=True,
+        fliggy_ticket_crawler_enabled=True,
+        fliggy_flyai_enabled=True,
+        fliggy_flyai_api_key="sk-test",
+        fliggy_flyai_cli_command="npx",
+    )
+    payload = {
+        "data": {
+            "itemList": [
+                {
+                    "name": "栖霞山风景名胜区",
+                    "jumpUrl": "https://a.feizhu.com/10H9A0",
+                    "ticketInfo": {
+                        "price": "¥48",
+                        "ticketName": "大门票（当日可订）成人票",
+                    },
+                }
+            ]
+        }
+    }
+
+    def fake_run(*args, **kwargs):
+        return subprocess.CompletedProcess(
+            args=args[0],
+            returncode=3221226505,
+            stdout=json.dumps(payload, ensure_ascii=False),
+            stderr="Assertion failed: !(handle->flags & UV_HANDLE_CLOSING)",
+        )
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    service = FliggyFlyAiService(settings)
+    items, err = service.fetch_ticket_items(
+        "栖霞山",
+        city="南京",
+        max_results=5,
+    )
+
+    assert items
+    assert items[0]["price_text"] == "¥48"
+    assert items[0]["ticket_type"] == "大门票（当日可订）成人票"
+    assert err is None
+    assert "Assertion failed" in service.last_run_meta["error"]
+
+
+@pytest.mark.asyncio
+async def test_fliggy_continues_past_unpriced_flyai_items(monkeypatch):
+    from tools.crawlers.fliggy_crawler_tool import FliggyTicketSnapshotCrawlerTool
+
+    settings = Settings(
+        enable_ticket_crawler_providers=True,
+        fliggy_ticket_crawler_enabled=True,
+        fliggy_flyai_enabled=True,
+        fliggy_flyai_api_key="sk-test",
+        fliggy_top_api_enabled=False,
+    )
+    tool = FliggyTicketSnapshotCrawlerTool(settings)
+    calls: list[str] = []
+
+    def fake_fetch(term, **kwargs):
+        calls.append(term)
+        if len(calls) == 1:
+            return ([{"ticket_type": "\u6816\u971e\u5c71\u98ce\u666f\u540d\u80dc\u533a", "url": "https://a.feizhu.com/no-price"}], None)
+        return (
+            [
+                {
+                    "ticket_type": "\u5927\u95e8\u7968\uff08\u5f53\u65e5\u53ef\u8ba2\uff09\u6210\u4eba\u7968",
+                    "price_text": "\u00a548",
+                    "url": "https://a.feizhu.com/price",
+                    "source": "fliggy_flyai_cli",
+                }
+            ],
+            None,
+        )
+
+    monkeypatch.setattr(tool._flyai, "fetch_ticket_items", fake_fetch)
+
+    payload, err = await tool.run_query(
+        "\u6816\u971e\u5c71",
+        query="\u6816\u971e\u5c71\u95e8\u7968\u4ef7\u683c\u591a\u5c11\uff1f",
+        country="China",
+    )
+
+    assert err is None
+    assert payload is not None
+    assert payload["items"][0]["price_text"] == "\u00a548"
+    assert tool.last_run_meta["priced_item_count"] == 1
+    assert len(calls) >= 2
+
+
+def test_ticket_lookup_completion_requires_extractable_price():
+    from app.orchestrator.ticket_lookup_attempt_tracker import ticket_lookup_retrieval_complete_by_family
+    from app.schemas.tool_trace import ToolTrace
+
+    state = TravelAgentState(
+        session_id="s",
+        query_id="q",
+        raw_user_query="\u6816\u971e\u5c71\u95e8\u7968\u591a\u5c11\uff1f",
+    )
+    state.semantic_frame = _frame(
+        raw_query=state.raw_user_query,
+        information_needs=["ticket_price"],
+        entities=SemanticEntities(country="China", city="\u5357\u4eac", places=["\u6816\u971e\u5c71"]),
+    )
+    state.tool_traces = [
+        ToolTrace(tool_name="baidu_geocode_mcp", input={}, evidence_ids=["geo"], latency_ms=1, status="ok"),
+        ToolTrace(tool_name="search_mcp", input={}, evidence_ids=["search"], latency_ms=1, status="ok"),
+        ToolTrace(tool_name="official_source_discovery_mcp", input={}, evidence_ids=["official"], latency_ms=1, status="ok"),
+        ToolTrace(tool_name="baidu_place_detail_mcp", input={}, evidence_ids=["map"], latency_ms=1, status="ok"),
+        ToolTrace(tool_name="fliggy_ticket_api_mcp", input={}, evidence_ids=["platform"], latency_ms=1, status="ok"),
+    ]
+    state.evidence = [
+        Evidence(
+            source_name="Fliggy FlyAI",
+            source_type=SourceType.TICKET_PLATFORM,
+            country="China",
+            place_name="\u6816\u971e\u5c71",
+            claims=[
+                Claim(claim_type=ClaimType.TICKET_TYPE, value="\u6816\u971e\u5c71\u98ce\u666f\u540d\u80dc\u533a", confidence=0.55),
+            ],
+        )
+    ]
+
+    assert not ticket_lookup_retrieval_complete_by_family(state)
+
+    state.evidence.append(
+        Evidence(
+            source_name="Fliggy FlyAI",
+            source_type=SourceType.TICKET_PLATFORM,
+            source_url="https://a.feizhu.com/price",
+            country="China",
+            place_name="\u6816\u971e\u5c71",
+            claims=[
+                Claim(
+                    claim_type=ClaimType.TICKET_PRICE_CANDIDATE,
+                    value="\u6210\u4eba\u7968 \u00a548",
+                    confidence=0.62,
+                ),
+                Claim(
+                    claim_type=ClaimType.TICKET_TYPE,
+                    value="\u5927\u95e8\u7968\uff08\u5f53\u65e5\u53ef\u8ba2\uff09\u6210\u4eba\u7968",
+                    confidence=0.6,
+                ),
+            ],
+        )
+    )
+
+    assert ticket_lookup_retrieval_complete_by_family(state)
+
+
 def test_ticketlens_normalize_ticket_candidate():
     items = [
         {
@@ -507,6 +664,7 @@ def test_normalize_guide_and_nearby_payloads():
 
 def test_crowd_estimation_configured_with_baidu(monkeypatch):
     monkeypatch.setenv("ENABLE_CROWD_ESTIMATION_TOOLS", "true")
+    monkeypatch.setenv("MCP_PROFILE", "full")
     monkeypatch.setenv("MCP_BAIDU_MAP_ENABLED", "true")
     monkeypatch.setenv("BAIDU_MAP_AK", "test-ak")
     get_settings.cache_clear()

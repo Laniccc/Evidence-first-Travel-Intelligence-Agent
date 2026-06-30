@@ -1,6 +1,10 @@
 from app.orchestrator.claude_state_runner import ClaudeStateRunner
 from app.orchestrator.evidence_brief_builder import apply_evidence_brief, build_evidence_brief
 from app.orchestrator.evidence_evaluator import evaluate_evidence
+from app.orchestrator.non_lookup_task_chains import (
+    evaluate_non_lookup_task_evidence,
+    is_non_lookup_task,
+)
 from app.orchestrator.state_policy import EVIDENCE_AGGREGATION_POLICY
 from app.orchestrator.trace import TraceRecorder
 from app.schemas.user_query import TravelAgentState
@@ -17,7 +21,10 @@ class EvidenceAggregationState:
         prompt_context = dict(ctx)
         target = prompt_context.get("target_label") or "目的地"
 
-        report = evaluate_evidence(state, target_label=target)
+        if is_non_lookup_task(state):
+            report = evaluate_non_lookup_task_evidence(state)
+        else:
+            report = evaluate_evidence(state, target_label=target)
         state.evidence_decision_report = report
         state.pending_evidence_gap_requests = list(report.evidence_gap_requests)
         TraceRecorder.add(

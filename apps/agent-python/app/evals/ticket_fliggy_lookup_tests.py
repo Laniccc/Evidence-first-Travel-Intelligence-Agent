@@ -259,15 +259,17 @@ def _qixia_ticket_state() -> TravelAgentState:
 
 
 def _ticket_retrieval_attempted_state(monkeypatch) -> TravelAgentState:
+    from app.evals.ticket_test_helpers import mark_ticket_families_attempted
+
     monkeypatch.setenv("FLIGGY_TICKET_CRAWLER_ENABLED", "true")
     monkeypatch.setenv("FLIGGY_FLYAI_ENABLED", "true")
     monkeypatch.setenv("FLIGGY_FLYAI_API_KEY", "sk-test")
     monkeypatch.setenv("ENABLE_TICKET_CRAWLER_PROVIDERS", "true")
     get_settings.cache_clear()
     state = _qixia_ticket_state()
+    mark_ticket_families_attempted(state)
     state.tool_traces = [
         ToolTrace(tool_name="search_mcp"),
-        ToolTrace(tool_name="official_source_discovery_mcp"),
         ToolTrace(tool_name="official_page_reader_mcp"),
         ToolTrace(tool_name="fliggy_ticket_api_mcp"),
     ]

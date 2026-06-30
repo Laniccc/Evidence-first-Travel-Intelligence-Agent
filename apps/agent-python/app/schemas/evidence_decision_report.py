@@ -17,6 +17,15 @@ AdoptionDecision = Literal[
     "refuse_to_guess",
 ]
 
+AdoptionLevel = Literal[
+    "strong",
+    "partial",
+    "candidate_only",
+    "weak",
+    "rejected",
+    "no_evidence",
+]
+
 
 class ClaimDecision(BaseModel):
     claim_type: str
@@ -31,6 +40,19 @@ class ClaimDecision(BaseModel):
     confidence: float = 0.0
     reason: str = ""
     limitations: list[str] = Field(default_factory=list)
+    adoption_level: AdoptionLevel | None = None
+    adopted_value: str | None = None
+    can_answer_directly: bool = False
+    must_show_limitation: bool = False
+    missing_evidence: list[str] = Field(default_factory=list)
+    claim_id: str | None = None
+    source_strength_summary: dict = Field(default_factory=dict)
+    user_visible_limitations: list[str] = Field(default_factory=list)
+    internal_debug_limitations: list[str] = Field(default_factory=list)
+
+    @property
+    def evidence_ids(self) -> list[str]:
+        return list(self.adopted_evidence_ids)
 
 
 class SourceRanking(BaseModel):

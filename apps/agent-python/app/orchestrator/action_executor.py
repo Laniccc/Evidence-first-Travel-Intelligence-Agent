@@ -215,8 +215,6 @@ class ActionExecutor:
             return ActionResult(ok=False, error="Tool registry unavailable")
 
         resolved = resolve_tool_name(tool_name)
-        payload = self._build_tool_arguments(resolved, arguments, state, prompt_context)
-        trace_before = len(self.tools.traces)
         phase = "gap_fill" if prompt_context.get("gap_filling") else (
             "supplement" if not prompt_context.get("selected_by_llm", True) else "main"
         )
@@ -225,6 +223,34 @@ class ActionExecutor:
             or arguments.get("information_need")
             or (prompt_context.get("gap_request") or {}).get("claim_type")
         )
+        try:
+            payload = self._build_tool_arguments(resolved, arguments, state, prompt_context)
+        except ValueError as exc:
+            from app.orchestrator.s5_tool_attempt_ledger import record_tool_attempt
+
+            msg = str(exc)
+            logger.info("CALL_TOOL %s skipped (args): %s", resolved, msg)
+            record_tool_attempt(
+                state,
+                tool_name=resolved,
+                claim_type=str(claim) if claim else None,
+                phase=phase,
+                status="skipped_invalid_args",
+                evidence_count=0,
+                error=msg,
+            )
+            return ActionResult(
+                ok=False,
+                error=msg,
+                output={
+                    "evidence": [],
+                    "tool_name": resolved,
+                    "policy_tool_name": tool_name,
+                    "tool_traces": [],
+                    "skipped": True,
+                },
+            )
+        trace_before = len(self.tools.traces)
 
         try:
             from app.tool_gateway.integration import try_java_tool_gateway

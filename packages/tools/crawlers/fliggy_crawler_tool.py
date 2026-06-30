@@ -20,6 +20,18 @@ from tools.ticketing.provider_config import (
 from tools.ticketing.ticket_snapshot_store import TicketSnapshotStore
 
 
+def _item_has_price(item: dict[str, Any]) -> bool:
+    if not isinstance(item, dict):
+        return False
+    price = item.get("price")
+    price_text = item.get("price_text") or item.get("priceText")
+    return price is not None or bool(str(price_text or "").strip())
+
+
+def _items_have_price(items: list[dict[str, Any]]) -> bool:
+    return any(_item_has_price(item) for item in items)
+
+
 class FliggyTicketSnapshotCrawlerTool(BaseCrawlerTool):
     provider_name = "Fliggy"
     policy_name = "fliggy_ticket_api_mcp"
@@ -89,6 +101,7 @@ class FliggyTicketSnapshotCrawlerTool(BaseCrawlerTool):
                 search_terms.append(text)
 
         items: list[dict[str, Any]] = []
+        fallback_items: list[dict[str, Any]] = []
         last_err: str | None = None
         transport = "unknown"
 
@@ -105,8 +118,10 @@ class FliggyTicketSnapshotCrawlerTool(BaseCrawlerTool):
                 )
                 last_err = err
                 if batch:
-                    items.extend(batch)
-                    break
+                    if _items_have_price(batch):
+                        items.extend(batch)
+                        break
+                    fallback_items.extend(batch)
             self.last_run_meta.update(self._flyai.last_run_meta)
 
         if not items and fliggy_top_api_configured(self.settings):
@@ -122,8 +137,10 @@ class FliggyTicketSnapshotCrawlerTool(BaseCrawlerTool):
                 )
                 last_err = err
                 if batch:
-                    items.extend(batch)
-                    break
+                    if _items_have_price(batch):
+                        items.extend(batch)
+                        break
+                    fallback_items.extend(batch)
             self.last_run_meta.update(self._api.last_run_meta)
 
         if not items and fliggy_subprocess_configured(self.settings):
@@ -140,7 +157,13 @@ class FliggyTicketSnapshotCrawlerTool(BaseCrawlerTool):
             if isinstance(data, dict):
                 raw_items = data.get("items") or []
                 if isinstance(raw_items, list):
-                    items.extend(raw_items)
+                    if _items_have_price(raw_items):
+                        items.extend(raw_items)
+                    else:
+                        fallback_items.extend(raw_items)
+
+        if not items and fallback_items:
+            items = fallback_items
 
         self.last_run_meta.update(
             {
@@ -148,6 +171,7 @@ class FliggyTicketSnapshotCrawlerTool(BaseCrawlerTool):
                 "configured": self.is_configured(),
                 "transport": transport,
                 "aliases_tried": search_terms[:6],
+                "priced_item_count": sum(1 for item in items if _item_has_price(item)),
                 "output_parse_status": "ok" if items else "parse_error",
                 "error": last_err,
             }

@@ -343,6 +343,8 @@ def test_s5_whitelist_opening_hours_excludes_knowledge_prior(monkeypatch):
     assert "knowledge_prior" not in wl.allowed_tool_names()
     assert "official" not in wl.allowed_tool_names()
     assert "search_mcp" in wl.allowed_tool_names()
+    assert "fliggy_ticket_api_mcp" not in wl.allowed_tool_names()
+    assert "dianping_ticket_signal_crawler_mcp" not in wl.allowed_tool_names()
 
 
 @pytest.mark.asyncio
@@ -702,13 +704,13 @@ async def test_open_websearch_adapter_returns_evidence(monkeypatch):
         "search",
         lambda _a: {
             "results": [
-                {
-                    "title": "禾木景区官网门票",
-                    "url": "https://www.gov.cn/hemu-ticket",
-                    "snippet": "门票价格请以景区公示为准",
-                }
-            ]
-        },
+                    {
+                        "title": "禾木景区官网门票",
+                        "url": "https://www.gov.cn/hemu-ticket",
+                        "snippet": "成人票95元，门票价格请以景区公示为准",
+                    }
+                ]
+            },
     )
     from tools.mcp.adapters.search_mcp_adapter import SearchMCPAdapter
 
@@ -773,6 +775,49 @@ def test_mcp_client_search_fallback_engines_excludes_primary():
     )
     mgr = MCPClientManager(settings)
     assert mgr._search_fallback_engines() == ["sogou", "bing"]
+
+
+def test_mcp_client_search_fallback_continues_after_primary_exception():
+    import asyncio
+
+    from tools.mcp.client_manager import MCPClientManager
+
+    settings = Settings(
+        mcp_search_default_engine="baidu",
+        mcp_search_fallback_engines="sogou,bing",
+    )
+    mgr = MCPClientManager(settings)
+
+    async def fake_post(client, base, query, limit, engines):
+        if engines == ["baidu"]:
+            raise TimeoutError("primary timed out")
+        hit = {
+            "title": "栖霞山门票价格",
+            "url": "https://example.com/qixia-ticket",
+            "description": "成人票48元",
+        }
+        return {
+            "data": {"results": [hit], "totalResults": 1},
+            "hits": [hit],
+            "partial_failures": [],
+            "total_results": 1,
+            "engines": engines,
+        }
+
+    mgr._post_open_websearch_search = fake_post  # type: ignore[method-assign]
+    data, meta = asyncio.run(
+        mgr._open_websearch_search_with_fallback(
+            object(),
+            "http://127.0.0.1:3210",
+            "栖霞山门票",
+            5,
+        )
+    )
+
+    assert data["results"][0]["url"] == "https://example.com/qixia-ticket"
+    assert meta["engines_tried"] == ["baidu", "sogou"]
+    assert meta["partial_failures"][0]["engine"] == "baidu"
+    assert "timed out" in meta["partial_failure_messages"][0]
 
 
 def test_evidence_required_ticket_price_cannot_finish_before_search_attempt(mcp_env):
@@ -863,7 +908,7 @@ def test_stub_mcp_tools_blocked_from_ticket_price_whitelist(monkeypatch):
     assert "browser_mcp" not in wl.allowed_tool_names()
     assert "official_page_reader_mcp" in wl.allowed_tool_names()
     assert "MCP_BROWSER_ENABLED=false" in wl.reason_by_tool.get("browser_mcp", "") or "browser" in wl.reason_by_tool.get("browser_mcp", "").lower()
-    assert "ENABLE_REAL_OFFICIAL_PAGE=false" in wl.reason_by_tool.get("official", "")
+    assert "official" not in wl.allowed_tool_names()
 
 
 @pytest.mark.parametrize(

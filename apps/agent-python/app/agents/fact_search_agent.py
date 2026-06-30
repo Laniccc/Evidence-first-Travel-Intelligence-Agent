@@ -25,13 +25,17 @@ class FactSearchAgent(KeywordSearchAgent):
         *,
         state: TravelAgentState | None = None,
     ) -> str:
-        usable = FactSearchAgent._preferred_tool_is_usable(task, whitelist)
+        usable = FactSearchAgent._preferred_tool_is_usable(task, whitelist, state=state)
         if usable:
             return usable
+
+        from app.orchestrator.mcp_tool_arguments import mcp_tool_invocation_ready
 
         for tool in _PROFILE.tool_priority:
             resolved = resolve_tool_name(tool)
             if whitelist is not None and not whitelist.is_allowed(resolved):
+                continue
+            if state is not None and not mcp_tool_invocation_ready(resolved, {}, state=state):
                 continue
             return resolved
 

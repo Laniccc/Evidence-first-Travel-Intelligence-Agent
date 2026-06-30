@@ -106,6 +106,15 @@ class EvidencePolicyGuard(PolicyGuard):
         tool = action.target or ""
         resolved = resolve_tool_name(tool)
 
+        if tool == "baidu_place_search_mcp":
+            from app.orchestrator.ticket_lookup_policy import baidu_place_search_allowed_for_ticket
+
+            if not baidu_place_search_allowed_for_ticket(state):
+                raise ValueError(
+                    "baidu_place_search_mcp not allowed after POI anchor for ticket_price; "
+                    "use official/search/platform tools"
+                )
+
         if is_mcp_policy_placeholder(resolved):
             raise ValueError(f"not_implemented: MCP policy tool {tool!r} is a placeholder (provider not wired)")
 
@@ -313,57 +322,62 @@ class EvidencePolicyGuard(PolicyGuard):
         if action.arguments.get("evidence_gap_acknowledged"):
             return
 
+        from app.orchestrator.retrieval_attempt_ledger import retrieval_complete, sync_ledger_to_state
+
         contract = state.response_contract
         if contract:
+            required_claims = [
+                c.claim_type
+                for c in contract.claim_requirements
+                if c.priority == "required"
+            ]
+            ledger_finish_claims = {"ticket_price", "opening_hours"} & set(required_claims)
+            if ledger_finish_claims and all(
+                retrieval_complete(state, ct) for ct in ledger_finish_claims
+            ):
+                sync_ledger_to_state(state)
+                return
+
             checker = EvidenceCoverageChecker()
             report = state.coverage_report or checker.check(
                 contract, state.evidence, state.tool_traces
             )
-            if not report.can_finish_evidence_planning:
-                from app.orchestrator.fact_lookup_policy import primary_fact_need_from_state
-                from app.orchestrator.s5_diversified_tool_selector import untried_must_attempt_tools
-                from app.orchestrator.ticket_lookup_policy import ticket_lookup_retrieval_complete
-
-                ticket_gap_finish = (
-                    primary_fact_need_from_state(state) == "ticket_price"
-                    and ticket_lookup_retrieval_complete(state)
-                )
-
-                configured_untried = untried_must_attempt_tools(state, tool_whitelist)
-                if configured_untried:
-                    configured_untried = [
-                        t
-                        for t in configured_untried
-                        if t not in {"fallback", "knowledge_prior", "osm_mcp"}
-                    ]
-                if not configured_untried:
-                    configured_untried = checker._untried_required_primary_tools(
-                        contract, state.tool_traces, report.items
-                    )
-                    configured_untried = [
-                        t for t in configured_untried if tool_whitelist and tool_whitelist.is_allowed(t)
-                    ]
-                if configured_untried and not report.all_required_covered and not ticket_gap_finish:
-                    raise ValueError(
-                        "Cannot FINISH evidence planning: configured tools not yet attempted: "
-                        + ", ".join(configured_untried)
-                    )
             if not report.all_required_covered:
                 missing = [
-                    i.claim_type for i in report.items if not i.covered
+                    i.claim_type
+                    for i in report.items
+                    if not i.covered
                     if any(
                         c.claim_type == i.claim_type and c.priority == "required"
                         for c in contract.claim_requirements
                     )
                 ]
+                if missing and all(retrieval_complete(state, m) for m in missing if m in ledger_finish_claims):
+                    sync_ledger_to_state(state)
+                    return
                 if missing:
-                    from app.orchestrator.ticket_lookup_policy import ticket_lookup_retrieval_complete
-
-                    if "ticket_price" in missing and ticket_lookup_retrieval_complete(state):
+                    untried = self._untried_contract_tools(
+                        state,
+                        contract.claim_requirements,
+                        tool_whitelist,
+                        missing,
+                    )
+                    if untried:
+                        raise ValueError(
+                            "Cannot FINISH evidence planning: configured tools not yet attempted: "
+                            + ", ".join(untried)
+                        )
+                    still_blocking = [
+                        m
+                        for m in missing
+                        if m not in ledger_finish_claims or not retrieval_complete(state, m)
+                    ]
+                    if not still_blocking:
+                        sync_ledger_to_state(state)
                         return
                     raise ValueError(
                         "Cannot FINISH evidence planning without required claim coverage for: "
-                        + ", ".join(missing)
+                        + ", ".join(still_blocking)
                         + "; set evidence_gap_acknowledged=true with a limitation if tools failed"
                     )
             return
@@ -377,6 +391,11 @@ class EvidencePolicyGuard(PolicyGuard):
             return
 
         missing = self._missing_required_needs(state, frame.information_needs)
+        ledger_needs = {"ticket_price", "opening_hours"} & set(frame.information_needs or [])
+        if ledger_needs and all(retrieval_complete(state, n) for n in ledger_needs):
+            sync_ledger_to_state(state)
+            return
+
         untried = self._unconfigured_or_untried_tools(state, frame.information_needs, tool_whitelist)
         if untried:
             raise ValueError(
@@ -385,9 +404,17 @@ class EvidencePolicyGuard(PolicyGuard):
             )
 
         if missing:
+            still_blocking = [
+                m
+                for m in missing
+                if m not in ledger_needs or not retrieval_complete(state, m)
+            ]
+            if not still_blocking:
+                sync_ledger_to_state(state)
+                return
             raise ValueError(
                 "Cannot FINISH evidence planning without required evidence for: "
-                + ", ".join(missing)
+                + ", ".join(still_blocking)
                 + "; set evidence_gap_acknowledged=true with a limitation if tools failed"
             )
 
@@ -415,6 +442,30 @@ class EvidencePolicyGuard(PolicyGuard):
         return pending
 
     @staticmethod
+    def _untried_contract_tools(
+        state: TravelAgentState,
+        claims,
+        tool_whitelist: ToolWhitelist | None,
+        missing_claims: list[str],
+    ) -> list[str]:
+        if tool_whitelist is None:
+            return []
+        allowed = set(tool_whitelist.allowed_tool_names())
+        called = {resolve_tool_name(t.tool_name) for t in state.tool_traces}
+        missing_set = set(missing_claims)
+        pending: list[str] = []
+        for claim in claims:
+            if claim.claim_type not in missing_set:
+                continue
+            if claim.priority != "required":
+                continue
+            for tool in claim.preferred_tools:
+                resolved = resolve_tool_name(tool)
+                if tool in allowed and resolved not in called and tool not in pending:
+                    pending.append(tool)
+        return pending
+
+    @staticmethod
     def _validate_tool_argument_requirements(tool: str, args: dict, state: TravelAgentState) -> None:
         resolved = resolve_tool_name(tool)
         if resolved == "baidu_reverse_geocode_mcp":
@@ -435,9 +486,12 @@ class EvidencePolicyGuard(PolicyGuard):
             urls = list(args.get("urls") or [])
             hits = list(args.get("search_results") or [])
             if not urls and not hits and not has_ticket_url_inputs(state):
-                raise ValueError(
-                    "official_source_discovery_mcp requires urls or search_results; skip when none available"
-                )
+                from app.orchestrator.fact_lookup_policy import primary_fact_need_from_state
+                from app.orchestrator.retrieval_attempt_ledger import record_skip
+
+                reason = "official_source_discovery_mcp requires urls or search_results; skip when none available"
+                record_skip(state, "official_source", reason, claim_type=primary_fact_need_from_state(state))
+                raise ValueError(reason)
         if resolved in {"official_page_reader_mcp", "browser_mcp"}:
             url = str(args.get("url") or args.get("source_url") or "").strip()
             urls = args.get("urls") or []

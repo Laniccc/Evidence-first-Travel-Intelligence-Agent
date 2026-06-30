@@ -7,8 +7,12 @@ import pytest
 from app.agents.search_task_planner_agent import SearchTaskPlannerAgent, _planner_user_payload
 from app.evals.llm_test_helpers import StubLLMClient, duku_search_tasks_json
 from app.orchestrator.claim_search_planner import ClaimSearchPlanner
+from app.orchestrator.actions import ActionResult, AgentAction, AgentActionType
 from app.orchestrator.response_contract_compiler import ResponseContractCompiler
+from app.orchestrator.state_policy import EVIDENCE_PLANNING_AND_TOOL_USE_POLICY
+from app.orchestrator.state_reducer import StateReducer
 from app.orchestrator.tool_whitelist_builder import ToolWhitelistBuilder
+from app.schemas.evidence import Claim, ClaimType, Evidence, SourceType
 from app.schemas.semantic_frame import (
     DecisionType,
     QueryScope,
@@ -78,6 +82,59 @@ def test_planning_context_includes_s2_place_ambiguity():
     assert ctx["place_ambiguity"]["is_ambiguous"] is True
     assert "南岳衡山" in ctx["gated_search_keywords"]
     assert ctx["labeled_entities"]
+
+
+def test_insufficient_keyword_search_not_counted_as_effective_query():
+    frame = SemanticFrame(
+        raw_query="栖霞山门票价格多少？",
+        normalized_request="栖霞山门票价格",
+        query_scope=QueryScope.PLACE,
+        task_family=TaskFamily.FACT_LOOKUP,
+        decision_type=DecisionType.FACT_LOOKUP,
+        entities=SemanticEntities(country="China", places=["栖霞山"]),
+        information_needs=["ticket_price"],
+        requires_exact_fact=True,
+    )
+    state = TravelAgentState(session_id="s", query_id="q", raw_user_query=frame.raw_query)
+    state.semantic_frame = frame
+    state.response_contract = ResponseContractCompiler().compile(frame)
+    ev = Evidence(
+        source_name="open-webSearch",
+        source_type=SourceType.WEB,
+        source_url="https://www.ly.com/scenery/BookSceneryTicket_132.html",
+        country="China",
+        place_name="栖霞山",
+        claims=[
+            Claim(
+                claim_type=ClaimType.TICKET_RELATED_MENTIONS,
+                value="栖霞山门票预订，同程旅行，您好，请 登录 免费",
+                confidence=0.4,
+            )
+        ],
+        confidence=0.4,
+    )
+    action = AgentAction(
+        action_type=AgentActionType.CALL_SUBAGENT,
+        target="keyword_search_agent",
+    )
+    result = ActionResult(
+        ok=True,
+        output={
+            "task_id": "t-login",
+            "claim_target": "ticket_price",
+            "information_need": "ticket_price",
+            "search_query": "栖霞山 官网 门票",
+            "evidence": [ev],
+        },
+    )
+
+    StateReducer().apply(state, action, result, EVIDENCE_PLANNING_AND_TOOL_USE_POLICY)
+
+    structured = state.structured_result or {}
+    assert structured["attempted_search_task_ids"] == ["t-login"]
+    assert structured["completed_search_task_ids"] == []
+    assert ClaimSearchPlanner.keyword_search_call_count(state) == 0
+    assert structured["keyword_search_results"][-1]["counted_as_effective_query"] is False
 
 
 def test_planner_user_payload_includes_user_need_residual():

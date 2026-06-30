@@ -1,5 +1,8 @@
 # Evidence-first Travel Intelligence Agent
 
+> 当前主线先看 [REPO_MAP.md](REPO_MAP.md) 和 [docs/PROJECT_MAINLINE.md](docs/PROJECT_MAINLINE.md)。
+> 运行入口在 `apps/agent-python/app/main.py`，核心状态链在 `apps/agent-python/app/orchestrator/state_machine.py`。
+
 面向日本、中国、韩国的 **Evidence-first Travel Intelligence Agent**。
 
 > **当前版本：Mock MVP + Real Data Pilot（小范围真实数据）**  
@@ -13,24 +16,33 @@
 
 ## 快速开始
 
-> **重要**：Python Agent 入口在 `apps/agent-python/`。请在该目录内运行 uvicorn、pytest。  
-> 完整链路：`apps/web` → `apps/api-java` (:8080) → `apps/agent-python` (:8001)。仅测 Agent 核心时只启动后者即可。
+> **重要**：默认从仓库根目录一条命令启动 Agent + MCP 搜索栈 + Web 界面。脚本会自动进入 `apps/agent-python/`、补齐 `.env`、设置 `PYTHONPATH`、检查/启动 MCP 与 Web，并拉起 uvicorn。  
+> 本地默认链路：`apps/web` (:5173) → `apps/agent-python` (:8001)。完整 Gateway 链路可切换为 `apps/web` → `apps/api-java` (:8082) → `apps/agent-python`。
 
 ```powershell
-# 1. 进入 agent-python（必须）
+# 首次安装依赖（只需一次）
 cd apps/agent-python
-
-# 2. 安装依赖
 pip install -r requirements.txt
 copy .env.example .env          # Windows
+cd ..\..
 
-# 3. 验收
-$env:PYTHONPATH = (Get-Location).Path
-python -m compileall app
-pytest app/evals -q
+# 一条命令启动 Agent + MCP 搜索栈 + Web（Agent :8001，Web :5173）
+.\scripts\start-agent.ps1
 
-# 4. 启动 Agent 服务（默认 8001）
-python -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8001
+# 可选：仅启动 Agent，不启动 MCP
+.\scripts\start-agent.ps1 -NoMcp
+
+# 可选：不启动 Web
+.\scripts\start-agent.ps1 -NoWeb
+
+# 可选：只启动 Web（适合后端已在运行时补开页面）
+.\scripts\start-agent.ps1 -WebOnly
+
+# 可选：MCP 启动失败仍继续启动 Agent（检索证据会不完整）
+.\scripts\start-agent.ps1 -AllowMcpFailure
+
+# 可选：换端口
+.\scripts\start-agent.ps1 -Port 8002
 ```
 
 ### 访问地址
@@ -39,10 +51,25 @@ python -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8001
 |------|------|
 | http://127.0.0.1:8001/agent/health | Agent 健康检查 |
 | POST http://127.0.0.1:8001/agent/query | 旅行问答 API |
-| http://127.0.0.1:5173/ | Web UI（需 `apps/web` + 可选 `api-java`） |
+| http://127.0.0.1:5173/ | Web UI（由 `.\scripts\start-agent.ps1` 默认启动） |
 | `apps/agent-python/debug_last_session.md` | 最近一次问答的调试日志（本地覆盖写入） |
 
 详见 [apps/agent-python/README.md](apps/agent-python/README.md) 与 [apps/web/README.md](apps/web/README.md)。
+
+### Agent Core Store（可选）
+
+默认 Agent Core 状态存在单次运行内存 sidecar 中。需要本地审计日志时可开启：
+
+```env
+AGENT_CORE_STORE_BACKEND=jsonl
+AGENT_CORE_STORE_JSONL_PATH=./data/agent_core_store.jsonl
+
+# 或使用可查询 SQLite 事件表
+AGENT_CORE_STORE_BACKEND=sqlite
+AGENT_CORE_STORE_SQLITE_PATH=./data/agent_core_store.sqlite3
+```
+
+`debug_last_session.md` 会从 `orchestration_summary.agent_core_projection` 展示 phase、research plan、evidence projection、job status 和 gaps。
 
 ### LLM 配置（可选）
 
@@ -65,25 +92,24 @@ curl -X POST http://127.0.0.1:8001/agent/query ^
 
 ---
 
-## Agent 回答链路（主流程）
+## Agent Core 回答链路（主流程）
 
 ![证据优先 Travel Agent 当前状态流程图](image.png)
 
 ```text
 User Query
-  → ConversationContextBuilder
-  → QueryUnderstandingPromptState → SemanticFrame
-  → AnswerModeRouter（EvidencePolicy + 工具能力）
-  → 分支：clarification | evidence_required | model_prior | estimation
-  → ToolRouter / KnowledgePriorTool → Evidence
-  → EvidenceAggregator
-  → ReviewMining / Scorer（景点级问题）
-  → Composer
-  → CitationChecker
+  → RootAgentSupervisor
+  → input_contract（QueryUnderstanding + ResponseContract）
+  → pipeline_gate / region_policy
+  → research_plan（多 claim 检索计划）
+  → evidence_acquisition（S5 工具与 subagent loop）
+  → evidence_review（claim decision / gaps）
+  → answer_draft
+  → citation_guard
+  → delivery
 ```
 
-系统**不再**为每类问题堆叠固定 template 或大量关键词 if-else。  
-`QueryUnderstanding` 产出通用 **SemanticFrame**；**AnswerModeRouter** 决定是否需要工具证据、是否允许 **model prior**；**KnowledgePriorTool** 将低置信度常识建议包装为 `Evidence`（`source_type=model_prior`），Composer 仍只读 Evidence 作答。
+系统**不再**以旧 S0-S10 dispatch 作为主控链路。Root Agent 按 phase chain 推进；PipelineGate 过滤数据工具与 control tools；Store 是 phase/evidence/artifact/job 的事实源，`PipelineState` 是派生投影。Composer 仍只基于 Evidence / ClaimDecision 作答。
 
 **精确实时事实**（开放时间、票价、今日天气、实时人流）必须 `evidence_required`，禁止 model prior。
 
@@ -207,7 +233,7 @@ Evidence-first Travel Intelligence Agent/
 ├── REPO_MAP.md
 ├── apps/
 │   ├── agent-python/          # Python Agent 核心（FastAPI :8001）
-│   ├── api-java/              # API Gateway (:8080)
+│   ├── api-java/              # API Gateway (:8082)
 │   └── web/                   # 前端 SPA
 ├── packages/tools/            # 工具 / MCP / mock 数据真相源
 ├── contracts/                 # 跨语言 JSON Schema
@@ -236,8 +262,12 @@ pytest app/evals -m real_api -q                  # 真实 API（无 key 自动 s
 
 | 现象 | 处理 |
 |------|------|
-| `ModuleNotFoundError: No module named 'app'` | 先 `cd apps/agent-python` 并设置 `PYTHONPATH=.` |
-| 端口占用 | 换端口 `--port 8002` |
+| `ModuleNotFoundError: No module named 'app'` | 优先从仓库根目录运行 `.\scripts\start-agent.ps1`；脚本会自动设置 `PYTHONPATH` |
+| 端口占用 | 换端口 `.\scripts\start-agent.ps1 -Port 8002` |
+| open-webSearch 无法启动 | 看 `logs/mcp/open-websearch.out.log` / `logs/mcp/open-websearch.err.log`；常见原因是首次 npm 下载被网络/代理拦截 |
+| Web 无法启动 | 看 `logs/web/vite.out.log` / `logs/web/vite.err.log`；只补开 Web 可运行 `.\scripts\start-agent.ps1 -WebOnly` |
+| Web 提交后显示 Internal Server Error | 通常是 Vite 代理打到未启动的 `api-java :8082`；默认本地应走 direct agent，可重启 `.\scripts\start-agent.ps1 -WebOnly` |
+| `GET /agent/query` 返回 405 | 正常现象；`/agent/query` 只接受 `POST`，健康检查请访问 `/agent/health` |
 | 回答过于模板化 | 检查 `LLM_MODE=mock`；配置 `DEEPSEEK_API_KEY` 后设 `LLM_MODE=anthropic` |
 | 真实天气未生效 | 确认 `ENABLE_REAL_WEATHER=true` 且 `WEATHER_API_KEY` 已设置；查看 `tool_traces` 是否 `fallback_used` |
 

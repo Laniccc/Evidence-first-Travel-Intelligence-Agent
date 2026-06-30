@@ -277,11 +277,8 @@ class EvidenceCoverageChecker:
         required = [i for i, r in zip(items, contract.claim_requirements) if r.priority == "required"]
         all_required = all(i.covered for i in required) if required else True
         untried = self._untried_required_primary_tools(contract, tool_traces, items)
-        can_finish = all_required
-        if not all_required and not untried and tool_traces:
-            can_finish = True
-        elif not all_required and untried:
-            can_finish = False
+        # S5 finish is governed by RetrievalAttemptLedger; coverage is S7's job.
+        can_finish = True
 
         need_limits = any(
             not i.covered and contract.claim_requirements[idx].priority == "required"

@@ -125,6 +125,11 @@ class Settings(BaseSettings):
     evidence_confidence_threshold: float = 0.55
     low_confidence_threshold: float = 0.35
 
+    # Agent Core Store
+    agent_core_store_backend: Literal["memory", "jsonl", "sqlite"] = "memory"
+    agent_core_store_jsonl_path: str = "./data/agent_core_store.jsonl"
+    agent_core_store_sqlite_path: str = "./data/agent_core_store.sqlite3"
+
     # S5 information domain — platform provider placeholders (framework only)
     enable_ticket_platform_crawlers: bool = False
     enable_ticket_platform_providers: bool = False
@@ -250,6 +255,7 @@ class Settings(BaseSettings):
             self.mcp_wikipedia_enabled = False
             self.mcp_wikidata_enabled = False
             self.mcp_sqlite_enabled = False
+            self.mcp_baidu_map_enabled = False
             return self
         if self.mcp_profile == "search_only":
             self.mcp_search_enabled = True
@@ -259,6 +265,7 @@ class Settings(BaseSettings):
             self.mcp_wikipedia_enabled = False
             self.mcp_wikidata_enabled = False
             self.mcp_sqlite_enabled = False
+            self.mcp_baidu_map_enabled = False
             return self
         if self.mcp_enable_all or self.mcp_profile == "full":
             from tools.mcp.adapter_status import IMPLEMENTED_MCP_POLICIES

@@ -160,9 +160,12 @@ class S5EvidenceOrchestratorAgent:
             fact_s5_planning_context,
             fact_s5_system_append,
         )
+        from app.orchestrator.agent_core_prompt_guidance import agent_core_task_guidance_block
 
         payload.update(nearby_s5_planning_context(state))
         payload.update(fact_s5_planning_context(state))
+        payload["agent_core_task_guidance"] = prompt_context.get("agent_core_task_guidance", [])
+        payload["research_plan"] = prompt_context.get("research_plan")
         chain_ctx = payload.get("lookup_research_chain")
         if chain_ctx:
             payload["completed_phases"] = chain_ctx.get("completed_phases")
@@ -170,7 +173,11 @@ class S5EvidenceOrchestratorAgent:
         system = _SYSTEM
         nearby_append = nearby_s5_system_append(state)
         fact_append = fact_s5_system_append(state)
-        for block in (nearby_append, fact_append):
+        guardrail_append = agent_core_task_guidance_block(
+            state,
+            task_class=prompt_context.get("s5_task_class"),
+        )
+        for block in (guardrail_append, nearby_append, fact_append):
             if block:
                 system = f"{system}\n\n{block}"
         raw = await self.llm.complete(
@@ -201,16 +208,22 @@ class S5EvidenceOrchestratorAgent:
         need = ClaimSearchPlanner.primary_information_need(state)
         ctx = ClaimSearchPlanner.planning_context(state)
         strategy = state.intent_strategy
+        task_class = self._task_class_from_context(state, prompt_context)
 
         if self._should_finish(state, prompt_context, step):
             args: dict = {}
             from app.orchestrator.fact_lookup_policy import is_fact_lookup_task, primary_fact_need_from_state
-            from app.orchestrator.ticket_lookup_policy import ticket_lookup_retrieval_complete
+            from app.orchestrator.retrieval_attempt_ledger import retrieval_complete
+            from app.orchestrator.ticket_lookup_attempt_tracker import ticket_lookup_has_price_evidence
 
+            need = primary_fact_need_from_state(state)
+            ticket_ready = need == "ticket_price" and ticket_lookup_has_price_evidence(state, need)
+            non_ticket_ready = need == "opening_hours"
             if (
                 is_fact_lookup_task(state)
-                and primary_fact_need_from_state(state) == "ticket_price"
-                and ticket_lookup_retrieval_complete(state)
+                and need in {"ticket_price", "opening_hours"}
+                and retrieval_complete(state, need)
+                and (ticket_ready or non_ticket_ready)
             ):
                 args["evidence_gap_acknowledged"] = True
             return AgentAction(
@@ -219,6 +232,18 @@ class S5EvidenceOrchestratorAgent:
                 reason_summary="S5 orchestrator: evidence sufficient or step budget",
                 confidence=0.78,
             )
+
+        guardrail_action = self._task_class_guardrail_action(
+            state,
+            prompt_context,
+            task_class,
+            frame,
+            need,
+            done_subagents,
+            step,
+        )
+        if guardrail_action is not None:
+            return guardrail_action
 
         intent_action = self._intent_subagent_action(
             state, frame, need, ctx, done_subagents, step, strategy
@@ -337,6 +362,146 @@ class S5EvidenceOrchestratorAgent:
             confidence=0.7,
         )
 
+    def _task_class_from_context(self, state: TravelAgentState, prompt_context: dict) -> str | None:
+        task_class = prompt_context.get("s5_task_class")
+        if task_class:
+            return str(task_class)
+        try:
+            from app.orchestrator.agent_tool_catalog import resolve_s5_task_class
+
+            return resolve_s5_task_class(state)
+        except Exception:
+            return None
+
+    def _task_class_guardrail_action(
+        self,
+        state: TravelAgentState,
+        prompt_context: dict,
+        task_class: str | None,
+        frame,
+        need: str | None,
+        done_subagents: set[str],
+        step: int,
+    ) -> AgentAction | None:
+        if step >= 10:
+            return None
+        if task_class == "route_first" and "route_feasibility_agent" not in done_subagents:
+            return self._route_guardrail_action(state, frame, need)
+        if task_class == "review_first" and "fact_search_agent" not in done_subagents:
+            return self._claim_search_guardrail_action(
+                state,
+                prompt_context,
+                claim_target=need or "review_summary",
+                suffix="\u53e3\u7891 \u6392\u961f \u8bc4\u4ef7",
+                reason="Task guardrail: collect review/queue tendency before live-status drift",
+            )
+        if task_class == "geo_fact_lookup":
+            already = {"fact_lookup_agent", "fact_search_agent"} & done_subagents
+            if not already:
+                return self._claim_search_guardrail_action(
+                    state,
+                    prompt_context,
+                    claim_target=need or "elevation",
+                    suffix="\u6d77\u62d4 \u4e3b\u5cf0 \u9ad8\u5ea6",
+                    reason="Task guardrail: keep geo fact lookup on numeric elevation/area",
+                )
+        if task_class == "ticket_price_lookup" and "fact_lookup_agent" not in done_subagents:
+            lookup = self._lookup_chain_fallback_action(state, step)
+            if lookup is not None:
+                lookup.reason_summary = "Task guardrail: ticket_price lookup chain before generic search"
+                return lookup
+        return None
+
+    def _route_guardrail_action(self, state: TravelAgentState, frame, need: str | None) -> AgentAction:
+        params = self._route_params_from_state(state, frame)
+        return self._subagent_action(
+            "route_feasibility_agent",
+            {
+                "lookup_intent": "Get route, duration, distance, or transit evidence for the user requested origin/destination pair.",
+                "claim_target": need or "route_plan",
+                "information_need": need or "route_plan",
+                "tool_parameters": params,
+                "anchor_keywords": [v for v in params.values() if v],
+                "search_query": " ".join(v for v in params.values() if v) or state.raw_user_query[:96],
+            },
+            "Task guardrail: route_first requires route_feasibility_agent",
+        )
+
+    @staticmethod
+    def _route_params_from_state(state: TravelAgentState, frame) -> dict[str, str]:
+        params: dict[str, str] = {}
+        try:
+            from app.orchestrator.mcp_tool_arguments import _route_endpoints_from_text
+
+            origin, dest = _route_endpoints_from_text(state.raw_user_query)
+        except Exception:
+            origin, dest = None, None
+        places = list(frame.entities.places or []) if frame and frame.entities else []
+        goal = state.user_goal
+        if not origin and goal and goal.start_location:
+            origin = goal.start_location
+        if not origin and len(places) >= 2:
+            origin = places[0]
+        if not dest and len(places) >= 2:
+            dest = places[1]
+        if not dest and places:
+            dest = places[-1]
+        if origin:
+            params["origin"] = str(origin)
+        if dest:
+            params["destination"] = str(dest)
+            params["place_name"] = str(dest)
+        raw = state.raw_user_query or ""
+        if any(token in raw for token in ("\u5730\u94c1", "\u516c\u4ea4", "subway", "metro", "transit")):
+            params["mode"] = "transit"
+        elif any(token in raw for token in ("\u6253\u8f66", "\u5f00\u8f66", "taxi", "drive")):
+            params["mode"] = "driving"
+        return params
+
+    def _claim_search_guardrail_action(
+        self,
+        state: TravelAgentState,
+        prompt_context: dict,
+        *,
+        claim_target: str,
+        suffix: str,
+        reason: str,
+    ) -> AgentAction:
+        rewriter = SearchQueryRewriter.from_planning_context(
+            ClaimSearchPlanner.planning_context(state),
+            state,
+        )
+        tasks = rewriter.to_search_tasks(max_tasks=1)
+        task_args = tasks[0].model_dump() if tasks else {}
+        query = str(task_args.get("search_query") or state.raw_user_query[:96]).strip()
+        if suffix and suffix not in query:
+            query = f"{query} {suffix}".strip()
+        task_args.update(
+            {
+                "lookup_intent": task_args.get("lookup_intent")
+                or f"Collect claim-relevant evidence for {claim_target}.",
+                "claim_target": claim_target,
+                "information_need": claim_target,
+                "search_query": query,
+            }
+        )
+        if tasks and "tool_whitelist" in prompt_context:
+            from app.orchestrator.s5_diversified_tool_selector import select_tool_for_subagent
+
+            selection = select_tool_for_subagent(
+                state,
+                tasks[0],
+                prompt_context.get("tool_whitelist"),
+                subagent="fact_search_agent",
+            )
+            if selection:
+                task_args["preferred_tool"] = selection.tool_name
+                task_args["tool_parameters"] = {
+                    **(task_args.get("tool_parameters") or {}),
+                    **selection.tool_parameters_patch,
+                }
+        return self._subagent_action("fact_search_agent", task_args, reason)
+
     def _should_finish(
         self,
         state: TravelAgentState,
@@ -354,17 +519,40 @@ class S5EvidenceOrchestratorAgent:
         if report and report.all_required_covered:
             return True
         from app.orchestrator.fact_lookup_policy import is_fact_lookup_task, primary_fact_need_from_state
-        from app.orchestrator.ticket_lookup_policy import ticket_lookup_retrieval_complete
+        from app.orchestrator.retrieval_attempt_ledger import retrieval_complete
 
+        need = primary_fact_need_from_state(state)
         if (
             is_fact_lookup_task(state)
-            and primary_fact_need_from_state(state) == "ticket_price"
-            and ticket_lookup_retrieval_complete(state)
+            and need in {"ticket_price", "opening_hours"}
+            and retrieval_complete(state, need)
             and step >= 2
         ):
+            if need == "ticket_price":
+                from app.orchestrator.ticket_lookup_attempt_tracker import ticket_lookup_has_price_evidence
+
+                return ticket_lookup_has_price_evidence(state, need)
+            return True
+        if is_fact_lookup_task(state) and need == "ticket_price" and step >= 10:
             return True
         structured = state.structured_result or {}
         results = structured.get("subagent_results") or []
+        task_class = str(prompt_context.get("s5_task_class") or "")
+        if task_class == "poi_recommendation":
+            if len(state.evidence or []) >= 3 and step >= 4:
+                return True
+            if step >= 8:
+                return True
+        if task_class in {"strict_fact_lookup", "geo_fact_lookup", "route_first"}:
+            if len(state.evidence or []) >= 3 and step >= 6:
+                return True
+            if step >= 10:
+                return True
+        if task_class == "multi_place_parallel":
+            if len(state.evidence or []) >= 6 and step >= 8:
+                return True
+            if step >= 12:
+                return True
         if len(results) >= 8 and step >= 4:
             recent = results[-3:]
             if all(int(r.get("evidence_count") or 0) == 0 for r in recent):
@@ -426,6 +614,26 @@ class S5EvidenceOrchestratorAgent:
             )
             if is_duplicate_lookup_attempt(state, sig):
                 continue
+            from app.orchestrator.ticket_product_policy import ensure_ticket_product_context
+            from app.orchestrator.ticket_lookup_attempt_tracker import (
+                normalize_subagent_objective,
+                record_subagent_objective,
+                subagent_objective_seen,
+            )
+
+            query = objectives[0].search_query if objectives and objectives[0].search_query else obj_key
+            product_ctx = ensure_ticket_product_context(state) or {}
+            obj_sig = normalize_subagent_objective(
+                subagent="fact_lookup_agent",
+                claim_type=need,
+                lookup_phase=phase,
+                source_family=family,
+                search_query=query,
+                ticket_product=product_ctx.get("ticket_product"),
+            )
+            if subagent_objective_seen(state, obj_sig):
+                continue
+            record_subagent_objective(state, obj_sig)
             return self._subagent_action(
                 "fact_lookup_agent",
                 {
@@ -577,6 +785,23 @@ class S5EvidenceOrchestratorAgent:
                         **(task_args.get("tool_parameters") or {}),
                         **selection.tool_parameters_patch,
                     }
+                from app.orchestrator.ticket_product_policy import ensure_ticket_product_context
+                from app.orchestrator.ticket_lookup_attempt_tracker import (
+                    normalize_subagent_objective,
+                    record_subagent_objective,
+                    subagent_objective_seen,
+                )
+
+                product_ctx = ensure_ticket_product_context(state) or {}
+                obj_sig = normalize_subagent_objective(
+                    subagent="fact_search_agent",
+                    claim_type=task.claim_target or need,
+                    search_query=task.search_query,
+                    ticket_product=product_ctx.get("ticket_product"),
+                )
+                if subagent_objective_seen(state, obj_sig):
+                    continue
+                record_subagent_objective(state, obj_sig)
                 return self._subagent_action(
                     agent,
                     task_args,

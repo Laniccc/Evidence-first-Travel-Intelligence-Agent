@@ -6,7 +6,7 @@ import re
 
 from app.schemas.evidence import Evidence, SourceType
 from app.schemas.user_query import TravelAgentState
-from tools.official_source.url_normalizer import hits_from_evidence_list
+from tools.official_source.url_normalizer import clean_search_hits_for_official_chain, hits_from_evidence_list
 
 _TICKET_NOISE_DOMAINS = frozenset(
     {
@@ -61,7 +61,20 @@ def collect_ticket_search_hits(state: TravelAgentState) -> list[dict]:
             continue
         seen.add(key)
         deduped.append(hit)
-    return deduped
+    return clean_search_hits_for_official_chain(deduped)
+
+
+def collect_official_discovery_search_results(
+    state: TravelAgentState,
+) -> tuple[list[dict], list[str]]:
+    """Single source for official_source_discovery_mcp search_results + urls."""
+    hits = collect_ticket_search_hits(state)
+    urls: list[str] = []
+    for hit in hits:
+        url = str(hit.get("url") or "").strip()
+        if url.startswith("http") and url not in urls:
+            urls.append(url)
+    return hits, urls
 
 
 def collect_ticket_search_urls(state: TravelAgentState) -> list[str]:

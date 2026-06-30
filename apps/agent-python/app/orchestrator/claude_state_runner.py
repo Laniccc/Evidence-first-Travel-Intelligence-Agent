@@ -51,10 +51,14 @@ class ClaudeStateRunner:
                 else:
                     self.policy_guard.validate(action, policy, state, tool_whitelist=tool_whitelist)
             except ValueError as exc:
+                from app.orchestrator.ticket_lookup_policy import is_internal_policy_limitation
+
+                msg = str(exc)
                 if self._recover_policy_reject(state, action, exc, ctx):
                     TraceRecorder.add(state, f"↻ [{policy.state_name}] policy recover: {exc}")
                     continue
-                state.limitations.append(str(exc))
+                if not is_internal_policy_limitation(msg):
+                    state.internal_debug_limitations.append(msg)
                 TraceRecorder.add(state, f"✗ [{policy.state_name}] policy 拒绝：{exc}")
                 break
 
@@ -95,7 +99,7 @@ class ClaudeStateRunner:
                         state.tool_traces,
                     )
 
-        state.limitations.append(f"{policy.state_name} reached max_steps")
+        state.internal_debug_limitations.append(f"{policy.state_name} reached max_steps")
         TraceRecorder.add(state, f"✓ [{policy.state_name}] 达到 max_steps={policy.max_steps}")
         return state
 
@@ -122,6 +126,28 @@ class ClaudeStateRunner:
 
             gap = ctx.get("gap_request")
             if gap and apply_ticket_gap_phase_override(state, gap):
+                return True
+        if (
+            ctx.get("gap_filling")
+            and action.action_type == AgentActionType.CALL_TOOL
+            and action.target
+        ):
+            from app.tools.tool_name_resolver import resolve_tool_name
+
+            retry_signals = (
+                "not in dynamic whitelist",
+                "not configured",
+                "requires",
+                "disabled_by_config",
+                "not_implemented",
+                "not allowed",
+            )
+            if any(sig in msg for sig in retry_signals):
+                failed = list(ctx.get("_gap_failed_tools", []))
+                resolved = resolve_tool_name(action.target)
+                if resolved not in failed:
+                    failed.append(resolved)
+                ctx["_gap_failed_tools"] = failed
                 return True
         return False
 

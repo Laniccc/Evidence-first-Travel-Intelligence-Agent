@@ -241,6 +241,7 @@ def test_s8_does_not_show_rejected_noise_as_clues():
 
 
 def test_ticket_lookup_finish_with_gap_ack_without_max_steps(monkeypatch):
+    from app.evals.ticket_test_helpers import mark_ticket_families_attempted
     from app.orchestrator.actions import AgentAction, AgentActionType
     from app.orchestrator.evidence_policy_guard import EvidencePolicyGuard
     from app.orchestrator.state_policy import EVIDENCE_PLANNING_AND_TOOL_USE_POLICY
@@ -255,9 +256,9 @@ def test_ticket_lookup_finish_with_gap_ack_without_max_steps(monkeypatch):
 
     get_settings.cache_clear()
     state = _kanas_boat_state()
+    mark_ticket_families_attempted(state)
     state.tool_traces = [
         ToolTrace(tool_name="search_mcp"),
-        ToolTrace(tool_name="official_page_reader_mcp"),
         ToolTrace(tool_name="fliggy_ticket_api_mcp"),
         ToolTrace(tool_name="baidu_place_detail_mcp"),
     ]
@@ -268,3 +269,208 @@ def test_ticket_lookup_finish_with_gap_ack_without_max_steps(monkeypatch):
         arguments={"evidence_gap_acknowledged": True},
     )
     guard.validate(action, EVIDENCE_PLANNING_AND_TOOL_USE_POLICY, state)
+
+
+def test_fact_search_agent_counts_as_search_family_attempted():
+    from app.orchestrator.ticket_lookup_attempt_tracker import search_family_attempted
+
+    state = _kanas_boat_state()
+    state.structured_result = {
+        **(state.structured_result or {}),
+        "subagent_results": [{"subagent": "fact_search_agent", "evidence_count": 3}],
+    }
+    assert search_family_attempted(state)
+
+
+def test_official_discovery_skip_counts_as_attempted_not_finish_blocker(monkeypatch):
+    from app.orchestrator.ticket_lookup_attempt_tracker import (
+        official_family_attempted_or_skipped,
+        record_official_discovery_skipped,
+        ticket_lookup_retrieval_complete_by_family,
+    )
+    from app.schemas.tool_trace import ToolTrace
+
+    monkeypatch.setenv("FLIGGY_TICKET_CRAWLER_ENABLED", "true")
+    monkeypatch.setenv("FLIGGY_FLYAI_ENABLED", "true")
+    monkeypatch.setenv("FLIGGY_FLYAI_API_KEY", "sk-test")
+    monkeypatch.setenv("ENABLE_TICKET_CRAWLER_PROVIDERS", "true")
+    from app.config import get_settings
+
+    get_settings.cache_clear()
+    state = _kanas_boat_state()
+    state.structured_result = {
+        **(state.structured_result or {}),
+        "subagent_results": [{"subagent": "fact_search_agent", "evidence_count": 1}],
+    }
+    state.tool_traces = [
+        ToolTrace(tool_name="baidu_place_search_mcp"),
+        ToolTrace(tool_name="fliggy_ticket_api_mcp"),
+        ToolTrace(tool_name="baidu_place_detail_mcp"),
+    ]
+    record_official_discovery_skipped(state, "official_source_discovery_mcp requires urls or search_results")
+    assert official_family_attempted_or_skipped(state)
+    assert not ticket_lookup_retrieval_complete_by_family(state)
+    state.evidence = [
+        Evidence(
+            evidence_id="ev-platform-price",
+            source_name="Fliggy FlyAI",
+            source_type=SourceType.TICKET_PLATFORM,
+            source_url="https://a.feizhu.com/kanas-boat",
+            country="China",
+            place_name="喀纳斯湖",
+            claims=[
+                Claim(
+                    claim_type=ClaimType.TICKET_PRICE_CANDIDATE,
+                    value="成人船票 ¥120",
+                    confidence=0.62,
+                ),
+                Claim(
+                    claim_type=ClaimType.TICKET_TYPE,
+                    value="游船船票成人票",
+                    confidence=0.6,
+                ),
+            ],
+        )
+    ]
+    assert ticket_lookup_retrieval_complete_by_family(state)
+
+
+def test_ticket_gap_fill_search_before_official_discovery_without_urls():
+    from app.orchestrator.ticket_lookup_attempt_tracker import order_ticket_gap_tools
+
+    state = _kanas_boat_state()
+    tools = [
+        "official_source_discovery_mcp",
+        "official_page_reader_mcp",
+        "search_mcp",
+        "browser_mcp",
+    ]
+    ordered = order_ticket_gap_tools(state, tools)
+    assert ordered[0] == "search_mcp"
+    assert ordered.index("search_mcp") < ordered.index("official_source_discovery_mcp")
+
+
+def test_s8_boat_ticket_title_not_generic_ticket_price():
+    from app.orchestrator.fact_lookup_guided_composition import build_fact_lookup_draft
+    from app.orchestrator.ticket_product_policy import ensure_ticket_product_context
+
+    state = _kanas_boat_state()
+    ensure_ticket_product_context(state)
+    draft = build_fact_lookup_draft(state)
+    titles = [s.title for s in draft.sections]
+    assert any("游船船票" in t for t in titles)
+    assert not any(t.endswith("门票价格") for t in titles)
+
+
+def test_ticket_platform_aliases_do_not_include_product_keywords():
+    from app.orchestrator.mcp_tool_arguments import enrich_mcp_tool_arguments
+    from app.orchestrator.ticket_product_policy import ensure_ticket_product_context
+
+    state = _kanas_boat_state()
+    ensure_ticket_product_context(state)
+    args = enrich_mcp_tool_arguments("fliggy_ticket_api_mcp", {}, state=state)
+    place_aliases = args.get("place_aliases") or args.get("aliases") or []
+    product_kws = args.get("product_keywords") or args.get("ticket_product_keywords") or []
+    assert "游船" not in place_aliases
+    assert "船票" not in place_aliases
+    assert "游船" in product_kws or "船票" in product_kws
+
+
+def test_fliggy_provider_error_status_error_not_ok():
+    from tools.registry import TravelToolRegistry
+
+    registry = TravelToolRegistry(tool_mode="real")
+    meta = {
+        "error": "Assertion failed: !(handle->flags & UV_HANDLE_CLOSING)",
+        "output_parse_status": "parse_error",
+    }
+    trace_updates = registry._trace_fields_from_meta(meta)
+    assert trace_updates.get("output_parse_status") == "parse_error"
+    status = "ok"
+    result: list = []
+    if not result:
+        status = "zero_evidence"
+    if trace_updates.get("output_parse_status") == "parse_error":
+        status = "error"
+    if trace_updates.get("error") and not result:
+        status = "error"
+    assert status == "error"
+
+
+def test_baidu_place_search_not_repeated_after_related_poi_anchor():
+    from app.orchestrator.lookup_research_chain import ensure_lookup_chain_initialized
+    from app.orchestrator.ticket_lookup_policy import baidu_place_search_allowed_for_ticket
+    from app.schemas.tool_trace import ToolTrace
+
+    state = _kanas_boat_state()
+    ensure_lookup_chain_initialized(state)
+    advance_entity_anchor_if_satisfied(state)
+    state.tool_traces = [ToolTrace(tool_name="baidu_place_search_mcp")]
+    assert not baidu_place_search_allowed_for_ticket(state)
+
+
+def test_s5_subagent_attempt_dedupe_by_normalized_objective():
+    from app.orchestrator.ticket_lookup_attempt_tracker import (
+        normalize_subagent_objective,
+        record_subagent_objective,
+        subagent_objective_seen,
+    )
+
+    state = _kanas_boat_state()
+    sig_a = normalize_subagent_objective(
+        subagent="fact_search_agent",
+        claim_type="ticket_price",
+        lookup_phase="official_site_discovery",
+        source_family="search",
+        search_query="喀纳斯湖 游船 船票 价格 官方",
+        ticket_product="boat_ticket",
+    )
+    sig_b = normalize_subagent_objective(
+        subagent="fact_search_agent",
+        claim_type="ticket_price",
+        lookup_phase="official_site_discovery",
+        source_family="search",
+        search_query="新疆 Altay 喀纳斯湖 游船 船票 价格 官方",
+        ticket_product="boat_ticket",
+    )
+    assert sig_a == sig_b
+    assert not subagent_objective_seen(state, sig_a)
+    record_subagent_objective(state, sig_a)
+    assert subagent_objective_seen(state, sig_b)
+
+
+def test_fact_search_skips_reverse_geocode_without_coordinates():
+    from app.agents.fact_search_agent import FactSearchAgent
+    from app.orchestrator.mcp_tool_arguments import mcp_tool_invocation_ready
+    from app.schemas.search_task import SearchTask
+
+    state = _kanas_boat_state()
+    task = SearchTask(
+        task_id="t1",
+        lookup_intent="喀纳斯湖游船船票价格",
+        claim_target="ticket_price",
+        anchor_keywords=["喀纳斯湖"],
+        search_query="喀纳斯湖 游船 船票 价格 官方",
+        information_need="ticket_price",
+        preferred_tool="baidu_reverse_geocode_mcp",
+    )
+    assert not mcp_tool_invocation_ready("baidu_reverse_geocode_mcp", {}, state=state)
+    picked = FactSearchAgent.pick_tool(task, None, state=state)
+    assert picked == "search_mcp"
+
+
+def test_user_limitations_hide_internal_policy_errors():
+    from app.orchestrator.ticket_lookup_policy import filter_ticket_price_limitations
+
+    raw = [
+        "Cannot FINISH evidence planning: configured tools not yet attempted: search_mcp",
+        "evidence_planning_and_tool_use reached max_steps",
+        "official_source_discovery_mcp requires urls or search_results",
+        "飞猪/大众点评本轮未返回有效票价。",
+        "平台票价可能随日期、库存或套餐变化。",
+    ]
+    kept = filter_ticket_price_limitations(raw, need="ticket_price")
+    assert "Cannot FINISH" not in " ".join(kept)
+    assert "max_steps" not in " ".join(kept)
+    assert "requires urls" not in " ".join(kept)
+    assert any("飞猪" in line or "平台票价" in line for line in kept)

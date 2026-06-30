@@ -1,21 +1,25 @@
 # apps/web — 前端
 
-静态 SPA，通过 **Java API Gateway** 调用旅行问答 API。
+静态 SPA。本地开发默认通过 Vite 将 `/api/travel/query` 直连到 **agent-python**；需要完整 Java Gateway 链路时，可显式配置 `VITE_API_BASE_URL` 或用启动脚本参数 `-WebViaGateway`。
 
 ```
-浏览器 → Vite :5173 或 VITE_API_BASE_URL（默认 http://localhost:8082）
+本地默认：
+浏览器 → Vite :5173 → agent-python /agent/query (:8001)
+
+完整链路 / 生产：
+浏览器 → Vite :5173 或 VITE_API_BASE_URL（如 http://localhost:8082）
            POST /api/travel/query
                 → api-java → agent-python /agent/query
 ```
 
-**前端绝不请求** `/agent/query` 或 Python `:8001`。
+浏览器侧仍只请求 `/api/travel/query`；是否转到 `agent-python` 或 `api-java` 由 Vite 代理决定。
 
-复杂检索类问题可能需要 **1–3 分钟**；`api-java` 默认 `agent.read-timeout=300s`，前端 `VITE_QUERY_TIMEOUT_MS=300000` 与之对齐。
+复杂检索类问题可能需要 **1–3 分钟**；前端 `VITE_QUERY_TIMEOUT_MS=300000` 与后端长查询超时对齐。
 
 ## 前置条件
 
 1. **agent-python**（:8001）
-2. **api-java**（:8082）
+2. **api-java**（:8082，可选；完整 Gateway 链路需要）
 
 ## 开发启动
 
@@ -28,17 +32,17 @@ npm run dev
 
 打开 http://127.0.0.1:5173
 
-开发模式下 Vite 将 `/api/*` 代理到 `VITE_API_BASE_URL`（默认 8082），因此浏览器网络面板中应只看到：
+开发模式下浏览器网络面板中应只看到：
 
-- `POST http://127.0.0.1:5173/api/travel/query`（由 dev server 转发到 api-java）
+- `POST http://127.0.0.1:5173/api/travel/query`
 
-不会出现 `/agent/query` 或 `:8001`。
+本地默认由 Vite 改写为 `POST http://localhost:8001/agent/query`。如果设置了 `VITE_API_BASE_URL=http://localhost:8082`，则转发到 api-java。
 
-## 临时绕过 api-java（无 Maven）
+## 本地默认直连 agent-python
 
-本地未安装 Maven、无法启动 `api-java` 时，可 **临时** 让 Vite 把前端请求直接转到 `agent-python`，用于验证页面与 Agent 问答。
+本地未安装 Maven、无法启动 `api-java` 时，无需修改代码；默认配置会让 Vite 把前端请求直接转到 `agent-python`，用于验证页面与 Agent 问答。
 
-**限制**：无 Java 会话记忆、无 Java Tool Gateway；测完请改回默认配置。
+**限制**：无 Java 会话记忆、无 Java Tool Gateway。完整链路见下方“走 Java Gateway”。
 
 ### 1. 启动 agent-python（终端 1）
 
@@ -51,32 +55,7 @@ python -m uvicorn app.main:app --host 127.0.0.1 --port 8001
 
 确认：`http://127.0.0.1:8001/agent/health` 返回正常。
 
-### 2. 修改 Vite 代理（一次性，测完还原）
-
-编辑 `apps/web/vite.config.js`，将 `server.proxy` 中的 `/api` 块 **整段替换** 为：
-
-```javascript
-proxy: {
-  "/api": {
-    target: "http://localhost:8001",
-    changeOrigin: true,
-    rewrite: (path) => path.replace(/^\/api\/travel\/query/, "/agent/query"),
-  },
-},
-```
-
-默认（走 Java）为：
-
-```javascript
-proxy: {
-  "/api": {
-    target: apiBase,
-    changeOrigin: true,
-  },
-},
-```
-
-### 3. 启动前端（终端 2）
+### 2. 启动前端（终端 2）
 
 ```powershell
 cd apps/web
@@ -88,9 +67,21 @@ npm run dev
 
 浏览器仍请求 `POST /api/travel/query`，由 Vite 改写为 `POST http://localhost:8001/agent/query`。
 
-### 4. 恢复正式链路
+## 走 Java Gateway
 
-把 `vite.config.js` 改回 `target: apiBase`（删除 `rewrite`），并启动 `api-java`（:8082）后再 `npm run dev`。
+启动 `api-java`（:8082）后，选择一种方式：
+
+```powershell
+$env:VITE_DIRECT_AGENT="false"
+$env:VITE_API_BASE_URL="http://localhost:8082"
+npm run dev
+```
+
+或在仓库根目录：
+
+```powershell
+.\scripts\start-agent.ps1 -WebViaGateway
+```
 
 ## 生产构建
 

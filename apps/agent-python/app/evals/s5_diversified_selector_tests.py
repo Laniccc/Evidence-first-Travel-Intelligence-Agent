@@ -25,6 +25,21 @@ from app.schemas.semantic_frame import (
 from app.schemas.user_query import TravelAgentState
 
 
+@pytest.fixture(autouse=True)
+def _enable_baidu_map_for_selector_tests(monkeypatch):
+    from app.config import get_settings
+    from app.tools.mcp.client_manager import reset_mcp_client_manager
+
+    monkeypatch.setenv("MCP_PROFILE", "full")
+    monkeypatch.setenv("MCP_BAIDU_MAP_ENABLED", "true")
+    monkeypatch.setenv("BAIDU_MAP_AK", "test-ak")
+    get_settings.cache_clear()
+    reset_mcp_client_manager()
+    yield
+    reset_mcp_client_manager()
+    get_settings.cache_clear()
+
+
 def _nearby_food_state(query: str, place: str) -> TravelAgentState:
     frame = SemanticFrame(
         raw_query=query,

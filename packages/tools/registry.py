@@ -193,6 +193,10 @@ class TravelToolRegistry:
           "urls_checked_count": meta.get("urls_checked_count"),
           "official_candidates_count": meta.get("official_candidates_count"),
           "top_source_classes": meta.get("top_source_classes"),
+          "raw_result_count": meta.get("raw_result_count"),
+          "kept_result_count": meta.get("kept_result_count"),
+          "filtered_result_count": meta.get("filtered_result_count"),
+          "filter_reason": meta.get("filter_reason"),
       }
 
   async def run_tool(self, tool_name: str, **kwargs: Any) -> list:
@@ -221,13 +225,20 @@ class TravelToolRegistry:
           trace_updates = self._trace_fields_from_meta(meta)
           if trace_updates.get("error"):
               trace_input.setdefault("provider_error", trace_updates["error"])
+          status = "ok"
+          if not result:
+              status = "zero_evidence"
+          if trace_updates.get("output_parse_status") == "parse_error":
+              status = "error"
+          if trace_updates.get("error") and not result:
+              status = "error"
           self._append_trace(
               ToolTrace(
                   tool_name=tool_name,
                   input=trace_input,
                   evidence_ids=evidence_ids,
                   latency_ms=latency,
-                  status="ok",
+                  status=status,
                   fallback_used=bool(meta.get("fallback_used")),
                   cache_hit=bool(meta.get("cache_hit")),
                   **{k: v for k, v in trace_updates.items() if v is not None},

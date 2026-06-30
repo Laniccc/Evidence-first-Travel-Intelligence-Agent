@@ -7,6 +7,10 @@ from app.orchestrator.nearby_guided_composition import prepare_nearby_guided_com
 from app.orchestrator.nearby_task_orchestration import should_use_nearby_guided_compose
 from app.orchestrator.fact_lookup_guided_composition import prepare_fact_lookup_guided_compose_context
 from app.orchestrator.fact_lookup_task_orchestration import should_use_fact_lookup_guided_compose
+from app.orchestrator.non_lookup_task_chains import (
+    prepare_non_lookup_task_compose_context,
+    should_use_non_lookup_task_context,
+)
 from app.orchestrator.place_disambiguation_composition import (
     prepare_place_disambiguation_compose_context,
     should_present_place_disambiguation_at_s8,
@@ -45,6 +49,10 @@ class AnswerCompositionState:
                 state,
                 "✓ S8 地点消歧呈现：列出候选地点及证据，引导用户选择",
             )
+        elif should_use_non_lookup_task_context(state):
+            prompt_context = prepare_non_lookup_task_compose_context(state, prompt_context)
+            task_class = prompt_context.get("non_lookup_task_profile", {}).get("task_class", "non_lookup")
+            TraceRecorder.add(state, f"✓ S8 non-lookup task context: {task_class}")
         elif clear_premature_clarification_for_composition(state):
             TraceRecorder.add(
                 state,

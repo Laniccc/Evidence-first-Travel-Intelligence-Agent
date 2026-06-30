@@ -47,19 +47,34 @@ def ensure_ticket_product_context(state: TravelAgentState) -> dict | None:
     return ctx
 
 
-def ticket_product_keywords(state: TravelAgentState) -> list[str]:
+def product_keywords_for_ticket(state: TravelAgentState) -> list[str]:
     ctx = ensure_ticket_product_context(state)
     if not ctx:
         return []
-    kws = list(ctx.get("ticket_product_keywords") or [])
+    return list(ctx.get("ticket_product_keywords") or [])
+
+
+def ticket_product_keywords(state: TravelAgentState) -> list[str]:
+    """Backward-compatible alias — product keywords only (not place names)."""
+    return product_keywords_for_ticket(state)
+
+
+def place_aliases_for_ticket(state: TravelAgentState) -> list[str]:
+    from app.orchestrator.ticket_lookup_helpers import build_ticket_place_aliases
+
+    product_only = set(product_keywords_for_ticket(state)) | {"游船", "船票", "湖上游览"}
+    aliases = build_ticket_place_aliases(state)
+    out: list[str] = []
+    for alias in aliases:
+        if alias in product_only:
+            continue
+        if alias not in out:
+            out.append(alias)
     place = resolved_place_label(state)
-    if place:
-        for stem in (place, f"{place}景区"):
-            if stem not in kws:
-                kws.append(stem)
-        if "码头" not in "".join(kws) and _SERVICE_POI_RE.search(state.raw_user_query or ""):
-            kws.append(f"{place}码头")
-    return kws[:10]
+    for extra in (place, f"{place}景区" if place and "景区" not in place else None, f"{place}码头" if place else None):
+        if extra and extra not in out and extra not in product_only:
+            out.append(extra)
+    return out[:10]
 
 
 def ticket_product_search_queries(state: TravelAgentState, place: str) -> list[str]:

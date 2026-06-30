@@ -6,6 +6,7 @@ from app.orchestrator.claim_policy_registry import ClaimPolicyView
 from app.orchestrator.evidence_scorer import EvidenceScore
 from app.orchestrator.intent_s7_policy import apply_intent_s7_policy
 from app.orchestrator.intent_strategy_registry import IntentStrategy
+from app.orchestrator.fact_lookup_policy import _TICKET_CLAIM_TYPES
 from app.orchestrator.official_source_judgement import best_official_support
 from app.schemas.evidence import ClaimType, SourceType
 from app.schemas.evidence_decision_report import ClaimDecision, EvidenceConflict, RejectedEvidence
@@ -71,13 +72,21 @@ class ClaimAdoptionPolicy:
                 adoption,
                 intent_strategy=intent_strategy,
             )
-        if policy.claim_type == "ticket_price":
+        if policy.claim_type in _TICKET_CLAIM_TYPES:
             adoption = self._ticket_price_adoption(
                 scores,
                 quality,
                 adoption,
                 evidence=evidence,
                 fact_decomposition=fact_decomposition,
+                claim_type=policy.claim_type,
+            )
+        if policy.claim_type == "opening_hours":
+            adoption = self._opening_hours_adoption(
+                scores,
+                quality,
+                adoption,
+                evidence=evidence,
             )
         if policy.claim_type in _GEO_ATTRIBUTE_CLAIMS:
             adoption = self._geo_attribute_adoption(scores, quality, adoption, conflicts)
@@ -150,7 +159,7 @@ class ClaimAdoptionPolicy:
         if not scores:
             if fact_decomposition and self._has_decomposition_for(policy.claim_type, fact_decomposition):
                 return "partial"
-            if evidence and policy.claim_type == "ticket_price":
+            if evidence and policy.claim_type in _TICKET_CLAIM_TYPES:
                 support = best_official_support(evidence, policy.claim_type)
                 if support.tier == "strong":
                     return "partial"
@@ -164,9 +173,9 @@ class ClaimAdoptionPolicy:
         elif top.total_score >= 0.35:
             quality = "weak"
 
-        if evidence and policy.claim_type in {"ticket_price", "opening_hours", "seasonal_operation_status"}:
+        if evidence and policy.claim_type in {"opening_hours", "seasonal_operation_status", *_TICKET_CLAIM_TYPES}:
             support = best_official_support(evidence, policy.claim_type)
-            if policy.claim_type == "ticket_price":
+            if policy.claim_type in _TICKET_CLAIM_TYPES:
                 if support.tier != "strong":
                     if quality == "strong":
                         quality = "partial"
@@ -268,8 +277,14 @@ class ClaimAdoptionPolicy:
         *,
         evidence: list | None = None,
         fact_decomposition: list | None = None,
+        claim_type: str = "ticket_price",
     ) -> str:
-        decomposed = ClaimAdoptionPolicy._has_decomposition_for("ticket_price", fact_decomposition)
+        from app.orchestrator.ticket_price_extractor import extract_ticket_price_from_evidence
+
+        facts = extract_ticket_price_from_evidence(evidence or [], claim_type=claim_type)
+        if facts and any(f.evidence_strength == "strong" for f in facts):
+            return "adopt" if quality == "strong" else "adopt_with_limitation"
+        decomposed = ClaimAdoptionPolicy._has_decomposition_for(claim_type, fact_decomposition)
         if decomposed:
             if current in {"refuse_to_guess", "candidate_only", "omit"}:
                 return "adopt_with_limitation"
@@ -277,7 +292,16 @@ class ClaimAdoptionPolicy:
                 return "adopt_with_limitation"
         if not scores:
             return "refuse_to_guess" if not decomposed else "adopt_with_limitation"
-        support = best_official_support(evidence or [], "ticket_price")
+        from app.orchestrator.search_snippet_policy import evidence_strength_for_claim
+        from app.schemas.evidence import Evidence
+
+        ev_by_id = {
+            ev.evidence_id: ev for ev in (evidence or []) if isinstance(ev, Evidence)
+        }
+        top_ev = ev_by_id.get(scores[0].evidence_id)
+        if top_ev and evidence_strength_for_claim(top_ev, claim_type) == "candidate_only":
+            return "candidate_only"
+        support = best_official_support(evidence or [], claim_type)
         if support.tier != "strong":
             if support.tier == "partial":
                 return "candidate_only"
@@ -300,3 +324,36 @@ class ClaimAdoptionPolicy:
             if not price_claim:
                 return "adopt_with_limitation"
         return current if current == "adopt" else "candidate_only"
+
+    @staticmethod
+    def _opening_hours_adoption(
+        scores: list[EvidenceScore],
+        quality: str,
+        current: str,
+        *,
+        evidence: list | None = None,
+    ) -> str:
+        from app.orchestrator.opening_hours_extractor import extract_opening_hours_from_evidence
+        from app.orchestrator.search_snippet_policy import evidence_strength_for_claim
+        from app.schemas.evidence import Evidence
+
+        facts = extract_opening_hours_from_evidence(evidence or [])
+        if facts:
+            if any(f.evidence_strength == "strong" for f in facts):
+                return "adopt" if quality == "strong" else "adopt_with_limitation"
+            if quality in {"partial", "weak"}:
+                return "adopt_with_limitation"
+            return "candidate_only"
+        if not scores:
+            return "refuse_to_guess"
+        ev_by_id = {
+            ev.evidence_id: ev for ev in (evidence or []) if isinstance(ev, Evidence)
+        }
+        top_ev = ev_by_id.get(scores[0].evidence_id)
+        if top_ev and evidence_strength_for_claim(top_ev, "opening_hours") == "candidate_only":
+            return "candidate_only"
+        if quality == "strong" and current == "adopt":
+            return "adopt"
+        if quality in {"partial", "weak"}:
+            return "adopt_with_limitation"
+        return current
