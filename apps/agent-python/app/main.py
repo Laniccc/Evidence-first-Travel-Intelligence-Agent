@@ -1,42 +1,57 @@
-from contextlib import asynccontextmanager
+"""Deep Research Agent Platform — FastAPI entry point."""
 
-# Ensure uvicorn --reload picks up shared packages/tools changes (subprocess argv, crawlers).
-import tools.crawlers.fliggy_crawler_tool  # noqa: F401
-import tools.subprocess_argv  # noqa: F401
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import get_settings
-from app.contract import AgentQueryRequest, AgentQueryResponse
-from app.debug_session_log import write_debug_session_md
+from app.debug.routes import debug_router
+from app.agent_core.runtime import AgentCoreRuntime
+from app.llm_client import LLMClient
 from app.logging_config import get_logger, setup_logging
-from app.orchestrator.state_machine import TravelAgentStateMachine
-from app.tool_gateway.integration import install_java_tool_gateway
+from app.schemas.study import StudyQueryRequest, StudyQueryResponse
+from app.tools.mcp_search import SearchTool, ToolRegistry
 
 _settings = None
-_state_machine = None
-_logger = get_logger("travel_agent")
+_agent_runtime = None
+_logger = get_logger("deep_research_agent")
 
 
 @asynccontextmanager
 async def lifespan(fastapi_app: FastAPI):
-    global _settings, _state_machine
+    global _settings, _agent_runtime
     _settings = get_settings()
     setup_logging(_settings.log_level)
-    if not _settings.llm_api_key():
-        raise RuntimeError(
-            "DEEPSEEK_API_KEY or ANTHROPIC_API_KEY is required. "
-            "Configure apps/agent-python/.env before starting the agent."
-        )
-    install_java_tool_gateway()
-    _state_machine = TravelAgentStateMachine()
-    fastapi_app.version = _settings.app_version
+
+    # Initialize LLM client
+    llm_client = None
+    try:
+        llm_client = LLMClient()
+        _logger.info("LLM client initialized: %s", _settings.llm_model())
+    except Exception as e:
+        _logger.warning("LLM client not available: %s", e)
+
+    # Initialize tool registry (MCP search)
+    tools = None
+    try:
+        search = SearchTool(server_url=_settings.mcp_search_server_url)
+        tools = ToolRegistry(search)
+        _logger.info("Tool registry initialized (search: %s)", _settings.mcp_search_server_url)
+    except Exception as e:
+        _logger.warning("Tool registry not available: %s", e)
+
+    _agent_runtime = AgentCoreRuntime(
+        tools_registry=tools,
+        llm_client=llm_client,
+    )
     fastapi_app.title = _settings.app_name
+    fastapi_app.version = _settings.app_version
     yield
 
 
-app = FastAPI(title="Travel Agent Python", version="0.0.0", lifespan=lifespan)
+app = FastAPI(title="Deep Research Agent", version="0.1.0", lifespan=lifespan)
+app.include_router(debug_router)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -47,32 +62,44 @@ app.add_middleware(
 
 
 @app.get("/agent/health")
-async def agent_health():
+async def health():
     version = _settings.app_version if _settings else "unknown"
     llm_configured = bool(_settings and _settings.llm_api_key())
     return {
         "status": "ok" if llm_configured else "degraded",
-        "service": "agent-python",
+        "service": "deep-research-agent",
         "version": version,
-        "llm_mode": "anthropic",
         "llm_configured": llm_configured,
     }
 
 
-@app.post("/agent/query", response_model=AgentQueryResponse)
-async def agent_query(payload: AgentQueryRequest):
-    if not _settings or not _settings.llm_api_key():
-        raise HTTPException(
-            status_code=503,
-            detail="LLM API key not configured; set DEEPSEEK_API_KEY in .env",
-        )
-    user_context = dict(payload.user_context or {})
-    if payload.session_id and "session_id" not in user_context:
-        user_context["session_id"] = payload.session_id
+@app.post("/agent/query")
+async def agent_query(payload: StudyQueryRequest):
+    if _agent_runtime is None:
+        raise HTTPException(status_code=503, detail="Agent runtime not initialized")
 
-    result = await _state_machine.run(payload.query, user_context)
-    try:
-        write_debug_session_md(payload.query, result)
-    except Exception as exc:
-        _logger.warning("debug_session_log_failed", error=str(exc))
-    return AgentQueryResponse.from_legacy(result, session_id=payload.session_id)
+    result = await _agent_runtime.run(
+        query=payload.query,
+        user_context=payload.user_context,
+        session_id=payload.session_id,
+    )
+
+    return {
+        "status": result.get("status", "error"),
+        "run_id": result.get("run_id"),
+        "report": result.get("report"),
+        "message": result.get("message"),
+        "evidence_count": result.get("evidence_count", 0),
+        "phases_completed": result.get("phases_completed", []),
+        "session_id": payload.session_id,
+    }
+
+
+@app.get("/agent/runs/{run_id}/projection")
+async def run_projection(run_id: str):
+    if _agent_runtime is None:
+        raise HTTPException(status_code=503, detail="Agent runtime not initialized")
+    store = _agent_runtime.get_store(run_id)
+    if store is None:
+        raise HTTPException(status_code=404, detail="Run not found")
+    return store.project_run().model_dump(mode="json")

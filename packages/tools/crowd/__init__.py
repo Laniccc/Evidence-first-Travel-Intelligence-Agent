@@ -1,1 +1,0 @@
-"""Crowd estimation provider tools."""

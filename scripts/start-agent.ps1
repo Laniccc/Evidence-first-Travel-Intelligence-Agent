@@ -31,6 +31,7 @@ param(
     [switch]$AllowMcpFailure,
     [switch]$AllowWebFailure,
     [switch]$IncludeWeatherMcp,
+    [int]$McpStartupTimeoutSec = 120,
     [switch]$SkipCompileCheck,
     [switch]$SkipWebInstall
 )
@@ -212,9 +213,9 @@ if (-not $NoMcp) {
     if (Test-Path $mcpScript) {
         try {
             if ($IncludeWeatherMcp) {
-                & $mcpScript -IncludeWeather
+                & $mcpScript -IncludeWeather -StartupTimeoutSec $McpStartupTimeoutSec
             } else {
-                & $mcpScript
+                & $mcpScript -StartupTimeoutSec $McpStartupTimeoutSec
             }
         } catch {
             if (-not $AllowMcpFailure) {

@@ -259,11 +259,11 @@ class SearchMCPAdapter(BaseTravelTool):
                     claims=[
                         Claim(
                             claim_type=claim_type,
-                            value=summary[:500],
-                            raw_text=summary[:1200],
+                            value=summary[:800],
+                            raw_text=summary[:2000],
                             normalized_value=url,
                             confidence=confidence,
-                            metadata={"title": title, "url": url, "snippet": snippet[:400]},
+                            metadata={"title": title, "url": url, "snippet": snippet[:800]},
                         )
                     ],
                     limitations=[

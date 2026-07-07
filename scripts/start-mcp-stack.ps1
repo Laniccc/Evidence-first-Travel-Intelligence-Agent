@@ -16,7 +16,7 @@ param(
     [switch]$IncludeWeather,
     [switch]$StatusOnly,
     [switch]$KillStalePort,
-    [int]$StartupTimeoutSec = 45
+    [int]$StartupTimeoutSec = 120
 )
 
 $ErrorActionPreference = "Stop"
@@ -162,7 +162,7 @@ npx -y open-websearch@latest serve
         Write-Host "[FAIL] open-webSearch did not become healthy: $($searchHealth.body)" -ForegroundColor Red
         Show-LogTail $logs.stdout
         Show-LogTail $logs.stderr
-        throw "open-webSearch failed to start within ${StartupTimeoutSec}s. Check logs under $logDir. Common causes: first-run npm download blocked, proxy not configured, or package install failure."
+        throw "open-webSearch failed to start within ${StartupTimeoutSec}s. Check logs under $logDir. Common causes: first-run npm download blocked, proxy not configured, slow first-run Playwright startup, or package install failure."
     }
 }
 
