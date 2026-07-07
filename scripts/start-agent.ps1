@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-Start the Travel Intelligence Agent from the repository root.
+Start the Deep Research Agent Platform from the repository root.
 
 .EXAMPLE
 .\scripts\start-agent.ps1

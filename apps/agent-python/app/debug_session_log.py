@@ -8,7 +8,7 @@ from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
 
-from app.schemas.response import TravelQueryResponse
+from typing import Any
 
 _DEBUG_MD = Path(__file__).resolve().parent.parent / "debug_last_session.md"
 
@@ -215,11 +215,11 @@ def _format_agent_core_projection(summary: dict) -> list[str]:
     return lines
 
 
-def write_debug_session_md(query: str, result: TravelQueryResponse) -> Path:
+def write_debug_session_md(query: str, result: dict[str, Any]) -> Path:
     """Overwrite debug markdown with the latest conversation output and trace."""
     now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
     lines: list[str] = [
-        "# Travel Agent - Last Session Debug",
+        "# Deep Research Agent - Last Session Debug",
         "",
         f"- **Time**: {now}",
         f"- **Query ID**: {result.query_id or '-'}",

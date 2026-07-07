@@ -7,7 +7,7 @@
 param(
     [string]$RemoteUrl = "https://github.com/Laniccc/Evidence-first-Travel-Intelligence-Agent.git",
     [string]$Branch = "main",
-    [string]$Message = "init: Evidence-first Travel Intelligence Agent MVP",
+    [string]$Message = "refactor: Deep Research Agent Platform",
     [switch]$DryRun
 )
 
