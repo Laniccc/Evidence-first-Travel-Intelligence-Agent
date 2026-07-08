@@ -1,19 +1,30 @@
-# Evidence-first Travel Intelligence Agent — 仓库说明
+# Evidence-first Travel Intelligence Agent
 
-本仓库为 **东亚三国（日本 / 中国 / 韩国）Evidence-first 旅游情报 Agent** Monorepo。
+Java Spring Boot + Python FastAPI + Web frontend.
 
-## 快速入口
+## Quickstart
 
 ```powershell
-.\scripts\start-agent.ps1
+# Terminal 1: Python Agent
+cd apps/agent-python
+uvicorn app.main:app --host 127.0.0.1 --port 8001 --reload
+
+# Terminal 2: Java Backend
+cd apps/api-java
+mvn spring-boot:run
+
+# Terminal 3: Frontend
+cd apps/web
+npm run dev
 ```
 
-详见 [RUNBOOK.md](RUNBOOK.md)、[README.md](README.md)、[REPO_MAP.md](REPO_MAP.md)。
+See [README.md](README.md) and [RUNBOOK.md](RUNBOOK.md).
 
-## 开发约定
+## Development Conventions
 
-- 工具必须返回 `Evidence` 对象，Composer 只基于 evidence 总结
-- 首期仅支持 Japan / China / South Korea
-- mock 数据真相源：`packages/tools/mock/data.py`
-- 状态链：`apps/agent-python/app/orchestrator/state_machine.py`
-- 调试日志：`apps/agent-python/debug_last_session.md`
+- Facts must be backed by `Evidence` objects with source URLs.
+- Python runtime entrypoint: `apps/agent-python/app/main.py`.
+- Agent state machine: `apps/agent-python/app/orchestrator/state_machine.py`.
+- Java gateway runtime: `apps/api-java/src/main/java/`.
+- Frontend runtime: `apps/web/src/`.
+- Keep generated caches, debug output, build output, and external vendor clones out of Git.

@@ -70,14 +70,20 @@ desktop.ini
 # --- Session debug logs (local only, overwritten each query) ---
 **/debug_last_session.md
 apps/agent-python/debug_last_session.md
+apps/agent-python/debug_*.json
+apps/agent-python/debug_*.md
 
 # --- Local MCP / agent data (not schema) ---
+apps/agent-python/.cache/
 apps/agent-python/data/*.db
 apps/agent-python/data/*.sqlite
 apps/agent-python/data/*.sqlite3
+data/*.db
+data/*.sqlite
+data/*.sqlite3
 
-# --- External crawler vendor clones (adapters under external/crawlers/ are committed) ---
-external/crawlers/vendors/
+# --- External crawler/vendor clones ---
+external/
 
 # --- Misc logs & temp ---
 *.log
