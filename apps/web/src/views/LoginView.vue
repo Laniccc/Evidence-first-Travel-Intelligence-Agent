@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRouter, useRoute } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 
 const router = useRouter()
+const route = useRoute()
 const auth = useAuthStore()
 const username = ref('')
 const email = ref('')
@@ -19,7 +20,8 @@ async function submit() {
     } else {
       await auth.login(username.value, password.value)
     }
-    router.push('/')
+    const redirect = (route.query.redirect as string) || '/'
+    router.push(redirect)
   } catch (e: any) {
     error.value = e.response?.data?.error || e.message
   }

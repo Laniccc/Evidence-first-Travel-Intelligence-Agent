@@ -13,7 +13,38 @@ Operations manual for local development, debugging, and verification.
 
 ## 2. Startup
 
-### Quick (3 terminals)
+### One-Click (Recommended)
+
+```powershell
+# Windows — starts all 4 services in background
+.\scripts\start-all.ps1
+
+# Mac / Linux
+bash scripts/start-all.sh
+```
+
+This single command starts the MCP Search stack, Python Agent, Java Backend, and Vue Frontend. Each service runs in the background; logs land in `logs/`. Press **Ctrl+C** to stop everything cleanly.
+
+**Selective startup flags:**
+
+| Flag | Effect |
+|------|--------|
+| `-NoMcp` / `--no-mcp` | Skip MCP search (use if already running) |
+| `-NoAgent` / `--no-agent` | Skip Python Agent |
+| `-NoJava` / `--no-java` | Skip Java Backend |
+| `-NoFrontend` / `--no-frontend` | Skip Vue Frontend |
+| `-AgentOnly` / `--agent-only` | Only Python Agent + MCP |
+| `-SkipHealthCheck` / `--skip-health` | Don't wait for readiness probes |
+| `-HealthTimeout 180` / `--timeout 180` | Custom health-check timeout (seconds) |
+
+```powershell
+# Examples
+.\scripts\start-all.ps1 -AgentOnly                        # Just MCP + Python
+.\scripts\start-all.ps1 -NoJava -NoFrontend               # MCP + Python only
+bash scripts/start-all.sh --no-frontend                   # Skip Vue
+```
+
+### Manual (3 separate terminals)
 
 ```bash
 # Terminal 1: MCP Search
@@ -26,6 +57,10 @@ uvicorn app.main:app --host 127.0.0.1 --port 8001 --reload
 # Terminal 3: Java Backend
 cd apps/api-java
 mvn spring-boot:run
+
+# Terminal 4 (optional): Vue Frontend
+cd apps/web
+npm run dev
 ```
 
 ### Docker
@@ -40,6 +75,7 @@ docker compose up
 curl -s http://127.0.0.1:8001/agent/health | jq .status     # "ok"
 curl -s http://127.0.0.1:8082/api/health | jq .status        # "ok"
 curl -s http://127.0.0.1:3210/health | jq .status            # "ok"
+curl -s http://127.0.0.1:3000                                # Vue dev server
 ```
 
 ## 3. Query Examples

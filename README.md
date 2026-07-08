@@ -51,26 +51,35 @@ cp .env.example apps/agent-python/.env
 # Edit apps/agent-python/.env → add DEEPSEEK_API_KEY=sk-...
 ```
 
-### 2. Start MCP Search
+### 2. One-Click Start (Recommended)
 
-```bash
-npm install -g open-websearch
-open-websearch serve --port 3210
-# Verify: curl http://127.0.0.1:3210/health
+```powershell
+.\scripts\start-all.ps1             # Windows
+bash scripts/start-all.sh           # Mac / Linux
 ```
 
-### 3. Start Services
+Starts all 4 services (MCP Search + Python Agent + Java Backend + Vue Frontend) in background. Press **Ctrl+C** to stop all.
+
+```powershell
+.\scripts\start-all.ps1 -AgentOnly  # Python Agent + MCP only
+.\scripts\start-all.ps1 -NoJava     # Skip Java backend
+```
+
+### 3. Manual Start (alternative)
 
 ```bash
-# Terminal 1 — Python Agent
+# Terminal 1 — MCP Search
+npx open-websearch@latest serve --port 3210
+
+# Terminal 2 — Python Agent
 cd apps/agent-python
 uvicorn app.main:app --host 127.0.0.1 --port 8001 --reload
 
-# Terminal 2 — Java Backend
+# Terminal 3 — Java Backend (optional)
 cd apps/api-java
 mvn spring-boot:run
 
-# Terminal 3 — Frontend (dev)
+# Terminal 4 — Frontend (optional)
 cd apps/web
 npm install && npm run dev
 ```

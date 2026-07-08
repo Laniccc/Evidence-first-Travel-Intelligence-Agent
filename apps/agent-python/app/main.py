@@ -90,7 +90,11 @@ async def agent_query(payload: StudyQueryRequest):
         "report": result.get("report"),
         "message": result.get("message"),
         "evidence_count": result.get("evidence_count", 0),
+        "quality_evidence_count": result.get("quality_evidence_count", 0),
         "phases_completed": result.get("phases_completed", []),
+        "rounds": result.get("rounds", []),
+        "gate_results": result.get("gate_results", {}),
+        "errors": result.get("errors", []),
         "session_id": payload.session_id,
     }
 

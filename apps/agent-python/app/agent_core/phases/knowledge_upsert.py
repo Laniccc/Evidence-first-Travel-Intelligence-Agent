@@ -22,10 +22,18 @@ async def run_knowledge_upsert(
     """Store newly acquired evidence in the RAG knowledge base."""
     evidence_records = evidence_records or []
     upserted = 0
+    skipped_tier = 0
+    skipped_no_claims = 0
 
     if rag_store and embedding_fn:
         for ev in evidence_records:
             try:
+                # Quality gate: skip low-tier evidence (T4/T5 will pollute RAG)
+                ev_tier = getattr(ev, "source_tier", 3)
+                if ev_tier >= 4:
+                    skipped_tier += 1
+                    continue
+
                 claims_text = " ".join(
                     c.get("claim", str(c)) if isinstance(c, dict) else str(c)
                     for c in (getattr(ev, "claims", []) or [])
@@ -35,6 +43,7 @@ async def run_knowledge_upsert(
                     claims_text = str(snippet) if snippet else ""
 
                 if len(claims_text.strip()) < 20:
+                    skipped_no_claims += 1
                     continue
 
                 embedding = embedding_fn(claims_text[:2000])
@@ -59,6 +68,11 @@ async def run_knowledge_upsert(
     artifact = await complete_phase_with_artifact(
         store, phase_name="knowledge_upsert", topic_id=topic_id,
         artifact_type="knowledge_upsert",
-        payload={"upserted_count": upserted, "total": len(evidence_records)},
+        payload={
+            "upserted_count": upserted,
+            "total": len(evidence_records),
+            "skipped_tier": skipped_tier,
+            "skipped_no_claims": skipped_no_claims,
+        },
     )
     return PhaseToolResult(artifacts=[artifact])

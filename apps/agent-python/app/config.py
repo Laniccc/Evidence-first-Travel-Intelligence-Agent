@@ -37,7 +37,7 @@ class Settings(BaseSettings):
     mcp_search_enabled: bool = True
     mcp_search_server_url: str = "http://127.0.0.1:3210"
     mcp_search_default_engine: str = "baidu"
-    mcp_search_fallback_engines: str = "sogou,bing"
+    mcp_search_fallback_engines: str = "sogou"
     mcp_search_timeout_seconds: float = 30.0
 
     # -- RAG (ChromaDB) --

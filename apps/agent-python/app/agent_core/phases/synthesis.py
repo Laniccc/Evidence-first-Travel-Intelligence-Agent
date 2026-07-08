@@ -21,6 +21,7 @@ async def run_synthesis(
     topic_id: str | None = None,
     evidence_records: list[Any] | None = None,
     llm_client: Any = None,
+    skills_prompt: str = "",
 ) -> PhaseToolResult:
     """Synthesize evidence into a structured research report."""
     evidence_records = evidence_records or []
@@ -36,7 +37,7 @@ async def run_synthesis(
     ]
 
     if llm_client and evidence_records:
-        report = await _generate_llm(llm_client, query, evidence_records, citations)
+        report = await _generate_llm(llm_client, query, evidence_records, citations, skills_prompt=skills_prompt)
     else:
         report = _generate_fallback(query, evidence_records, citations)
 
@@ -73,7 +74,7 @@ def _cross_reference(evidence: list[Any]) -> list[CrossReferenceResult]:
     return results
 
 
-async def _generate_llm(llm_client, query, evidence, citations) -> dict[str, Any]:
+async def _generate_llm(llm_client, query, evidence, citations, *, skills_prompt: str = "") -> dict[str, Any]:
     evidence_text = ""
     for i, ev in enumerate(evidence, 1):
         claims = [c.get("claim", str(c)) if isinstance(c, dict) else str(c) for c in (getattr(ev, "claims", []) or [])]
@@ -88,9 +89,13 @@ Evidence:
 
 Respond as JSON: {{"title": "...", "summary": "...", "sections": [{{"type": "findings", "heading": "...", "content": "..."}}], "limitations": ["..."]}}"""
 
+    system = "You are a research analyst. Write structured reports using ONLY provided evidence. Cite sources with [N]. Output valid JSON only."
+    if skills_prompt:
+        system = skills_prompt + "\n\n" + system
+
     try:
         text = await llm_client.complete(
-            system="You are a research analyst. Write structured reports using ONLY provided evidence. Cite sources with [N]. Output valid JSON only.",
+            system=system,
             user=prompt,
             max_tokens=2048,
             json_only=True,

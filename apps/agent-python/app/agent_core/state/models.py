@@ -196,6 +196,7 @@ class ResearchSubQuestion(BaseModel):
     search_query: str
     search_sources: list[str] = Field(default_factory=list)  # academic, news, general, tech
     expected_claim_types: list[str] = Field(default_factory=list)
+    direct_urls: list[str] = Field(default_factory=list)  # known source URLs to fetch directly
 
 
 class ResearchPlanArtifact(BaseModel):

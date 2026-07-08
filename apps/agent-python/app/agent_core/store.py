@@ -155,6 +155,7 @@ class AgentCoreStore(ABC):
         source_type: str,
         source_url: str | None = None,
         topic_id: str | None = None,
+        source_tier: int = 3,
         claims: list[dict[str, Any]] | None = None,
         raw_payload: dict[str, Any] | None = None,
         reliability: str = "unknown",

@@ -134,6 +134,7 @@ class SQLiteAgentStore(AgentCoreStore):
                     source_name TEXT NOT NULL,
                     source_url TEXT,
                     source_type TEXT NOT NULL,
+                    source_tier INTEGER NOT NULL DEFAULT 3,
                     fetched_at TEXT,
                     claims TEXT NOT NULL DEFAULT '[]',
                     raw_payload TEXT NOT NULL DEFAULT '{}',
@@ -197,6 +198,14 @@ class SQLiteAgentStore(AgentCoreStore):
                 CREATE INDEX IF NOT EXISTS idx_jobs_run
                     ON agent_jobs(run_id, topic_id);
             """)
+            columns = {
+                row["name"]
+                for row in conn.execute("PRAGMA table_info(agent_evidence)").fetchall()
+            }
+            if "source_tier" not in columns:
+                conn.execute(
+                    "ALTER TABLE agent_evidence ADD COLUMN source_tier INTEGER NOT NULL DEFAULT 3"
+                )
 
     def _append_event(self, event_type: str, entity_type: str, entity_id: str, payload: dict[str, Any]) -> None:
         with self._connect() as conn:
@@ -433,6 +442,7 @@ class SQLiteAgentStore(AgentCoreStore):
         source_type: str,
         source_url: str | None = None,
         topic_id: str | None = None,
+        source_tier: int = 3,
         claims: list[dict[str, Any]] | None = None,
         raw_payload: dict[str, Any] | None = None,
         reliability: str = "unknown",
@@ -442,6 +452,7 @@ class SQLiteAgentStore(AgentCoreStore):
             source_type=source_type,
             source_url=source_url,
             topic_id=topic_id,
+            source_tier=source_tier,
             claims=claims,
             raw_payload=raw_payload,
             reliability=reliability,
@@ -449,12 +460,12 @@ class SQLiteAgentStore(AgentCoreStore):
         with self._connect() as conn:
             conn.execute(
                 """INSERT INTO agent_evidence(evidence_id, run_id, topic_id,
-                   source_name, source_url, source_type, fetched_at, claims,
+                   source_name, source_url, source_type, source_tier, fetched_at, claims,
                    raw_payload, reliability, usage_role)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (evidence.evidence_id, evidence.run_id, evidence.topic_id,
                  evidence.source_name, evidence.source_url, evidence.source_type,
-                 evidence.fetched_at, self._serialize_dict(evidence.claims),
+                 evidence.source_tier, evidence.fetched_at, self._serialize_dict(evidence.claims),
                  self._serialize_dict(evidence.raw_payload), evidence.reliability,
                  evidence.usage_role),
             )

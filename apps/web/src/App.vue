@@ -1,13 +1,15 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { storeToRefs } from 'pinia'
 import { useRouter } from 'vue-router'
+import { DIRECT_AGENT } from './api/client'
+import { useAuthStore } from './stores/auth'
 
 const router = useRouter()
-const token = ref(localStorage.getItem('token') || '')
+const auth = useAuthStore()
+const { token } = storeToRefs(auth)
 
 function logout() {
-  localStorage.removeItem('token')
-  token.value = ''
+  auth.logout()
   router.push('/')
 }
 </script>
@@ -15,14 +17,16 @@ function logout() {
 <template>
   <div class="app">
     <nav class="navbar">
-      <div class="nav-brand" @click="router.push('/')">🔍 Deep Research Agent</div>
+      <div class="nav-brand" @click="router.push('/')">Deep Research Agent</div>
       <div class="nav-actions">
         <router-link to="/" class="nav-link">Home</router-link>
-        <template v-if="token">
-          <span class="nav-link" @click="logout">Logout</span>
-        </template>
-        <template v-else>
-          <router-link to="/login" class="nav-link">Login</router-link>
+        <template v-if="!DIRECT_AGENT">
+          <template v-if="token">
+            <span class="nav-link" @click="logout">Logout</span>
+          </template>
+          <template v-else>
+            <router-link to="/login" class="nav-link">Login</router-link>
+          </template>
         </template>
       </div>
     </nav>
@@ -47,7 +51,7 @@ function logout() {
   --radius: 8px;
 }
 * { margin: 0; padding: 0; box-sizing: border-box; }
-body { background: var(--bg); color: var(--text); font-family: 'Inter', system-ui, sans-serif; }
+body { background: var(--bg); color: var(--text); font-family: Inter, system-ui, sans-serif; }
 .app { min-height: 100vh; display: flex; flex-direction: column; }
 .navbar {
   display: flex; align-items: center; justify-content: space-between;

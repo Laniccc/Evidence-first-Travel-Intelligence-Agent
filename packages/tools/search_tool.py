@@ -18,31 +18,21 @@ class SearchTool:
         self.timeout = timeout
 
     async def search(self, query: str, limit: int = 5, engine: str = "baidu") -> list[dict[str, Any]]:
-        """Execute a web search. Falls back to Sogou if Baidu returns 0 results."""
-        engines = [engine]
-        for fb in ["sogou"]:
-            if fb not in engines:
-                engines.append(fb)
-
-        for idx, eng in enumerate(engines):
-            try:
-                async with httpx.AsyncClient(timeout=self.timeout) as client:
-                    resp = await client.post(
-                        f"{self.server_url}/search",
-                        json={"query": query, "limit": limit, "engines": [eng]},
-                    )
-                    if resp.status_code == 200:
-                        data = resp.json()
-                        results = data.get("data", {}).get("results", [])
-                        if results:
-                            logger.info("Search '%s' [%s]: %d results", query[:50], eng, len(results))
-                            return results
-                        if idx == 0:
-                            logger.info("Search '%s' [%s]: 0 results, trying fallbacks...", query[:50], eng)
-                    else:
-                        logger.warning("Search [%s] returned %d: %s", eng, resp.status_code, resp.text[:100])
-            except Exception as e:
-                logger.warning("Search [%s] failed for '%s': %s", eng, query[:50], e)
+        """Execute a web search and return results."""
+        try:
+            async with httpx.AsyncClient(timeout=self.timeout) as client:
+                resp = await client.post(
+                    f"{self.server_url}/search",
+                    json={"query": query, "limit": limit, "engines": [engine]},
+                )
+                if resp.status_code == 200:
+                    data = resp.json()
+                    results = data.get("data", {}).get("results", [])
+                    logger.info("Search '%s': %d results", query[:50], len(results))
+                    return results
+                logger.warning("Search returned %d: %s", resp.status_code, resp.text[:200])
+        except Exception as e:
+            logger.warning("Search failed for '%s': %s", query[:50], e)
         return []
 
     async def fetch_web(self, url: str, timeout: int = 15000) -> str | None:
@@ -73,8 +63,7 @@ class ToolRegistry:
         if tool_name == "search":
             query = kwargs.get("query", "")
             limit = kwargs.get("limit", 5)
-            engine = kwargs.get("engine", "baidu")
-            return await self.search_tool.search(query, limit=limit, engine=engine)
+            return await self.search_tool.search(query, limit=limit)
         elif tool_name == "fetch_web":
             url = kwargs.get("url", "")
             return await self.search_tool.fetch_web(url)
