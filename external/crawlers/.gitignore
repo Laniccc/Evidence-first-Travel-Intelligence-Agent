@@ -1,0 +1,6 @@
+# 第三方爬虫仓库（git clone 产物，不提交）
+external/crawlers/vendors/
+
+# 本地代理配置（如有）
+external/crawlers/**/http_proxy.json
+external/crawlers/**/socks_config.json

@@ -1,0 +1,32 @@
+[
+  {
+    "query": "京都清水寺适合带父母去吗？",
+    "country": "Japan",
+    "expected_intent": "single_place",
+    "must_include": ["步行强度", "拥挤风险", "交通", "建议时间"]
+  },
+  {
+    "query": "北京故宫明天值得去吗？",
+    "country": "China",
+    "expected_intent": "single_place",
+    "must_include": ["预约", "开放时间", "人流", "天气"]
+  },
+  {
+    "query": "首尔景福宫适合第一次去韩国的人吗？",
+    "country": "South Korea",
+    "expected_intent": "single_place",
+    "must_include": ["文化价值", "交通", "开放时间", "适合人群"]
+  },
+  {
+    "query": "清水寺、伏见稻荷、岚山竹林哪个更适合老人？",
+    "country": "Japan",
+    "expected_intent": "compare_places",
+    "must_include": ["比较表", "步行强度", "拥挤风险", "最终推荐"]
+  },
+  {
+    "query": "我住在明洞，想安排一天首尔文化游。",
+    "country": "South Korea",
+    "expected_intent": "itinerary",
+    "must_include": ["时间安排", "交通", "备选方案", "注意事项"]
+  }
+]

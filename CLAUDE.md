@@ -1,22 +1,21 @@
-# Deep Research Agent Platform
+# Evidence-first Travel Intelligence Agent — 仓库说明
 
-Evidence-first autonomous research agent with Java Spring Boot business backend + Python AI engine.
+本仓库为 **东亚三国（日本 / 中国 / 韩国）Evidence-first 旅游情报 Agent** Monorepo。
 
-## Quickstart
+## 快速入口
 
 ```powershell
 cd apps/agent-python
-uvicorn app.main:app --host 127.0.0.1 --port 8001 --reload
+$env:PYTHONPATH = (Get-Location).Path
+python -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8001
 ```
 
-See [RUNBOOK.md](RUNBOOK.md) and [README.md](README.md).
+详见 [RUNBOOK.md](RUNBOOK.md)、[README.md](README.md)、[REPO_MAP.md](REPO_MAP.md)。
 
-## Dev Conventions
+## 开发约定
 
-- All facts must derive from `Evidence` objects with source URLs
-- 6-phase pipeline: planning → knowledge_retrieval → evidence_acquisition → evidence_extraction → synthesis → knowledge_upsert
-- 7 quality gates (non-blocking): input → plan → source → evidence → crossref → citation → delivery
-- Source quality: Tier 1-5 rating with automatic Tier-5 discard
-- State chain: `apps/agent-python/app/agent_core/`
-- Agent Core store: SQLite (prod) or Memory (dev)
-- Debug log: `apps/agent-python/debug_last_session.md`
+- 工具必须返回 `Evidence` 对象，Composer 只基于 evidence 总结
+- 首期仅支持 Japan / China / South Korea
+- mock 数据真相源：`packages/tools/mock/data.py`
+- 状态链：`apps/agent-python/app/orchestrator/state_machine.py`
+- 调试日志：`apps/agent-python/debug_last_session.md`

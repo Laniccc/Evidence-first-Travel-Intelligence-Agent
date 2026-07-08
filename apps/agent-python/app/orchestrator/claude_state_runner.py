@@ -1,0 +1,162 @@
+from app.orchestrator.action_executor import ActionExecutor
+from app.orchestrator.action_model_controller import ActionModelController
+from app.orchestrator.actions import AgentAction, AgentActionType
+from app.orchestrator.evidence_policy_guard import EvidencePolicyGuard
+from app.orchestrator.policy_guard import PolicyGuard
+from app.orchestrator.state_policy import StateNodePolicy
+from app.orchestrator.state_reducer import StateReducer
+from app.orchestrator.trace import TraceRecorder
+from app.schemas.user_query import TravelAgentState
+
+
+class ClaudeStateRunner:
+    """Controlled Claude-style loop: policy → action → execute → reduce → repeat."""
+
+    def __init__(
+        self,
+        llm_client=None,
+        tools=None,
+        *,
+        model_controller: ActionModelController | None = None,
+        action_executor: ActionExecutor | None = None,
+        state_reducer: StateReducer | None = None,
+        policy_guard: PolicyGuard | None = None,
+    ) -> None:
+        self.model_controller = model_controller or ActionModelController(llm_client)
+        self.action_executor = action_executor or ActionExecutor(llm_client, tools)
+        self.state_reducer = state_reducer or StateReducer()
+        self.policy_guard = policy_guard or PolicyGuard()
+
+    async def run(
+        self,
+        state: TravelAgentState,
+        policy: StateNodePolicy,
+        prompt_context: dict | None = None,
+    ) -> TravelAgentState:
+        ctx = prompt_context or {}
+        TraceRecorder.add(state, f"✓ 进入受控状态循环：{policy.state_name}")
+        tool_call_count = int(ctx.get("tool_call_count", 0))
+
+        for step in range(policy.max_steps):
+            action = await self.model_controller.next_action(state, policy, ctx, step)
+            ctx["selected_by_llm"] = ctx.get("_last_action_source") == "llm"
+            ctx.setdefault("loop_state_name", policy.state_name)
+            try:
+                tool_whitelist = ctx.get("tool_whitelist")
+                guard_kwargs = {"tool_call_count": tool_call_count}
+                if isinstance(self.policy_guard, EvidencePolicyGuard):
+                    self.policy_guard.validate(
+                        action, policy, state, tool_whitelist=tool_whitelist, **guard_kwargs
+                    )
+                else:
+                    self.policy_guard.validate(action, policy, state, tool_whitelist=tool_whitelist)
+            except ValueError as exc:
+                from app.orchestrator.ticket_lookup_policy import is_internal_policy_limitation
+
+                msg = str(exc)
+                if self._recover_policy_reject(state, action, exc, ctx):
+                    TraceRecorder.add(state, f"↻ [{policy.state_name}] policy recover: {exc}")
+                    continue
+                if not is_internal_policy_limitation(msg):
+                    state.internal_debug_limitations.append(msg)
+                TraceRecorder.add(state, f"✗ [{policy.state_name}] policy 拒绝：{exc}")
+                break
+
+            TraceRecorder.add(
+                state,
+                f"✓ [{policy.state_name}] step {step + 1}: {action.action_type.value}"
+                + (f" → {action.target}" if action.target else ""),
+            )
+
+            if action.action_type == AgentActionType.FINISH_STATE:
+                state = self.state_reducer.apply_finish(state, action, policy)
+                return state
+
+            if action.action_type == AgentActionType.FAIL_STATE:
+                state = self.state_reducer.apply(state, action, action_executor_result_fail(action), policy)
+                return state
+
+            result = await self.action_executor.execute(action, state, ctx)
+            state = self.state_reducer.apply(state, action, result, policy)
+            if action.action_type == AgentActionType.CALL_SUBAGENT:
+                sub_calls = int((result.output or {}).get("tool_call_count", 0))
+                if sub_calls:
+                    tool_call_count += sub_calls
+                    ctx["tool_call_count"] = tool_call_count
+            if action.action_type in {
+                AgentActionType.CALL_TOOL,
+                AgentActionType.CALL_SUBAGENT,
+            }:
+                if action.action_type == AgentActionType.CALL_TOOL:
+                    tool_call_count += 1
+                    ctx["tool_call_count"] = tool_call_count
+                if state.response_contract:
+                    from app.orchestrator.evidence_coverage_checker import EvidenceCoverageChecker
+
+                    state.coverage_report = EvidenceCoverageChecker().check(
+                        state.response_contract,
+                        state.evidence,
+                        state.tool_traces,
+                    )
+
+        state.internal_debug_limitations.append(f"{policy.state_name} reached max_steps")
+        TraceRecorder.add(state, f"✓ [{policy.state_name}] 达到 max_steps={policy.max_steps}")
+        return state
+
+    @staticmethod
+    def _recover_policy_reject(
+        state: TravelAgentState,
+        action: AgentAction,
+        exc: ValueError,
+        ctx: dict,
+    ) -> bool:
+        msg = str(exc)
+        if action.action_type == AgentActionType.CALL_SUBAGENT and action.target == "entity_resolution_agent":
+            if "canonical place already anchored" in msg:
+                from app.orchestrator.lookup_research_chain import advance_entity_anchor_if_satisfied
+
+                return advance_entity_anchor_if_satisfied(state)
+        if action.action_type == AgentActionType.CALL_TOOL and "ticket platform tool" in msg:
+            from app.orchestrator.ticket_lookup_policy import force_ticket_platform_phase
+
+            force_ticket_platform_phase(state)
+            return True
+        if ctx.get("gap_filling") and "ticket platform tool" in msg:
+            from app.orchestrator.ticket_lookup_policy import apply_ticket_gap_phase_override
+
+            gap = ctx.get("gap_request")
+            if gap and apply_ticket_gap_phase_override(state, gap):
+                return True
+        if (
+            ctx.get("gap_filling")
+            and action.action_type == AgentActionType.CALL_TOOL
+            and action.target
+        ):
+            from app.tools.tool_name_resolver import resolve_tool_name
+
+            retry_signals = (
+                "not in dynamic whitelist",
+                "not configured",
+                "requires",
+                "disabled_by_config",
+                "not_implemented",
+                "not allowed",
+            )
+            if any(sig in msg for sig in retry_signals):
+                failed = list(ctx.get("_gap_failed_tools", []))
+                resolved = resolve_tool_name(action.target)
+                if resolved not in failed:
+                    failed.append(resolved)
+                ctx["_gap_failed_tools"] = failed
+                return True
+        return False
+
+
+def action_executor_result_fail(action):
+    from app.orchestrator.actions import ActionResult
+
+    return ActionResult(
+        ok=False,
+        error=action.reason_summary or "state failed",
+        output=action.arguments,
+    )

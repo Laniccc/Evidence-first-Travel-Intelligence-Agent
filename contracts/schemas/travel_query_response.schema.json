@@ -1,0 +1,95 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://travel.intelligence/contracts/schemas/travel_query_response.schema.json",
+  "title": "TravelQueryResponse",
+  "description": "POST /api/travel/query response body. Minimum contract surface for Java / Web clients.",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "answer",
+    "visible_trace",
+    "evidence_summary",
+    "limitations",
+    "confidence",
+    "tool_traces"
+  ],
+  "properties": {
+    "answer": {
+      "type": "string",
+      "description": "Natural-language answer composed from evidence."
+    },
+    "session_id": { "type": ["string", "null"] },
+    "query_id": { "type": ["string", "null"] },
+    "visible_trace": {
+      "type": "array",
+      "items": { "type": "string" },
+      "default": []
+    },
+    "evidence_summary": {
+      "type": "array",
+      "description": "Summarized evidence objects or dict views.",
+      "items": {
+        "oneOf": [
+          { "$ref": "evidence.schema.json" },
+          {
+            "type": "object",
+            "additionalProperties": true
+          }
+        ]
+      },
+      "default": []
+    },
+    "limitations": {
+      "type": "array",
+      "items": { "type": "string" },
+      "default": []
+    },
+    "confidence": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1,
+      "default": 0
+    },
+    "tool_traces": {
+      "type": "array",
+      "items": {
+        "oneOf": [
+          { "$ref": "tool_trace.schema.json" },
+          {
+            "type": "object",
+            "additionalProperties": true
+          }
+        ]
+      },
+      "default": []
+    },
+    "structured_result": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "Optional structured payload; Python may include richer fields."
+    },
+    "field_evidence_summary": {
+      "type": "array",
+      "items": { "type": "object", "additionalProperties": true },
+      "default": []
+    },
+    "conflicts": {
+      "type": "array",
+      "items": { "type": "object", "additionalProperties": true },
+      "default": []
+    },
+    "citation_check_result": {
+      "oneOf": [
+        { "type": "object", "additionalProperties": true },
+        { "type": "null" }
+      ]
+    },
+    "semantic_frame_summary": {
+      "oneOf": [
+        { "type": "object", "additionalProperties": true },
+        { "type": "null" }
+      ]
+    },
+    "answer_mode": { "type": ["string", "null"] }
+  }
+}

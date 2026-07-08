@@ -9,7 +9,7 @@ set -euo pipefail
 
 REMOTE_URL="${REMOTE_URL:-https://github.com/Laniccc/Evidence-first-Travel-Intelligence-Agent.git}"
 BRANCH="${BRANCH:-main}"
-MESSAGE="${1:-refactor: Deep Research Agent Platform}"
+MESSAGE="${1:-init: Evidence-first Travel Intelligence Agent MVP}"
 DRY_RUN="${DRY_RUN:-0}"
 
 cd "$(dirname "$0")"

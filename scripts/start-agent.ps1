@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-Start the Deep Research Agent Platform from the repository root.
+Start the Travel Intelligence Agent from the repository root.
 
 .EXAMPLE
 .\scripts\start-agent.ps1
@@ -31,7 +31,6 @@ param(
     [switch]$AllowMcpFailure,
     [switch]$AllowWebFailure,
     [switch]$IncludeWeatherMcp,
-    [int]$McpStartupTimeoutSec = 120,
     [switch]$SkipCompileCheck,
     [switch]$SkipWebInstall
 )
@@ -213,9 +212,9 @@ if (-not $NoMcp) {
     if (Test-Path $mcpScript) {
         try {
             if ($IncludeWeatherMcp) {
-                & $mcpScript -IncludeWeather -StartupTimeoutSec $McpStartupTimeoutSec
+                & $mcpScript -IncludeWeather
             } else {
-                & $mcpScript -StartupTimeoutSec $McpStartupTimeoutSec
+                & $mcpScript
             }
         } catch {
             if (-not $AllowMcpFailure) {

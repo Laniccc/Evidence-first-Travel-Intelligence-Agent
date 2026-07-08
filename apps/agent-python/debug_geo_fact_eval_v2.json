@@ -1,0 +1,27 @@
+[
+  {
+    "task_class": "geo_fact_lookup",
+    "query": "黄山主峰海拔多少米？",
+    "elapsed_s": 78.65,
+    "answer": "根据第三方公共知识库资料，黄山的最高峰为莲花峰，海拔约1864.8米（未完全经官方页面确认）。\n\n结论：\n据可参考资料，黄山主峰海拔约为1864.8米（莲花峰），但该数据未从官方来源实时验证。\n\n海拔信息：\n- 黄山最高峰为莲花峰，海拔约1864.8米；三大主峰中光明顶约1860米，天都峰约1810米。——来源：Curated China mountain gazetteer (Wikipedia/Wikidata cross-check)，置信度72%（第三方百科，非官方页面）\n\n说明：\n- 该数据来源于公共百科(Wikipedia/Wikidata)，并非黄山风景区官方网站直接公布，未完全经官方页面确认。\n- 未检索到官方或景区管理处发布的精确海拔公告。\n- 海拔数值可因测量标准不同略有出入，建议出行前查阅黄山风景区官方资料确认。",
+    "confidence": 0.257,
+    "resolved_task_class": "geo_fact_lookup",
+    "evidence_count": 7,
+    "limitations": [
+      "该数据未从官方来源实时验证，基于常识知识，建议查阅权威资料确认。",
+      "关键证据不足，部分结论置信度受限。"
+    ]
+  },
+  {
+    "task_class": "geo_fact_lookup",
+    "query": "泰山海拔多少米？",
+    "elapsed_s": 51.5,
+    "answer": "泰山主峰玉皇顶的海拔常见口径为1532.7米，部分中文旅游资料也采用1545米（未完全经官方页面确认）。\n\n结论：\n主要海拔证据来自百科类资料，尚无泰山风景区官方页面直接标注精确海拔，因此标注为「未完全经官方页面确认」。\n\n海拔证据：\n- 泰山主峰为玉皇顶，常见海拔口径为1532.7米；部分中文旅游资料也使用1545米口径。——Curated China mountain gazetteer (Wikipedia/Wikidata cross-check)，置信度68%（非官方来源）。\n\n主峰海拔明细：\n- 泰山主峰：1532.7米（来源：Curated China mountain gazetteer，置信度0.68）\n- 未检索到其他主峰（如玉皇顶、天柱峰等）的独立海拔数据。\n\n说明：\n- 海拔数据来自百科类整合资料，尚未通过泰山风景区官方页面（如官网或景区公告）直接确认。\n- 检索日期未记录，可能不是最新数据。\n- 仅查到主峰一般海拔，缺少各具体山峰的官方精确标高。",
+    "confidence": 0.252,
+    "resolved_task_class": "geo_fact_lookup",
+    "evidence_count": 7,
+    "limitations": [
+      "关键证据不足，部分结论置信度受限。"
+    ]
+  }
+]

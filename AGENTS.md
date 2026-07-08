@@ -1,29 +1,19 @@
-# Deep Research Agent Platform
+# Evidence-first Travel Intelligence Agent — 仓库说明
 
-AI-powered autonomous research agent — Java Spring Boot + Python AI Engine.
+本仓库为 **东亚三国（日本 / 中国 / 韩国）Evidence-first 旅游情报 Agent** Monorepo。
 
-## Quickstart
+## 快速入口
 
 ```powershell
-# Terminal 1: Python Agent
-cd apps/agent-python
-uvicorn app.main:app --host 127.0.0.1 --port 8001 --reload
-
-# Terminal 2: Java Backend
-cd apps/api-java
-mvn spring-boot:run
-
-# Terminal 3: Frontend
-cd apps/web
-npm run dev
+.\scripts\start-agent.ps1
 ```
 
-See [README.md](README.md) and [RUNBOOK.md](RUNBOOK.md) for details.
+详见 [RUNBOOK.md](RUNBOOK.md)、[README.md](README.md)、[REPO_MAP.md](REPO_MAP.md)。
 
-## Development Conventions
+## 开发约定
 
-- All facts must be backed by `Evidence` objects with source URLs
-- Agent pipeline: 6 phases → 7 quality gates → cited report
-- Source quality: 5-tier rating (Tier-1 academic → Tier-5 spam)
-- Agent Core state: `apps/agent-python/app/agent_core/`
-- Config: `apps/agent-python/app/config.py`
+- 工具必须返回 `Evidence` 对象，Composer 只基于 evidence 总结
+- 首期仅支持 Japan / China / South Korea
+- mock 数据真相源：`packages/tools/mock/data.py`
+- 状态链：`apps/agent-python/app/orchestrator/state_machine.py`
+- 调试日志：`apps/agent-python/debug_last_session.md`

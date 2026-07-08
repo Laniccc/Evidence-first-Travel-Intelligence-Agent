@@ -1,0 +1,26 @@
+[
+  {
+    "task_class": "geo_fact_lookup",
+    "query": "黄山主峰海拔多少米？",
+    "elapsed_s": 70.15,
+    "answer": "目前无法确认黄山主峰的确切海拔高度（未完全经官方页面确认）。\n\n结论：\n现有搜索未能检索到黄山主峰海拔的官方或可引用来源，因此无法给出确切的数值。\n\n证据线索：\n- Baidu Maps MCP 提供了黄山风景区内多个地点的候选信息（如光明顶、南大门等），但未包含任何海拔数据。\n\n说明：\n- 用户询问的是黄山主峰海拔（highest_peak_elevation），属于地理事实类问题，要求精确数值。\n- S7判定 adoption_level=partial，仅能给出附带「未完全经官方页面确认」的说明，不能作为确定事实陈述。\n\n说明：\n- 检索日期：未提供最新检索时间戳，数据可能存在时效性不足。\n- 无官方来源：当前证据全部来自百度地图或公开网页搜索，未引用黄山风景区官方网站或权威地理数据库。\n- 数据缺口：elevation、highest_peak_elevation、main_peak_elevations 三类覆盖质量均为 none。\n- 建议通过黄山风景区官方渠道或维基百科等可靠来源获取主峰海拔。",
+    "confidence": 0.2,
+    "resolved_task_class": "geo_fact_lookup",
+    "evidence_count": 4,
+    "limitations": [
+      "关键证据不足，部分结论置信度受限。"
+    ]
+  },
+  {
+    "task_class": "geo_fact_lookup",
+    "query": "泰山海拔多少米？",
+    "elapsed_s": 56.43,
+    "answer": "无法确认泰山的精确海拔高度——现有检索未返回任何具体数值。\n\n结论：\n当前检索工具未能获取到泰山海拔高度的具体数据。\n\n现有线索与来源：\n- Baidu Maps MCP 提供了泰山的 POI 坐标（36.236318, 117.17682），但未直接返回海拔信息。\n- 官方来源检索未发现有效页面。\n\n说明：\n- 检索工具未返回海拔数据\n- 所有相关搜索均无命中结果\n- 未使用模型常识补充。",
+    "confidence": 0.2,
+    "resolved_task_class": "geo_fact_lookup",
+    "evidence_count": 7,
+    "limitations": [
+      "关键证据不足，部分结论置信度受限。"
+    ]
+  }
+]
