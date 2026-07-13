@@ -87,6 +87,7 @@ apps/api-java/data/
 external/
 
 # --- Misc logs & temp ---
+logs/
 *.log
 .cache/
 tmp/

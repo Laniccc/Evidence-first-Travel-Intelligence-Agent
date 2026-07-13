@@ -16,6 +16,9 @@ Start the Travel Intelligence Agent from the repository root.
 
 .EXAMPLE
 .\scripts\start-agent.ps1 -WebOnly
+
+.EXAMPLE
+.\scripts\start-agent.ps1 -McpStartupTimeoutSec 120
 #>
 
 param(
@@ -31,6 +34,8 @@ param(
     [switch]$AllowMcpFailure,
     [switch]$AllowWebFailure,
     [switch]$IncludeWeatherMcp,
+    [ValidateRange(10, 600)]
+    [int]$McpStartupTimeoutSec = 90,
     [switch]$SkipCompileCheck,
     [switch]$SkipWebInstall
 )
@@ -211,11 +216,11 @@ if (-not $NoMcp) {
     $mcpScript = Join-Path $repoRoot "scripts\start-mcp-stack.ps1"
     if (Test-Path $mcpScript) {
         try {
+            $mcpArgs = @{ StartupTimeoutSec = $McpStartupTimeoutSec }
             if ($IncludeWeatherMcp) {
-                & $mcpScript -IncludeWeather
-            } else {
-                & $mcpScript
+                $mcpArgs.IncludeWeather = $true
             }
+            & $mcpScript @mcpArgs
         } catch {
             if (-not $AllowMcpFailure) {
                 throw "MCP startup failed. Agent startup stopped because search evidence would be incomplete. Use -NoMcp for local-only debugging or -AllowMcpFailure to continue anyway. Details: $($_.Exception.Message)"

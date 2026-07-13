@@ -16,7 +16,8 @@ param(
     [switch]$IncludeWeather,
     [switch]$StatusOnly,
     [switch]$KillStalePort,
-    [int]$StartupTimeoutSec = 45
+    [ValidateRange(10, 600)]
+    [int]$StartupTimeoutSec = 90
 )
 
 $ErrorActionPreference = "Stop"

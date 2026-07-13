@@ -175,3 +175,4 @@ All of the above are local artifacts and ignored by Git.
 | Python Agent cannot call Java Tool Gateway | Confirm Java API is running on `:8082`, `TOOL_GATEWAY_ENABLED=true`, and the Python `.env` Java gateway URL points to Java. |
 | Java returns `agent_unavailable` | Confirm `PYTHON_AGENT_BASE_URL` points to the running Python Agent and `/agent/health` is healthy. |
 | `/agent/query` returns `405` in browser | Use `POST`; direct browser `GET` is expected to fail. |
+| `open-webSearch did not become healthy` on first start | The first `npx` provisioning run can exceed 45 seconds. The scripts now wait up to 90 seconds; retry `.\scripts\start-agent.ps1` or use `-McpStartupTimeoutSec 120` on a slow network. Confirm `http://127.0.0.1:3210/health` returns `200` before using `-AllowMcpFailure`. |
