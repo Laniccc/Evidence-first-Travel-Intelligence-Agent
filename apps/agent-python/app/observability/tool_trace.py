@@ -1,0 +1,34 @@
+"""Structured record of one tool invocation during an Agent run."""
+
+from pydantic import BaseModel, Field
+
+
+class ToolTrace(BaseModel):
+    tool_name: str
+    input: dict = Field(default_factory=dict)
+    evidence_ids: list[str] = Field(default_factory=list)
+    latency_ms: float = 0.0
+    status: str = "ok"
+    error: str | None = None
+    fallback_used: bool = False
+    cache_hit: bool = False
+    requested_by_state: str | None = None
+    selected_by_llm: bool = False
+    whitelist_checked: bool = False
+    provider: str | None = None
+    configured: bool | None = None
+    crawler_command: str | None = None
+    crawler_workdir: str | None = None
+    snapshot_saved_count: int | None = None
+    output_parse_status: str | None = None
+    gap_filling: bool = False
+    gap_id: str | None = None
+    gap_claim_type: str | None = None
+    official_source_discovery: bool = False
+    urls_checked_count: int | None = None
+    official_candidates_count: int | None = None
+    top_source_classes: list[str] | None = None
+    raw_result_count: int | None = None
+    kept_result_count: int | None = None
+    filtered_result_count: int | None = None
+    filter_reason: str | None = None

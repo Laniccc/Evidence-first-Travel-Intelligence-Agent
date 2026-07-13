@@ -4,7 +4,7 @@ from datetime import datetime, timedelta
 import httpx
 
 from app.config import get_settings
-from app.schemas.evidence import Claim, ClaimType, DataFreshness, Evidence, LicenseScope, SourceType
+from app.evidence.evidence_model import Claim, ClaimType, DataFreshness, Evidence, LicenseScope, SourceType
 from tools.base import BaseTravelTool
 
 logger = logging.getLogger(__name__)

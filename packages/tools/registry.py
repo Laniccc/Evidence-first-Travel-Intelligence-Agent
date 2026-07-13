@@ -3,7 +3,7 @@ import time
 from typing import Any
 
 from app.config import Settings, get_settings
-from app.schemas.tool_trace import ToolTrace
+from app.observability.tool_trace import ToolTrace
 from tools.fallback_tool import MockFallbackTool
 from tools.hybrid_tool import HybridTravelTool
 from tools.knowledge_prior_tool import KnowledgePriorTool

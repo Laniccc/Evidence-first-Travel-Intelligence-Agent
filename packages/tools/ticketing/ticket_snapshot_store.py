@@ -8,7 +8,7 @@ import sqlite3
 from pathlib import Path
 from uuid import uuid4
 
-from app.schemas.ticket_info import TicketSnapshot
+from app.evidence.ticket_info import TicketSnapshot
 
 
 class TicketSnapshotStore:

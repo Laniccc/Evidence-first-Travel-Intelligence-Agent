@@ -1,0 +1,418 @@
+"""Plan EvidenceGapRequest when S7 finds insufficient coverage."""
+
+from __future__ import annotations
+
+import importlib
+from typing import Any
+
+from .claim_search_planner import ClaimSearchPlanner
+from .evidence_gap_request import EvidenceGapRequest
+
+
+def _module(name: str):
+    return importlib.import_module(name)
+
+
+def _active_place_name(state: Any) -> str | None:
+    return _module("app.planning.comparison_helpers").active_place_name(state)
+
+
+def _is_comparison_mode(state: Any) -> bool:
+    return _module("app.planning.comparison_helpers").is_comparison_mode(state)
+
+
+def _is_ticket_claim_type(claim_type: str) -> bool:
+    return _module("app.orchestration.fact_lookup_policy").is_ticket_claim_type(claim_type)
+
+
+def _is_nearby_need(need: str) -> bool:
+    return _module("app.understanding.information_need_aliases").is_nearby_need(need)
+
+
+def _needs_official_source_gap(evidence: list, claim_type: str, decision: Any) -> bool:
+    return _module("app.evidence.official_source_judgement").needs_official_source_gap(
+        evidence, claim_type, decision
+    )
+
+
+def _ticket_gap_fill_tools() -> tuple[str, ...]:
+    return tuple(_module("app.planning.ticket_lookup_helpers").TICKET_GAP_FILL_TOOLS)
+
+
+def _need_tool_profiles() -> dict:
+    return _module("app.tools." + "mcp." + "tool_specs").NEED_TOOL_PROFILES
+
+
+def _resolve_tool_name(tool_name: str) -> str:
+    return _module("app.tools.tool_name_resolver").resolve_tool_name(tool_name)
+
+
+_GAP_IRRELEVANT_ROUTE_TOOLS = frozenset(
+    {"baidu_route_mcp", "baidu_route_matrix_mcp", "baidu_traffic_mcp", "baidu_reverse_geocode_mcp"}
+)
+
+_GAP_TEMPLATES: dict[str, list[str]] = {
+    "photo_costume_suitability": [
+        "{place_name} 汉服 拍照 游客评价",
+        "{place_name} 古风 拍照 出片",
+        "{place_name} 穿汉服 方便吗",
+    ],
+    "pet_friendly_suitability": [
+        "{place_name} 可以带狗吗",
+        "{place_name} 宠物 规定",
+        "{place_name} 游客 带狗 评价",
+    ],
+    "commercialization_risk": [
+        "{place_name} 商业化严重吗 游客评价",
+        "{place_name} 值不值得去",
+        "{place_name} 避坑 评价",
+    ],
+    "ticket_price": [
+        "{place_name} 门票价格",
+        "{place_name} 官方 票价",
+        "{place_name} 官网 门票",
+        "{city} {place_name} 门票",
+    ],
+    "opening_hours": [
+        "{place_name} 官网 开放时间",
+        "{place_name} 营业时间",
+        "{city} {place_name} 开放时间",
+    ],
+    "seasonal_operation_status": [
+        "{place_name} 官方 开放 公告",
+        "{place_name} 闭园 通知",
+        "{city} {place_name} 季节性 开放",
+    ],
+    "crowd_level": [
+        "{region} {city} {place_name} 旅游旺季 拥挤程度",
+        "{place_name} 游客多吗 评价",
+        "{city} {place_name} crowd level",
+    ],
+    "route_plan": [
+        "{place_name} 交通 怎么去",
+        "{city} {place_name} 自驾 公共交通",
+        "{place_name} 到 {peer_place} 交通",
+    ],
+    "transit": [
+        "{place_name} 交通 怎么去",
+        "{city} {place_name} 自驾",
+    ],
+    "review_summary": [
+        "{place_name} 游客评价 值不值得去",
+        "{city} {place_name} 攻略 评价",
+        "{place_name} 避坑",
+    ],
+}
+
+
+class EvidenceGapPlanner:
+    def plan_gaps(
+        self,
+        state: Any,
+        claim: Any,
+        policy: Any,
+        decision: Any,
+        *,
+        gap_round: int,
+        max_gap_rounds: int,
+    ) -> EvidenceGapRequest | None:
+        if gap_round >= max_gap_rounds:
+            return None
+        if decision.adoption == "omit" and claim.priority == "optional":
+            return None
+        if not _needs_official_source_gap(state.evidence, claim.claim_type, decision):
+            if decision.coverage_quality in {"strong", "partial"} and decision.adoption in {
+                "adopt",
+                "adopt_with_limitation",
+            }:
+                return None
+        if claim.priority not in {"required", "important"} and decision.coverage_quality != "none":
+            if not _needs_official_source_gap(state.evidence, claim.claim_type, decision):
+                return None
+
+        tried = self._tried_tools(state)
+        failed = self._failed_tools(state)
+        untried = [t for t in policy.preferred_tools if _resolve_tool_name(t) not in tried]
+        if _is_nearby_need(claim.claim_type):
+            untried = [
+                t
+                for t in untried
+                if _resolve_tool_name(t) not in _GAP_IRRELEVANT_ROUTE_TOOLS
+            ]
+        profile = _need_tool_profiles().get(claim.claim_type, [])
+
+        def _tool_rank(tool: str) -> int:
+            resolved = _resolve_tool_name(tool)
+            try:
+                return profile.index(resolved)
+            except ValueError:
+                return 999
+
+        untried = sorted(untried, key=_tool_rank)
+        gap_fill_planner = _module("app.planning.claim_gap_fill_planner")
+        gap_tools_for_claim = gap_fill_planner.gap_tools_for_claim
+        order_gap_tools = gap_fill_planner.order_gap_tools
+        claim_tool_policy = _module("app.planning.claim_tool_policy")
+        filter_allowed_tools = claim_tool_policy.filter_allowed_tools
+        primary_tools_for_claims = claim_tool_policy.primary_tools_for_claims
+
+        claim_pool = list(primary_tools_for_claims([claim.claim_type])) or gap_tools_for_claim(claim.claim_type)
+        claim_pool = [
+            t
+            for t in claim_pool
+            if _resolve_tool_name(t) not in tried and t not in (policy.forbidden_tools or [])
+        ]
+        if _is_ticket_claim_type(claim.claim_type) or claim.claim_type == "opening_hours":
+            claim_pool = order_gap_tools(state, claim_pool, claim_type=claim.claim_type)
+            untried = filter_allowed_tools(claim_pool or untried, [claim.claim_type])
+        if not untried and decision.coverage_quality not in {"none", "weak"}:
+            return None
+        if decision.coverage_quality == "none" and not untried:
+            if _is_comparison_mode(state):
+                untried = [
+                    t
+                    for t in [
+                        "search_mcp",
+                        "ctrip_review_crawler_mcp",
+                        "dianping_review_crawler_mcp",
+                        "baidu_route_mcp",
+                        "baidu_route_matrix_mcp",
+                    ]
+                        if _resolve_tool_name(t) not in tried
+                ]
+            if not untried:
+                return None
+
+        place = self._place_name(state)
+        city = self._city(state)
+        region = self._region(state)
+        peer = self._peer_place(state, place)
+
+        planner_ctx = ClaimSearchPlanner.planning_context(state)
+        SearchQueryRewriter = _module("app.planning.search_query_rewriter").SearchQueryRewriter
+        rewriter = SearchQueryRewriter.from_planning_context(planner_ctx, state)
+        if _is_ticket_claim_type(claim.claim_type):
+            escalation_queries_flat = _module(
+                "app.planning.ticket_price_query_ladder"
+            ).escalation_queries_flat
+            ensure_ticket_product_context = _module(
+                "app.planning.ticket_product_policy"
+            ).ensure_ticket_product_context
+
+            ensure_ticket_product_context(state)
+            rendered = escalation_queries_flat(state, max_queries=8)
+            if not rendered and claim.claim_type in _GAP_TEMPLATES:
+                templates = _GAP_TEMPLATES[claim.claim_type]
+                rendered = [
+                    t.format(
+                        place_name=place,
+                        city=city,
+                        region=region,
+                        claim_type=claim.claim_type,
+                        user_query=state.raw_user_query,
+                        peer_place=peer,
+                    )
+                    for t in templates
+                ]
+        elif claim.claim_type in _GAP_TEMPLATES:
+            templates = _GAP_TEMPLATES[claim.claim_type]
+            rendered = [
+                t.format(
+                    place_name=place,
+                    city=city,
+                    region=region,
+                    claim_type=claim.claim_type,
+                    user_query=state.raw_user_query,
+                    peer_place=peer,
+                )
+                for t in templates
+            ]
+        else:
+            rendered = rewriter.gap_query_templates(claim.claim_type, max_queries=4)
+
+        suggested_tools = untried[:9] if _is_ticket_claim_type(claim.claim_type) else (untried[:4] or ["search_mcp"])
+        if _is_ticket_claim_type(claim.claim_type):
+            suggested_tools = order_gap_tools(state, suggested_tools or list(_ticket_gap_fill_tools()), claim_type=claim.claim_type)
+        elif claim.claim_type == "opening_hours":
+            suggested_tools = order_gap_tools(state, suggested_tools, claim_type=claim.claim_type)
+        if _needs_official_source_gap(state.evidence, claim.claim_type, decision):
+            if "official_source_discovery_mcp" not in suggested_tools:
+                cap = 9 if _is_ticket_claim_type(claim.claim_type) else 4
+                suggested_tools = ["official_source_discovery_mcp", *suggested_tools][:cap]
+            reason = (
+                decision.reason
+                or f"missing official source support for {claim.claim_type}"
+            )
+        else:
+            reason = decision.reason or f"missing evidence for {claim.claim_type}"
+        forbidden = list(dict.fromkeys([*(policy.forbidden_tools or []), "knowledge_prior"]))
+        if _is_comparison_mode(state) and "search_mcp" not in suggested_tools:
+            suggested_tools = ["search_mcp", *suggested_tools][:4]
+        ticket_retry = None
+        if _is_ticket_claim_type(claim.claim_type):
+            ticket_retry = _module(
+                "app.planning.ticket_lookup_helpers"
+            ).build_ticket_product_detail_retry(
+                list(state.evidence or []), claim_type=claim.claim_type
+            )
+        retry_gap = (ticket_retry or {}).get("evidence_gap") or {}
+        if ticket_retry:
+            reason = ticket_retry["reason"]
+
+        gap = EvidenceGapRequest(
+            claim_type=claim.claim_type,
+            claim_family=policy.claim_family,
+            claim_description=policy.claim_description,
+            reason=reason,
+            missing_evidence_need=retry_gap.get("missing_evidence_need", claim.claim_type),
+            suggested_domains=self._domains_for_claim(claim.claim_type, policy.claim_family),
+            suggested_tools=suggested_tools,
+            query_templates=rendered,
+            tool_parameters={
+                key: value
+                for key, value in retry_gap.items()
+                if key != "missing_evidence_need"
+            },
+            hook_findings=list((ticket_retry or {}).get("hook_findings") or []),
+            forbidden_tools=forbidden,
+            already_tried_tools=tried,
+            failed_tools=failed,
+            max_extra_steps=3,
+            priority="high" if claim.priority == "required" else "medium",
+        )
+        lookup_objectives = self._lookup_gap_objectives(
+            state, claim.claim_type, _needs_official_source_gap(state.evidence, claim.claim_type, decision)
+        )
+        if lookup_objectives:
+            gap.query_objectives = lookup_objectives
+            gap.query_objective = lookup_objectives[0].objective
+            if not gap.query_templates:
+                objective_to_search_query = _module(
+                    "app.orchestration.lookup_query_objectives"
+                ).objective_to_search_query
+                gap.query_templates = [objective_to_search_query(o) for o in lookup_objectives[:4]]
+        gap.ensure_signature()
+        return gap
+
+    @staticmethod
+    def _lookup_gap_objectives(
+        state: Any,
+        claim_type: str,
+        needs_official: bool,
+    ) -> list:
+        is_fact_lookup_task = _module("app.orchestration.fact_lookup_policy").is_fact_lookup_task
+        lookup_query_objectives = _module("app.orchestration.lookup_query_objectives")
+        build_lookup_query_objectives = lookup_query_objectives.build_lookup_query_objectives
+        objectives_from_gap = lookup_query_objectives.objectives_from_gap
+
+        lookup_needs = {
+            "ticket_price",
+            "entrance_ticket_price",
+            "boat_ticket_price",
+            "shuttle_bus_ticket_price",
+            "cable_car_ticket_price",
+            "opening_hours",
+            "reservation_policy",
+            "seasonal_operation_status",
+            "elevation",
+            "highest_peak_elevation",
+            "main_peak_elevations",
+            "general_fact",
+        }
+        if claim_type not in lookup_needs and not is_fact_lookup_task(state):
+            return []
+        family = "official_operator" if needs_official else "web_reference"
+        if claim_type in {"elevation", "highest_peak_elevation", "main_peak_elevations"}:
+            build_peak_elevation_objectives = lookup_query_objectives.build_peak_elevation_objectives
+            discover_peak_names_from_evidence = _module(
+                "app.evidence.peak_elevation_extraction"
+            ).discover_peak_names_from_evidence
+
+            place = _active_place_name(state) or ""
+            peaks = discover_peak_names_from_evidence(list(state.evidence or []))
+            return build_peak_elevation_objectives(state, place=place, peak_names=peaks, max_objectives=4)
+        objs = build_lookup_query_objectives(state, claim_type, family, max_objectives=2)
+        if not objs:
+            place = _active_place_name(state) or ""
+            objs = [
+                objectives_from_gap(
+                    claim_type=claim_type,
+                    source_family=family,
+                    anchor_terms=[place] if place else [],
+                    query_intent=f"补证缺口：{claim_type}",
+                )
+            ]
+        return objs
+
+    @staticmethod
+    def _tried_tools(state: Any) -> list[str]:
+        return list(dict.fromkeys(_resolve_tool_name(t.tool_name) for t in state.tool_traces))
+
+    @staticmethod
+    def _failed_tools(state: Any) -> list[str]:
+        return list(
+            dict.fromkeys(
+                _resolve_tool_name(t.tool_name) for t in state.tool_traces if t.status != "ok"
+            )
+        )
+
+    @staticmethod
+    def _place_name(state: Any) -> str:
+        active = _active_place_name(state)
+        if active:
+            return active
+        frame = state.semantic_frame
+        if frame and frame.entities.places:
+            return frame.entities.places[0]
+        return "目的地"
+
+    @staticmethod
+    def _peer_place(state: Any, place: str) -> str:
+        peers = list(state.comparison_peer_places or [])
+        for peer in peers:
+            if peer and peer != place:
+                return peer
+        frame = state.semantic_frame
+        if frame and frame.entities.places:
+            for peer in frame.entities.places:
+                if peer and peer != place:
+                    return peer
+        return ""
+
+    @staticmethod
+    def _region(state: Any) -> str:
+        frame = state.semantic_frame
+        if frame and frame.entities.region:
+            return frame.entities.region
+        return ""
+
+    @staticmethod
+    def _city(state: Any) -> str:
+        frame = state.semantic_frame
+        if frame and frame.entities.city:
+            return frame.entities.city
+        return ""
+
+    @staticmethod
+    def _domains_for_claim(claim_type: str, family: str) -> list[str]:
+        by_claim = {
+            "ticket_price": ["official_web_provider", "ticket_booking", "search_provider"],
+            "opening_hours": ["official_web_provider", "search_provider"],
+            "seasonal_operation_status": ["official_web_provider", "operation_status", "search_provider"],
+            "road_opening_period": ["official_web_provider", "operation_status", "search_provider"],
+            "temporary_closure": ["official_web_provider", "operation_status", "search_provider"],
+            "reservation_policy": ["official_web_provider", "ticket_booking", "search_provider"],
+        }
+        if claim_type in by_claim:
+            return by_claim[claim_type]
+        return EvidenceGapPlanner._domains_for_family(family)
+
+    @staticmethod
+    def _domains_for_family(family: str) -> list[str]:
+        return {
+            "ticket_booking": ["ticket_platform_provider", "search_provider"],
+            "review_experience": ["crawler_provider", "search_provider"],
+            "suitability_advice": ["crawler_provider", "search_provider"],
+            "hard_fact": ["official_web_provider", "search_provider"],
+            "operation_status": ["official_web_provider", "search_provider"],
+        }.get(family, ["search_provider"])

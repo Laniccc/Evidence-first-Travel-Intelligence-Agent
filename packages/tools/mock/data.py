@@ -1,6 +1,6 @@
 """Curated mock place data for MVP demo across Japan, China, South Korea."""
 
-from app.schemas.evidence import Claim, ClaimType, DataFreshness, Evidence, LicenseScope, SourceType
+from app.evidence.evidence_model import Claim, ClaimType, DataFreshness, Evidence, LicenseScope, SourceType
 
 PLACE_ALIASES = {
     "清水寺": "Kiyomizu-dera",

@@ -1,271 +1,373 @@
 import "./styles.css";
-import { buildTravelQueryRequest, buildErrorTrace, describeTravelQueryError, getApiBaseUrl, postTravelQuery } from "./api/travel.js";
+import {
+  archiveConversation,
+  askTravelAgent,
+  clearToken,
+  createConversation,
+  describeError,
+  getApiBaseUrl,
+  getConversation,
+  getRecordResponse,
+  getToken,
+  listConversations,
+  listFavorites,
+  login,
+  me,
+  register,
+  setFavorite,
+  setToken,
+} from "./api/travel.js";
 
-const THINKING_STEPS = [
-  "构建会话上下文…",
-  "转写用户问题并生成 TravelTask…",
-  "识别区域与信息需求…",
-  "选择工具并检索证据…",
-  "聚合证据、评分并生成回答…",
-  "完成引用与限制检查…",
-];
-
-const els = {
-  query: document.getElementById("query"),
-  submit: document.getElementById("submit"),
-  clear: document.getElementById("clear"),
-  statusList: document.getElementById("status-list"),
-  statusCard: document.getElementById("status-card"),
-  outputCard: document.getElementById("output-card"),
-  answer: document.getElementById("answer"),
-  meta: document.getElementById("meta"),
-  limitations: document.getElementById("limitations"),
-  limitationsList: document.getElementById("limitations-list"),
-  errorBox: document.getElementById("error-box"),
-  traceDetail: document.getElementById("trace-detail"),
-  evidenceDetail: document.getElementById("evidence-detail"),
-  toolsDetail: document.getElementById("tools-detail"),
+const state = {
+  user: null,
+  conversations: [],
+  currentConversation: null,
+  records: [],
+  favorites: [],
+  currentRecord: null,
+  currentResponse: null,
+  loading: false,
 };
 
-let thinkingTimer = null;
-let thinkingIndex = 0;
+const els = {
+  authView: document.getElementById("auth-view"),
+  appView: document.getElementById("app-view"),
+  authForm: document.getElementById("auth-form"),
+  authTitle: document.getElementById("auth-title"),
+  authToggle: document.getElementById("auth-toggle"),
+  authSubmit: document.getElementById("auth-submit"),
+  authError: document.getElementById("auth-error"),
+  displayNameGroup: document.getElementById("display-name-group"),
+  username: document.getElementById("username"),
+  email: document.getElementById("email"),
+  password: document.getElementById("password"),
+  displayName: document.getElementById("display-name"),
+  userName: document.getElementById("user-name"),
+  logout: document.getElementById("logout"),
+  newConversation: document.getElementById("new-conversation"),
+  archiveConversation: document.getElementById("archive-conversation"),
+  conversationList: document.getElementById("conversation-list"),
+  favoriteList: document.getElementById("favorite-list"),
+  conversationTitle: document.getElementById("conversation-title"),
+  recordList: document.getElementById("record-list"),
+  query: document.getElementById("query"),
+  submit: document.getElementById("submit"),
+  answer: document.getElementById("answer"),
+  answerMeta: document.getElementById("answer-meta"),
+  favoriteCurrent: document.getElementById("favorite-current"),
+  errorBox: document.getElementById("error-box"),
+  contextDate: document.getElementById("context-date"),
+  contextCity: document.getElementById("context-city"),
+  contextParty: document.getElementById("context-party"),
+  traceDetail: document.getElementById("trace-detail"),
+  evidenceDetail: document.getElementById("evidence-detail"),
+};
 
-function selectedParties() {
-  return [...document.querySelectorAll('input[name="party"]:checked')].map((n) => n.value);
-}
+let authMode = "login";
 
-function buildUserContext() {
-  const ctx = {};
-  const travelDate = document.getElementById("travel-date").value.trim();
-  const startLocation = document.getElementById("start-location").value.trim();
-  const pace = document.getElementById("pace").value;
-  const budget = document.getElementById("budget").value;
-  const transport = document.getElementById("transport").value;
-  const party = selectedParties();
-
-  if (travelDate) ctx.travel_date = travelDate;
-  if (startLocation) ctx.start_location = startLocation;
-  if (party.length) ctx.party = party;
-  if (pace && pace !== "unknown") ctx.pace = pace;
-  if (budget && budget !== "unknown") ctx.budget_level = budget;
-  if (transport && transport !== "unknown") ctx.transport_preference = transport;
-
-  const lastPlaces = document.getElementById("last-places").value.trim();
-  const lastCity = document.getElementById("last-city").value.trim();
-  const lastCountry = document.getElementById("last-country").value.trim();
-  if (lastPlaces || lastCity || lastCountry) {
-    ctx.conversation_memory = {};
-    if (lastPlaces) {
-      ctx.conversation_memory.last_places = lastPlaces.split(/[,，]/).map((s) => s.trim()).filter(Boolean);
-    }
-    if (lastCity) ctx.conversation_memory.last_city = lastCity;
-    if (lastCountry) ctx.conversation_memory.last_country = lastCountry;
-  }
-
-  return ctx;
-}
-
-function confidenceClass(value) {
-  if (value >= 0.7) return "conf-high";
-  if (value >= 0.4) return "conf-mid";
-  return "conf-low";
-}
-
-function setLoading(loading) {
-  els.submit.disabled = loading;
-  els.submit.textContent = loading ? "思考中…" : "发送提问";
-}
-
-function clearError() {
-  els.errorBox.classList.add("hidden");
-  els.errorBox.textContent = "";
-}
-
-function showError(message) {
-  els.errorBox.textContent = message;
-  els.errorBox.classList.remove("hidden");
-}
-
-function renderThinkingPlaceholder() {
-  els.statusList.innerHTML = "";
-  THINKING_STEPS.forEach((step, idx) => {
-    const li = document.createElement("li");
-    li.dataset.idx = String(idx);
-    li.innerHTML = `<span class="dot">${idx === 0 ? '<span class="spinner"></span>' : "○"}</span><span>${step}</span>`;
-    if (idx === 0) li.classList.add("active");
-    els.statusList.appendChild(li);
-  });
-}
-
-function advanceThinking() {
-  const items = [...els.statusList.querySelectorAll("li")];
-  if (!items.length) return;
-  items.forEach((li) => {
-    li.classList.remove("active");
-    if (Number(li.dataset.idx) < thinkingIndex) {
-      li.classList.add("done");
-      li.querySelector(".dot").textContent = "✓";
-    }
-  });
-  if (thinkingIndex < items.length) {
-    items[thinkingIndex].classList.add("active");
-    items[thinkingIndex].querySelector(".dot").innerHTML = '<span class="spinner"></span>';
-    thinkingIndex += 1;
-  }
-}
-
-function startThinking() {
-  thinkingIndex = 0;
-  renderThinkingPlaceholder();
-  advanceThinking();
-  thinkingTimer = window.setInterval(() => {
-    if (thinkingIndex >= THINKING_STEPS.length) return;
-    advanceThinking();
-  }, 2800);
-}
-
-function stopThinking() {
-  if (thinkingTimer) {
-    window.clearInterval(thinkingTimer);
-    thinkingTimer = null;
-  }
-}
-
-function setStatusSpinner(visible) {
-  const spinner = document.getElementById("status-spinner");
-  if (spinner) spinner.classList.toggle("hidden", !visible);
-}
-
-function renderTrace(steps) {
-  setStatusSpinner(false);
-  els.statusList.innerHTML = "";
-  if (!steps || !steps.length) {
-    els.statusList.innerHTML = '<li class="done"><span class="dot">✓</span><span>处理完成（无可见 trace）</span></li>';
-    return;
-  }
-  steps.forEach((step) => {
-    const li = document.createElement("li");
-    li.classList.add("done");
-    li.innerHTML = `<span class="dot">✓</span><span>${escapeHtml(step)}</span>`;
-    els.statusList.appendChild(li);
-  });
+function show(el, visible) {
+  el.classList.toggle("hidden", !visible);
 }
 
 function escapeHtml(text) {
   const div = document.createElement("div");
-  div.textContent = text;
+  div.textContent = text ?? "";
   return div.innerHTML;
 }
 
-/** @param {import('./api/types.js').TravelQueryResponse} data */
-function renderResponse(data) {
-  els.outputCard.classList.remove("hidden");
-  els.answer.textContent = data.answer || "（无回答文本）";
+function setError(message) {
+  els.errorBox.textContent = message || "";
+  show(els.errorBox, Boolean(message));
+}
 
-  els.meta.innerHTML = "";
-  const conf = document.createElement("span");
-  conf.className = `badge ${confidenceClass(data.confidence || 0)}`;
-  conf.textContent = `置信度 ${((data.confidence || 0) * 100).toFixed(0)}%`;
-  els.meta.appendChild(conf);
+function setAuthError(message) {
+  els.authError.textContent = message || "";
+  show(els.authError, Boolean(message));
+}
 
-  if (data.query_id) {
-    const q = document.createElement("span");
-    q.className = "badge neutral";
-    q.textContent = `query_id: ${data.query_id.slice(0, 8)}…`;
-    els.meta.appendChild(q);
+function switchAuthMode(mode) {
+  authMode = mode;
+  const isRegister = mode === "register";
+  els.authTitle.textContent = isRegister ? "创建平台账号" : "登录 Travel Agent 平台";
+  els.authSubmit.textContent = isRegister ? "注册并进入" : "登录";
+  els.authToggle.textContent = isRegister ? "已有账号，去登录" : "没有账号，创建一个";
+  show(els.displayNameGroup, isRegister);
+  els.email.required = isRegister;
+  setAuthError("");
+}
+
+async function handleAuth(event) {
+  event.preventDefault();
+  setAuthError("");
+  els.authSubmit.disabled = true;
+  try {
+    const payload = {
+      username: els.username.value.trim(),
+      password: els.password.value,
+    };
+    const data =
+      authMode === "register"
+        ? await register({
+            ...payload,
+            email: els.email.value.trim(),
+            displayName: els.displayName.value.trim(),
+          })
+        : await login({ usernameOrEmail: payload.username, password: payload.password });
+    setToken(data.token);
+    state.user = data.user;
+    await enterApp();
+  } catch (err) {
+    setAuthError(describeError(err));
+  } finally {
+    els.authSubmit.disabled = false;
   }
+}
 
-  if (data.evidence_summary?.length) {
-    const e = document.createElement("span");
-    e.className = "badge neutral";
-    e.textContent = `证据 ${data.evidence_summary.length} 条`;
-    els.meta.appendChild(e);
+async function boot() {
+  wireEvents();
+  const health = document.getElementById("link-health");
+  if (health) health.href = `${getApiBaseUrl() || ""}/health`;
+  if (!getToken()) {
+    showAuth();
+    return;
   }
-
-  if (data.tool_traces?.length) {
-    const t = document.createElement("span");
-    t.className = "badge neutral";
-    t.textContent = `工具调用 ${data.tool_traces.length} 次`;
-    els.meta.appendChild(t);
+  try {
+    state.user = await me();
+    await enterApp();
+  } catch {
+    clearToken();
+    showAuth();
   }
+}
 
-  const limits = data.limitations || [];
-  if (limits.length) {
-    els.limitations.classList.remove("hidden");
-    els.limitationsList.innerHTML = limits.map((l) => `<li>${escapeHtml(l)}</li>`).join("");
-  } else {
-    els.limitations.classList.add("hidden");
-    els.limitationsList.innerHTML = "";
+function showAuth() {
+  show(els.authView, true);
+  show(els.appView, false);
+  switchAuthMode("login");
+}
+
+async function enterApp() {
+  show(els.authView, false);
+  show(els.appView, true);
+  els.userName.textContent = state.user?.displayName || state.user?.username || "用户";
+  await refreshConversations();
+  await refreshFavorites();
+}
+
+async function refreshConversations() {
+  state.conversations = await listConversations();
+  if (!state.conversations.length) {
+    const created = await createConversation("我的旅行咨询");
+    state.conversations = [created];
   }
+  const currentId = state.currentConversation?.id;
+  const next = state.conversations.find((item) => item.id === currentId) || state.conversations[0];
+  await selectConversation(next.id);
+}
 
-  els.traceDetail.textContent = JSON.stringify(data.visible_trace || [], null, 2);
-  els.evidenceDetail.textContent = JSON.stringify(
-    {
-      evidence_summary: data.evidence_summary,
-      field_evidence_summary: data.field_evidence_summary,
-      citation_check_result: data.citation_check_result,
-    },
-    null,
-    2,
-  );
-  els.toolsDetail.textContent = JSON.stringify(data.tool_traces || [], null, 2);
-
-  if (data.session_id) {
-    localStorage.setItem("travel_agent_session_id", data.session_id);
-  }
+async function selectConversation(conversationId) {
+  const detail = await getConversation(conversationId);
+  state.currentConversation = detail.conversation;
+  state.records = detail.records || [];
+  state.currentRecord = state.records[state.records.length - 1] || null;
+  state.currentResponse = state.currentRecord ? await getRecordResponse(state.currentRecord.id) : null;
+  render();
 }
 
 async function submitQuery() {
   const query = els.query.value.trim();
-  if (!query) {
-    showError("请先输入旅行问题。");
+  if (!query || !state.currentConversation) return;
+  state.loading = true;
+  setError("");
+  renderComposerState();
+  try {
+    const data = await askTravelAgent(state.currentConversation.id, {
+      query,
+      userContext: buildUserContext(),
+      debug: false,
+    });
+    els.query.value = "";
+    state.currentRecord = data.record;
+    state.currentResponse = data.agentResponse;
+    const detail = await getConversation(state.currentConversation.id);
+    state.currentConversation = detail.conversation;
+    state.records = detail.records || [];
+    state.conversations = await listConversations();
+    await refreshFavorites();
+    render();
+  } catch (err) {
+    setError(describeError(err));
+  } finally {
+    state.loading = false;
+    renderComposerState();
+  }
+}
+
+function buildUserContext() {
+  const ctx = {};
+  const date = els.contextDate.value.trim();
+  const city = els.contextCity.value.trim();
+  const party = els.contextParty.value;
+  if (date) ctx.travel_date = date;
+  if (city) ctx.start_location = city;
+  if (party) ctx.party = [party];
+  return ctx;
+}
+
+function render() {
+  renderConversations();
+  renderRecords();
+  renderFavorites();
+  renderAnswer();
+  renderComposerState();
+}
+
+function renderConversations() {
+  els.conversationList.innerHTML = state.conversations
+    .map(
+      (item) => `
+        <button class="list-item ${item.id === state.currentConversation?.id ? "active" : ""}" data-conversation-id="${item.id}">
+          <span>${escapeHtml(item.title)}</span>
+          <small>${new Date(item.updatedAt).toLocaleString()}</small>
+        </button>
+      `,
+    )
+    .join("");
+  els.conversationTitle.textContent = state.currentConversation?.title || "旅行咨询";
+}
+
+function renderRecords() {
+  if (!state.records.length) {
+    els.recordList.innerHTML = `<div class="empty">暂无提问记录</div>`;
     return;
   }
+  els.recordList.innerHTML = state.records
+    .map(
+      (item) => `
+        <button class="record-item ${item.id === state.currentRecord?.id ? "active" : ""}" data-record-id="${item.id}">
+          <span>${escapeHtml(item.query)}</span>
+          <small>${new Date(item.createdAt).toLocaleString()}${item.favorite ? " · 已收藏" : ""}</small>
+        </button>
+      `,
+    )
+    .join("");
+}
 
-  clearError();
-  setLoading(true);
-  els.statusCard.classList.remove("hidden");
-  els.outputCard.classList.add("hidden");
-  setStatusSpinner(true);
-  startThinking();
-
-  const sessionId = localStorage.getItem("travel_agent_session_id");
-  const payload = buildTravelQueryRequest(query, buildUserContext(), sessionId);
-
-  try {
-    const data = await postTravelQuery(payload);
-    stopThinking();
-    renderTrace(data.visible_trace);
-    renderResponse(data);
-  } catch (err) {
-    stopThinking();
-    renderTrace(buildErrorTrace(err));
-    showError(describeTravelQueryError(err));
-  } finally {
-    setLoading(false);
+function renderFavorites() {
+  if (!state.favorites.length) {
+    els.favoriteList.innerHTML = `<div class="empty">暂无收藏</div>`;
+    return;
   }
+  els.favoriteList.innerHTML = state.favorites
+    .slice(0, 8)
+    .map(
+      (item) => `
+        <button class="favorite-item" data-record-id="${item.id}">
+          <span>${escapeHtml(item.query)}</span>
+          <small>${new Date(item.createdAt).toLocaleDateString()}</small>
+        </button>
+      `,
+    )
+    .join("");
 }
 
-function resetForm() {
-  els.query.value = "";
-  els.statusCard.classList.add("hidden");
-  els.outputCard.classList.add("hidden");
-  clearError();
-}
-
-function wireHeaderLinks() {
-  const base = getApiBaseUrl() || window.location.origin;
-  const health = document.getElementById("link-health");
-  if (health) health.href = `${base}/health`;
-}
-
-els.submit.addEventListener("click", submitQuery);
-els.clear.addEventListener("click", resetForm);
-
-els.query.addEventListener("keydown", (e) => {
-  if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
-    submitQuery();
+function renderAnswer() {
+  if (!state.currentResponse) {
+    els.answer.textContent = "选择一个会话，向 Travel Agent 提问。";
+    els.answerMeta.innerHTML = "";
+    els.traceDetail.textContent = "";
+    els.evidenceDetail.textContent = "";
+    els.favoriteCurrent.disabled = true;
+    els.favoriteCurrent.textContent = "收藏回答";
+    return;
   }
-});
+  const data = state.currentResponse;
+  els.answer.textContent = data.answer || "无回答文本";
+  const confidence = Number(data.confidence || 0);
+  els.answerMeta.innerHTML = `
+    <span class="badge">置信度 ${(confidence * 100).toFixed(0)}%</span>
+    <span class="badge">证据 ${data.evidence_summary?.length || 0}</span>
+    <span class="badge">工具 ${data.tool_traces?.length || 0}</span>
+  `;
+  els.traceDetail.textContent = JSON.stringify(data.visible_trace || [], null, 2);
+  els.evidenceDetail.textContent = JSON.stringify(
+    {
+      evidence_summary: data.evidence_summary || [],
+      limitations: data.limitations || [],
+      citation_check_result: data.citation_check_result || null,
+    },
+    null,
+    2,
+  );
+  els.favoriteCurrent.disabled = !state.currentRecord;
+  els.favoriteCurrent.textContent = state.currentRecord?.favorite ? "取消收藏" : "收藏回答";
+}
 
-wireHeaderLinks();
+function renderComposerState() {
+  els.submit.disabled = state.loading || !state.currentConversation;
+  els.submit.textContent = state.loading ? "Agent 思考中" : "发送";
+}
+
+async function refreshFavorites() {
+  state.favorites = await listFavorites();
+}
+
+function wireEvents() {
+  els.authForm.addEventListener("submit", handleAuth);
+  els.authToggle.addEventListener("click", () => switchAuthMode(authMode === "login" ? "register" : "login"));
+  els.logout.addEventListener("click", () => {
+    clearToken();
+    state.user = null;
+    state.currentConversation = null;
+    showAuth();
+  });
+  els.newConversation.addEventListener("click", async () => {
+    const created = await createConversation("新的旅行咨询");
+    state.conversations = [created, ...state.conversations];
+    await selectConversation(created.id);
+  });
+  els.archiveConversation.addEventListener("click", async () => {
+    if (!state.currentConversation) return;
+    await archiveConversation(state.currentConversation.id);
+    state.currentConversation = null;
+    await refreshConversations();
+  });
+  els.submit.addEventListener("click", submitQuery);
+  els.query.addEventListener("keydown", (event) => {
+    if ((event.metaKey || event.ctrlKey) && event.key === "Enter") submitQuery();
+  });
+  els.favoriteCurrent.addEventListener("click", async () => {
+    if (!state.currentRecord) return;
+    const updated = await setFavorite(state.currentRecord.id, !state.currentRecord.favorite);
+    state.currentRecord = updated;
+    state.records = state.records.map((item) => (item.id === updated.id ? updated : item));
+    await refreshFavorites();
+    render();
+  });
+  els.conversationList.addEventListener("click", async (event) => {
+    const button = event.target.closest("[data-conversation-id]");
+    if (button) await selectConversation(Number(button.dataset.conversationId));
+  });
+  els.recordList.addEventListener("click", async (event) => {
+    const button = event.target.closest("[data-record-id]");
+    if (!button) return;
+    const recordId = Number(button.dataset.recordId);
+    state.currentRecord = state.records.find((item) => item.id === recordId);
+    state.currentResponse = await getRecordResponse(recordId);
+    render();
+  });
+  els.favoriteList.addEventListener("click", async (event) => {
+    const button = event.target.closest("[data-record-id]");
+    if (!button) return;
+    const recordId = Number(button.dataset.recordId);
+    const favorite = state.favorites.find((item) => item.id === recordId);
+    if (favorite) {
+      await selectConversation(favorite.conversationId);
+      state.currentRecord = state.records.find((item) => item.id === recordId);
+      state.currentResponse = await getRecordResponse(recordId);
+      render();
+    }
+  });
+}
+
+boot();

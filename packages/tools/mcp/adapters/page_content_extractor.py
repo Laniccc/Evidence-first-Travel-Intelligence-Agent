@@ -5,7 +5,7 @@ import re
 from datetime import datetime
 from typing import Any
 
-from app.schemas.evidence import Claim, ClaimType, DataFreshness, Evidence, LicenseScope, SourceType
+from app.evidence.evidence_model import Claim, ClaimType, DataFreshness, Evidence, LicenseScope, SourceType
 from tools.ticket_price_text import first_ticket_price_mention, has_explicit_ticket_price_signal
 
 _NAV_HOURS_NOISE = (

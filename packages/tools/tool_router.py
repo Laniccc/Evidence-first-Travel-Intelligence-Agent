@@ -1,7 +1,7 @@
 ﻿from pydantic import BaseModel, Field
 
-from app.schemas.information_need import InformationNeed, InformationNeedType
-from app.schemas.travel_task import TravelTask, TravelTaskType
+from app.planning.information_need_model import InformationNeed, InformationNeedType
+from app.understanding.travel_task import TravelTask, TravelTaskType
 from tools.capability_registry import CapabilityRegistry
 
 
@@ -141,8 +141,8 @@ class ToolRouter:
             mapping.setdefault("lodging_area", ["lodging"])
 
         if not selected:
-            from app.orchestrator.policies import SourceSelectionPolicy
-            from app.schemas.user_query import UserGoal, IntentType
+            from app.planning.source_selection_policy import SourceSelectionPolicy
+            from app.understanding.user_query import UserGoal, IntentType
 
             goal = UserGoal(
                 intent_type=IntentType.SINGLE_PLACE,

@@ -5,7 +5,7 @@ from datetime import datetime
 import httpx
 
 from app.config import get_settings
-from app.schemas.evidence import Claim, ClaimType, DataFreshness, Evidence, LicenseScope, SourceType
+from app.evidence.evidence_model import Claim, ClaimType, DataFreshness, Evidence, LicenseScope, SourceType
 from tools.base import BaseTravelTool
 from tools.mock_data import normalize_place_name
 

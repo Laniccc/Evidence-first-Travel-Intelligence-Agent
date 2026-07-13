@@ -6,7 +6,7 @@ from datetime import datetime
 from typing import Any
 from urllib.parse import urlparse
 
-from app.schemas.evidence import Claim, ClaimType, DataFreshness, Evidence, LicenseScope, SourceType
+from app.evidence.evidence_model import Claim, ClaimType, DataFreshness, Evidence, LicenseScope, SourceType
 from tools.base import BaseTravelTool
 from tools.mcp.client_manager import MCPClientManager, MCPInvokeResult, get_mcp_client_manager
 from tools.ticket_price_text import has_explicit_ticket_price_signal

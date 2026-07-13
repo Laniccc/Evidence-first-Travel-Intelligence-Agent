@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from urllib.parse import urlparse
 
-from app.schemas.official_source import OfficialSourceCandidate
+from app.evidence.official_source import OfficialSourceCandidate
 from tools.official_source.source_class_constants import (
     SOURCE_CLASS_AUTHORIZED_PLATFORM_CANDIDATE,
     SOURCE_CLASS_MAP_PROVIDER_CANDIDATE,

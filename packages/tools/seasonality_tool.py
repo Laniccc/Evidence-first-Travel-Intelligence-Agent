@@ -1,8 +1,8 @@
 ﻿import logging
 from datetime import datetime
 
-from app.schemas.evidence import Claim, ClaimType, DataFreshness, Evidence, LicenseScope, SourceType
-from app.schemas.semantic_frame import SemanticFrame
+from app.evidence.evidence_model import Claim, ClaimType, DataFreshness, Evidence, LicenseScope, SourceType
+from app.understanding.semantic_frame_model import SemanticFrame
 from tools.base import BaseTravelTool
 
 logger = logging.getLogger(__name__)

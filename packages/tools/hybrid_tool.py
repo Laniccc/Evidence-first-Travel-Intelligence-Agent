@@ -4,8 +4,8 @@ from datetime import datetime
 from typing import Any
 
 from app.config import Settings, get_settings
-from app.schemas.evidence import Evidence
-from app.storage.tool_cache import get_tool_cache
+from app.evidence.evidence_model import Evidence
+from app.integrations.storage.tool_cache import get_tool_cache
 from tools.base import BaseTravelTool
 
 logger = logging.getLogger(__name__)

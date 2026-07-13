@@ -2,9 +2,9 @@
 import logging
 from datetime import datetime
 
-from app.policies.evidence_policy import EvidencePolicy
-from app.schemas.evidence import Claim, ClaimType, DataFreshness, Evidence, LicenseScope, SourceType
-from app.schemas.semantic_frame import DecisionType, SemanticFrame
+from app.evidence.evidence_policy import EvidencePolicy
+from app.evidence.evidence_model import Claim, ClaimType, DataFreshness, Evidence, LicenseScope, SourceType
+from app.understanding.semantic_frame_model import DecisionType, SemanticFrame
 from tools.base import BaseTravelTool
 
 logger = logging.getLogger(__name__)

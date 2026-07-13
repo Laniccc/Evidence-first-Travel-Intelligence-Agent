@@ -155,7 +155,7 @@ class TicketSnapshotStoreTool:
         provider: str | None = None,
         **kwargs: Any,
     ) -> list:
-        from app.schemas.evidence import Claim, ClaimType, Evidence, SourceType
+        from app.evidence.evidence_model import Claim, ClaimType, Evidence, SourceType
 
         if not place_name:
             return []
@@ -212,7 +212,7 @@ class TicketPriceHistoryQueryTool:
         since: str | None = None,
         **kwargs: Any,
     ) -> list:
-        from app.schemas.evidence import Claim, ClaimType, Evidence, SourceType
+        from app.evidence.evidence_model import Claim, ClaimType, Evidence, SourceType
 
         if not place_name:
             return []

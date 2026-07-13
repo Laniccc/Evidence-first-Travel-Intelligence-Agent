@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from urllib.parse import urljoin, urlparse
 
-from app.schemas.evidence import Claim, ClaimType
+from app.evidence.evidence_model import Claim, ClaimType
 from tools.mcp.adapters.page_content_extractor import claim_substantively_satisfies_need
 from tools.official_source.url_normalizer import extract_domain, is_fetchable_url
 from tools.official_source.whitelist_resolver import resolve_official_whitelist_url

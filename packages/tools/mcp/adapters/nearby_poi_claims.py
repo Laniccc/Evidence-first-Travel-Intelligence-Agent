@@ -4,10 +4,10 @@ from __future__ import annotations
 
 from typing import Any
 
-from app.orchestrator.information_need_aliases import normalize_need, resolve_nearby_need
-from app.orchestrator.nearby_category_registry import CANONICAL_NEARBY_NEEDS, primary_claim_type_for_category, taxonomy_meta_for_need
-from app.orchestrator.nearby_recommendation_policy import is_adoptable_nearby_poi
-from app.schemas.evidence import Claim, ClaimType
+from app.understanding.information_need_aliases import normalize_need, resolve_nearby_need
+from app.evidence.nearby_category_registry import CANONICAL_NEARBY_NEEDS, primary_claim_type_for_category, taxonomy_meta_for_need
+from app.evidence.nearby_recommendation_policy import is_adoptable_nearby_poi
+from app.evidence.evidence_model import Claim, ClaimType
 
 
 def normalize_nearby_need(need: str | None) -> str:

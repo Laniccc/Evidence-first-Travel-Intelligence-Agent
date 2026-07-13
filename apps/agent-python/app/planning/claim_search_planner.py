@@ -1,0 +1,399 @@
+﻿"""S5 search planning helpers 鈥?search keywords come from LLM sub-agents only."""
+
+from __future__ import annotations
+
+import importlib
+import re
+from typing import Any
+
+from app.evidence.evidence_model import Evidence
+_NO_HITS = re.compile(r"No search hits|鏃犵粨鏋渱returned no results", re.I)
+
+
+def _module(name: str):
+    return importlib.import_module(name)
+
+
+def _settings():
+    return _module("app.config").get_settings()
+
+
+def _info_aliases():
+    return _module("app.understanding.information_need_aliases")
+
+
+def is_nearby_need(value: str | None) -> bool:
+    return _info_aliases().is_nearby_need(value)
+
+
+def resolve_nearby_need(value: str | None, *, text: str = "") -> str | None:
+    return _info_aliases().resolve_nearby_need(value, text=text)
+
+
+def query_text_from_state(state: Any) -> str:
+    return _info_aliases().query_text_from_state(state)
+
+
+def _comparison_helpers():
+    return _module("app.planning.comparison_helpers")
+
+
+def active_place_name(state: Any) -> str | None:
+    return _comparison_helpers().active_place_name(state)
+
+
+def comparison_search_anchors(*args, **kwargs):
+    return _comparison_helpers().comparison_search_anchors(*args, **kwargs)
+
+
+def disambiguated_place_label(*args, **kwargs):
+    return _comparison_helpers().disambiguated_place_label(*args, **kwargs)
+
+
+def is_comparison_mode(state: Any) -> bool:
+    return _comparison_helpers().is_comparison_mode(state)
+
+
+def _is_evidence(value: Any) -> bool:
+    return isinstance(value, Evidence)
+
+
+def is_search_miss_value(value: str) -> bool:
+    """True when a claim value is a search/tool miss sentinel, not substantive content."""
+    return bool(_NO_HITS.search(str(value)))
+
+
+class ClaimSearchPlanner:
+    """Utilities for S5 search loop limits and LLM planner context."""
+
+    @classmethod
+    def max_search_attempts(cls, state: Any) -> int:
+        cap = int(_settings().mcp_max_tool_calls_per_state)
+        contract = state.response_contract
+        if contract and any(
+            c.priority == "required" and not c.model_prior_allowed
+            for c in contract.claim_requirements
+        ):
+            return min(cap, 4)
+        return min(cap, 6)
+
+    @classmethod
+    def keyword_search_call_count(cls, state: Any) -> int:
+        structured = state.structured_result or {}
+        completed = structured.get("completed_search_task_ids") or []
+        return len(completed) if isinstance(completed, list) else 0
+
+    @classmethod
+    def attempted_search_task_ids(cls, state: Any) -> list[str]:
+        structured = state.structured_result or {}
+        attempted = structured.get("attempted_search_task_ids") or []
+        return attempted if isinstance(attempted, list) else []
+
+    @classmethod
+    def effective_evidence_count(
+        cls,
+        state: Any,
+        evidence: list,
+        *,
+        claim_type: str | None = None,
+    ) -> int:
+        """Count evidence that can actually support the current search need."""
+        items = [ev for ev in evidence or [] if _is_evidence(ev)]
+        if not items:
+            return 0
+        need = claim_type or cls.primary_information_need(state)
+        if not need:
+            return len(items)
+        fact_lookup_policy = _module("app.orchestration.fact_lookup_policy")
+        focus_claim_types_for_need = fact_lookup_policy.focus_claim_types_for_need
+        is_hard_fact_need = fact_lookup_policy.is_hard_fact_need
+        is_ticket_claim_type = fact_lookup_policy.is_ticket_claim_type
+
+        if not is_hard_fact_need(need):
+            return sum(
+                1
+                for ev in items
+                if any(not is_search_miss_value(str(c.value or "")) for c in (ev.claims or []))
+            )
+
+        can_be_direct_answer = _module("app.evidence.search_snippet_policy").can_be_direct_answer
+
+        focus = focus_claim_types_for_need(need)
+        total = 0
+        for ev in items:
+            matched = False
+            for claim in ev.claims or []:
+                ct = claim.claim_type.value if hasattr(claim.claim_type, "value") else str(claim.claim_type)
+                if ct not in focus:
+                    continue
+                value = str(claim.value or "").strip()
+                if not value or is_search_miss_value(value):
+                    continue
+                if is_ticket_claim_type(need):
+                    from tools.ticket_price_text import has_explicit_ticket_price_signal
+
+                    if not has_explicit_ticket_price_signal(value):
+                        continue
+                if can_be_direct_answer(ev, need):
+                    matched = True
+                    break
+            if matched:
+                total += 1
+        return total
+
+    @classmethod
+    def _anchor_keywords(cls, state: Any) -> list[str]:
+        contract = state.response_contract
+        if contract and contract.gated_search_keywords:
+            return cls.dedupe(list(contract.gated_search_keywords))
+
+        frame = state.semantic_frame
+        keywords: list[str] = []
+        if frame and frame.entities:
+            keywords.extend(frame.entities.places or [])
+            if frame.entities.city:
+                keywords.append(frame.entities.city)
+            if frame.entities.region:
+                keywords.append(frame.entities.region)
+        residual = state.user_need_residual
+        if residual and residual.information_needs:
+            keywords.extend(n.need_type for n in residual.information_needs)
+        return cls.dedupe(keywords)
+
+    @classmethod
+    def evidence_highlights(cls, state: Any) -> list[dict]:
+        rows: list[dict] = []
+        for ev in state.evidence:
+            if not _is_evidence(ev):
+                continue
+            claims = []
+            for claim in ev.claims[:6]:
+                ct = claim.claim_type.value if hasattr(claim.claim_type, "value") else str(claim.claim_type)
+                claims.append({"type": ct, "value": str(claim.value)[:160]})
+            rows.append(
+                {
+                    "source_name": ev.source_name,
+                    "place_name": ev.place_name,
+                    "claims": claims,
+                }
+            )
+        return rows[:15]
+
+    @classmethod
+    def recent_keyword_search_results(cls, state: Any) -> list[dict]:
+        structured = state.structured_result or {}
+        bucket = structured.get("keyword_search_results") or []
+        return bucket[-4:] if isinstance(bucket, list) else []
+
+    @classmethod
+    def search_hits_from_evidence(cls, state: Any) -> list[dict]:
+        collect_official_discovery_search_results = _module(
+            "app.planning.ticket_lookup_helpers"
+        ).collect_official_discovery_search_results
+
+        hits, _urls = collect_official_discovery_search_results(state)
+        return hits
+
+    @classmethod
+    def _resolve_primary_need(cls, state: Any, raw: str | None) -> str | None:
+        if not raw:
+            return None
+        text = query_text_from_state(state)
+        if is_nearby_need(raw):
+            return resolve_nearby_need(raw, text=text)
+        return raw
+
+    @classmethod
+    def primary_information_need(cls, state: Any) -> str | None:
+        residual = state.user_need_residual
+        if residual:
+            for claim in residual.claim_requirements:
+                if claim.priority == "required":
+                    return cls._resolve_primary_need(state, claim.claim_type)
+            for need in residual.information_needs:
+                if need.priority == "required":
+                    return cls._resolve_primary_need(state, need.need_type)
+            if residual.claim_requirements:
+                return cls._resolve_primary_need(state, residual.claim_requirements[0].claim_type)
+            if residual.information_needs:
+                return cls._resolve_primary_need(state, residual.information_needs[0].need_type)
+        contract = state.response_contract
+        if contract:
+            for claim in contract.claim_requirements:
+                if claim.priority == "required":
+                    return cls._resolve_primary_need(state, claim.claim_type)
+            if contract.claim_requirements:
+                return cls._resolve_primary_need(state, contract.claim_requirements[0].claim_type)
+        frame = state.semantic_frame
+        if frame and frame.information_needs:
+            return cls._resolve_primary_need(state, frame.information_needs[0])
+        return None
+
+    @classmethod
+    def planning_context(cls, state: Any) -> dict:
+        """Structured context passed to SearchTaskPlannerAgent LLM."""
+        frame = state.semantic_frame
+        contract = state.response_contract
+        claim_types: list[str] = []
+        if contract:
+            claim_types = [c.claim_type for c in contract.claim_requirements]
+        elif frame and frame.information_needs:
+            claim_types = list(frame.information_needs)
+
+        entities = {}
+        if frame and frame.entities:
+            active = active_place_name(state) if is_comparison_mode(state) else None
+            place_list = [active] if active else list(frame.entities.places or [])
+            entities = {
+                "country": frame.entities.country,
+                "region": frame.entities.region,
+                "city": frame.entities.city,
+                "places": place_list,
+            }
+
+        tried = sorted(cls.tried_from_traces(state))
+        structured = state.structured_result or {}
+        completed_ids = structured.get("completed_search_task_ids") or []
+        attempted_ids = structured.get("attempted_search_task_ids") or []
+
+        official_source_search_templates = _module("app.evidence.official_source_search_templates")
+        OFFICIAL_SEARCH_QUERY_TEMPLATES = official_source_search_templates.OFFICIAL_SEARCH_QUERY_TEMPLATES
+        templates_for_claim = official_source_search_templates.templates_for_claim
+        extract_place_candidates = _module(
+            "app.orchestration.place_disambiguation"
+        ).extract_place_candidates
+
+        place_candidates = extract_place_candidates(list(state.evidence))
+        place = (entities.get("places") or [None])[0] if entities else None
+        city = entities.get("city") if entities else None
+        region = entities.get("region") if entities else None
+        primary = cls.primary_information_need(state)
+
+        anchor_keywords = cls._anchor_keywords(state)
+        if is_comparison_mode(state) and place:
+            anchor_keywords = comparison_search_anchors(place, frame, peer_places=state.comparison_peer_places)
+
+        SearchQueryRewriter = _module("app.planning.search_query_rewriter").SearchQueryRewriter
+
+        rewriter = SearchQueryRewriter.from_planning_context(
+            {
+                "raw_query": state.raw_user_query,
+                "entities": entities,
+                "claim_types": claim_types,
+                "anchor_keywords": anchor_keywords,
+                "disambiguated_place_label": (
+                    disambiguated_place_label(place, city=city, region=region)
+                    if place
+                    else None
+                ),
+                "tried_search_queries": tried,
+                "user_need_residual": (
+                    state.user_need_residual.model_dump() if state.user_need_residual else None
+                ),
+            },
+            state,
+        )
+
+        return {
+            "raw_query": state.raw_user_query,
+            "normalized_request": frame.normalized_request if frame else None,
+            "decision_type": frame.decision_type.value if frame and frame.decision_type else None,
+            "task_family": frame.task_family.value if frame and frame.task_family else None,
+            "entities": entities,
+            "anchor_keywords": anchor_keywords,
+            "comparison_mode": is_comparison_mode(state),
+            "comparison_active_place": active_place_name(state),
+            "comparison_peer_places": list(state.comparison_peer_places or []),
+            "disambiguated_place_label": (
+                disambiguated_place_label(place, city=city, region=region)
+                if place
+                else None
+            ),
+            "claim_types": claim_types,
+            "primary_information_need": cls.primary_information_need(state),
+            "search_purpose_hint": cls.primary_information_need(state),
+            "tried_search_queries": tried,
+            "completed_search_task_ids": completed_ids,
+            "attempted_search_task_ids": attempted_ids,
+            "keyword_search_count": cls.keyword_search_call_count(state),
+            "max_keyword_searches": cls.max_search_attempts(state),
+            "failed_snippets": cls.failed_snippets(state),
+            "place_candidates": place_candidates,
+            "evidence_highlights": cls.evidence_highlights(state),
+            "recent_keyword_search_results": cls.recent_keyword_search_results(state),
+            "subagent_results": (state.structured_result or {}).get("subagent_results", [])[-8:],
+            "user_need_residual": (
+                state.user_need_residual.model_dump() if state.user_need_residual else None
+            ),
+            "agent_tool_definitions": (
+                (state.structured_result or {}).get("_agent_tool_definitions")
+                or []
+            ),
+            "response_contract_summary": contract.user_goal_summary if contract else None,
+            "gated_search_keywords": (
+                list(contract.gated_search_keywords)
+                if contract and contract.gated_search_keywords
+                else cls._anchor_keywords(state)
+            ),
+            "place_ambiguity": (
+                contract.place_ambiguity_context.model_dump()
+                if contract and contract.place_ambiguity_context
+                else (
+                    frame.place_ambiguity.model_dump()
+                    if frame and frame.place_ambiguity
+                    else None
+                )
+            ),
+            "labeled_entities": (
+                list(frame.labeled_entities)
+                if frame and frame.labeled_entities
+                else None
+            ),
+            "official_search_query_templates": OFFICIAL_SEARCH_QUERY_TEMPLATES,
+            "official_search_queries_for_primary_need": templates_for_claim(
+                primary,
+                place_name=place or "",
+                city=city or "",
+                region=region or "",
+                user_query=state.raw_user_query or "",
+            ),
+            "query_rewrite_slots": rewriter.slots_summary(),
+            "query_rewrite_plan": [i.model_dump() for i in rewriter.plan_items(max_items=6)],
+        }
+
+    @staticmethod
+    def dedupe(items) -> list[str]:
+        return list(dict.fromkeys(str(x).strip() for x in items if x and str(x).strip()))
+
+    @staticmethod
+    def tried_from_traces(state: Any) -> set[str]:
+        tried: set[str] = set()
+        for trace in state.tool_traces:
+            q = (trace.input or {}).get("query")
+            if q:
+                tried.add(str(q).strip())
+        structured = state.structured_result or {}
+        for item in structured.get("keyword_search_results") or []:
+            if isinstance(item, dict) and item.get("search_query"):
+                tried.add(str(item["search_query"]).strip())
+        return tried
+
+    @staticmethod
+    def failed_snippets(state: Any) -> list[str]:
+        snippets: list[str] = []
+        for ev in state.evidence:
+            if not _is_evidence(ev):
+                continue
+            for claim in ev.claims:
+                value = str(claim.value)
+                if _NO_HITS.search(value):
+                    snippets.append(value[:160])
+        return snippets[:8]
+
+    @staticmethod
+    def searches_failed(state: Any) -> bool:
+        return bool(ClaimSearchPlanner.failed_snippets(state))
+
+    @staticmethod
+    def search_call_count(state: Any) -> int:
+        return sum(1 for t in state.tool_traces if t.tool_name == "search_mcp")

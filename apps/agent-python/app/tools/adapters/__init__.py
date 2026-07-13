@@ -1,2 +1,7 @@
-﻿"""Shim: canonical implementation in packages/tools."""
-from tools.adapters.__init__ import *  # noqa: F403
+"""Compatibility exports for integrations-owned tool adapters."""
+
+import importlib
+
+MCPToolAdapter = importlib.import_module("app.integrations.mcp.mcp_tool_adapter").MCPToolAdapter
+
+__all__ = ["MCPToolAdapter"]

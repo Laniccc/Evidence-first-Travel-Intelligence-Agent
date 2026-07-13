@@ -8,8 +8,8 @@ from datetime import datetime
 from typing import Any
 
 from app.config import get_settings
-from app.schemas.evidence import Claim, ClaimType, DataFreshness, Evidence, LicenseScope, SourceType
-from app.schemas.official_source import OfficialSourceDiscoveryResult
+from app.evidence.evidence_model import Claim, ClaimType, DataFreshness, Evidence, LicenseScope, SourceType
+from app.evidence.official_source import OfficialSourceDiscoveryResult
 from tools.base import BaseTravelTool
 from tools.official_source.official_source_classifier import OfficialSourceClassifier
 from tools.official_source.url_normalizer import (
@@ -69,7 +69,7 @@ class OfficialSourceDiscoveryTool(BaseTravelTool):
         anchor_terms = list(kwargs.get("anchor_terms") or kwargs.get("aliases") or [])
         ticket_product = kwargs.get("ticket_product")
         try:
-            from app.orchestrator.ticket_relevance_policy import discovery_hit_relevant
+            from app.evidence.ticket_relevance_policy import discovery_hit_relevant
 
             filtered = [
                 h

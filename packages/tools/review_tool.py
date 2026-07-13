@@ -1,4 +1,4 @@
-﻿from app.schemas.evidence import Evidence
+from app.evidence.evidence_model import Evidence
 from tools.base import BaseTool
 from tools.mock_data import MOCK_REVIEWS, build_review_evidence, normalize_place_name
 

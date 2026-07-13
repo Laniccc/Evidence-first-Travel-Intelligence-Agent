@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any
 
-from app.schemas.evidence import Claim, ClaimType, Evidence, LicenseScope, SourceType
+from app.evidence.evidence_model import Claim, ClaimType, Evidence, LicenseScope, SourceType
 
 TICKETLENS_LIMITATION = (
     "TicketLens 提供票务/体验候选信息，具体价格与库存以平台实时页面为准。"

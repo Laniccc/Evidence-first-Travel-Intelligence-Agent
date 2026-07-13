@@ -1,4 +1,4 @@
-﻿from app.schemas.evidence import Claim, ClaimType, Evidence, SourceType
+from app.evidence.evidence_model import Claim, ClaimType, Evidence, SourceType
 from tools.base import BaseTravelTool
 
 

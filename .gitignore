@@ -81,6 +81,7 @@ apps/agent-python/data/*.sqlite3
 data/*.db
 data/*.sqlite
 data/*.sqlite3
+apps/api-java/data/
 
 # --- External crawler/vendor clones ---
 external/

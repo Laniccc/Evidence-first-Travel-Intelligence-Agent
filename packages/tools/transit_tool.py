@@ -1,4 +1,4 @@
-﻿from app.schemas.evidence import Evidence
+from app.evidence.evidence_model import Evidence
 from tools.base import BaseTool
 from tools.mock_data import build_transit_evidence, normalize_place_name
 

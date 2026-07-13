@@ -4,7 +4,7 @@ import json
 from datetime import datetime
 from typing import Any
 
-from app.schemas.evidence import Claim, ClaimType, DataFreshness, Evidence, LicenseScope, SourceType
+from app.evidence.evidence_model import Claim, ClaimType, DataFreshness, Evidence, LicenseScope, SourceType
 from tools.base import BaseTravelTool
 from tools.mcp.adapters.baidu_response_parser import coerce_baidu_payload
 from tools.mcp.adapters.page_content_extractor import text_from_mcp_payload

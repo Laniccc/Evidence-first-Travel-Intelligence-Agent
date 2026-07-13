@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 
-from app.schemas.evidence import Evidence
+from app.evidence.evidence_model import Evidence
 
 
 class BaseTravelTool(ABC):

@@ -2,13 +2,13 @@
 
 import pytest
 
-from app.orchestrator.action_model_controller import ActionModelController
-from app.orchestrator.actions import AgentAction, AgentActionType
-from app.orchestrator.evidence_policy_guard import EvidencePolicyGuard
-from app.orchestrator.state_policy import EVIDENCE_PLANNING_AND_TOOL_USE_POLICY
-from app.orchestrator.states.evidence_planning_and_tool_use_state import EvidencePlanningAndToolUseState
-from app.orchestrator.tool_whitelist_builder import ToolWhitelistBuilder
-from app.schemas.semantic_frame import (
+from app.orchestration.action_model_controller import ActionModelController
+from app.execution.actions import AgentAction, AgentActionType
+from app.evidence.policy_guard import EvidencePolicyGuard
+from app.orchestration.state_policy import EVIDENCE_PLANNING_AND_TOOL_USE_POLICY
+from app.orchestration.states.evidence_planning_and_tool_use import EvidencePlanningAndToolUseState
+from app.planning.tool_whitelist_builder import ToolWhitelistBuilder
+from app.understanding.semantic_frame_model import (
     AnswerMode,
     AnswerModeDecision,
     DecisionType,
@@ -18,8 +18,9 @@ from app.schemas.semantic_frame import (
     TaskFamily,
     TimeScope,
 )
-from app.schemas.travel_task import TravelTask, TravelTaskType
-from app.schemas.user_query import TravelAgentState, UserGoal
+from app.understanding.travel_task import TravelTask, TravelTaskType
+from app.orchestration.travel_agent_state import TravelAgentState
+from app.understanding.user_query import UserGoal
 from app.tools.registry import ToolRegistry
 
 
@@ -97,7 +98,7 @@ def test_policy_guard_rejects_tool_outside_dynamic_whitelist():
 
 
 def test_policy_guard_rejects_knowledge_prior_for_opening_hours():
-    from app.schemas.tool_whitelist import ToolDescriptor
+    from app.planning.tool_whitelist_model import ToolDescriptor
 
     guard = EvidencePolicyGuard()
     state = TravelAgentState(session_id="s", query_id="q", raw_user_query="清水寺今天几点关门")
@@ -138,7 +139,7 @@ def test_model_prior_queue_tries_tools_before_knowledge_prior():
 
 @pytest.mark.asyncio
 async def test_tool_trace_marks_s5_llm_selection_and_whitelist():
-    from app.orchestrator.action_model_controller import ActionModelController
+    from app.orchestration.action_model_controller import ActionModelController
 
     class LlmPickWeather(ActionModelController):
         async def next_action(self, state, policy, prompt_context, step):

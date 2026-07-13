@@ -4,6 +4,22 @@ server:
 spring:
   application:
     name: api-java
+  datasource:
+    url: ${APP_DB_URL:jdbc:h2:file:./data/api-java-db;AUTO_SERVER=TRUE;MODE=PostgreSQL}
+    driver-class-name: org.h2.Driver
+    username: ${APP_DB_USER:sa}
+    password: ${APP_DB_PASSWORD:}
+  h2:
+    console:
+      enabled: ${H2_CONSOLE_ENABLED:true}
+      path: /h2-console
+  jpa:
+    hibernate:
+      ddl-auto: ${APP_JPA_DDL_AUTO:update}
+    open-in-view: false
+    properties:
+      hibernate:
+        format_sql: false
 
 agent:
   base-url: ${AGENT_BASE_URL:http://localhost:8001}
@@ -18,3 +34,9 @@ tool-gateway:
     enabled: ${MCP_SEARCH_ENABLED:false}
     server-url: ${MCP_SEARCH_SERVER_URL:}
     tool-name: ${MCP_SEARCH_TOOL_NAME:public_web_search}
+
+app:
+  security:
+    jwt:
+      secret: ${APP_JWT_SECRET:dev-change-me-to-a-long-random-secret-before-sharing}
+      ttl-minutes: ${APP_JWT_TTL_MINUTES:720}

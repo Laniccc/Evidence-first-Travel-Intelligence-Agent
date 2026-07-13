@@ -4,7 +4,13 @@ import json
 import re
 from typing import Any
 
-from app.schemas.evidence import Claim, ClaimType
+from app.evidence.poi_anchor_extraction import (
+    candidates_are_ambiguous,
+    gate_tokens_from_user_query,
+    resolve_coordinates_from_evidence,
+    resolve_nearby_anchor_coordinates,
+)
+from app.evidence.evidence_model import Claim, ClaimType
 
 _POI_NAME_RE = re.compile(r'"name"\s*:\s*"((?:\\.|[^"\\])*)"')
 _POI_UID_RE = re.compile(r'"uid"\s*:\s*"([^"]+)"')
@@ -214,19 +220,6 @@ def parse_weather(data: Any) -> dict[str, Any]:
         "forecast": result.get("forecasts") or result.get("forecast") or result.get("daily"),
         "summary": json.dumps(result, ensure_ascii=False)[:1200],
     }
-
-
-def _location_key(candidate: dict[str, Any]) -> str:
-    province = (candidate.get("province") or "").strip()
-    city = (candidate.get("city") or "").strip()
-    name = (candidate.get("name") or "").strip()
-    return f"{province}|{city}|{name}"
-
-
-def candidates_are_ambiguous(candidates: list[dict[str, Any]]) -> bool:
-    if len(candidates) < 2:
-        return False
-    return len({_location_key(c) for c in candidates}) > 1
 
 
 def build_map_search_places_args(kwargs: dict[str, Any]) -> dict[str, Any]:
@@ -463,7 +456,6 @@ def pick_baidu_uid_from_evidence(
                     if uid:
                         return str(uid)
     return None
-
 
 def _unwrap_result(data: Any) -> dict[str, Any]:
     data = coerce_baidu_payload(data)
@@ -731,29 +723,6 @@ def ip_location_claims(parsed: dict[str, Any]) -> list[Claim]:
     return claims
 
 
-def _coords_from_claim_value(val: Any) -> dict[str, float] | None:
-    if isinstance(val, dict):
-        lat = val.get("latitude") if val.get("latitude") is not None else val.get("lat")
-        lng = val.get("longitude") if val.get("longitude") is not None else val.get("lng")
-        if lat is not None and lng is not None:
-            try:
-                return {"latitude": float(lat), "longitude": float(lng)}
-            except (TypeError, ValueError):
-                return None
-    if isinstance(val, str) and "results" in val:
-        for item in _extract_pois_from_json_blob(val):
-            if item.get("latitude") is not None and item.get("longitude") is not None:
-                return {"latitude": float(item["latitude"]), "longitude": float(item["longitude"])}
-        lats = _POI_LAT_RE.findall(val)
-        lngs = _POI_LNG_RE.findall(val)
-        if lats and lngs:
-            try:
-                return {"latitude": float(lats[0]), "longitude": float(lngs[0])}
-            except (TypeError, ValueError):
-                return None
-    return None
-
-
 def _uid_from_claim_value(val: Any) -> str | None:
     if isinstance(val, str) and val.strip():
         if val.startswith("{") and "uid" in val:
@@ -761,109 +730,4 @@ def _uid_from_claim_value(val: Any) -> str | None:
             return matches[0] if matches and is_valid_baidu_uid(matches[0]) else None
         text = val.strip()
         return text if is_valid_baidu_uid(text) else None
-    return None
-
-
-_NEARBY_QUALIFIER_PATTERNS: list[tuple[re.Pattern[str], tuple[str, ...]]] = [
-    (re.compile(r"北门|玄武门|和平门"), ("和平门", "玄武门", "北门")),
-    (re.compile(r"解放门"), ("解放门",)),
-    (re.compile(r"情侣园门|情侣园"), ("情侣园",)),
-    (re.compile(r"太平门"), ("太平门",)),
-    (re.compile(r"南门|正大门|主入口"), ("正门", "南门", "主入口")),
-    (re.compile(r"东门"), ("东门",)),
-    (re.compile(r"西门"), ("西门",)),
-]
-
-
-def gate_tokens_from_user_query(user_query: str) -> tuple[str, ...]:
-    return _gate_tokens_from_user_query(user_query)
-
-
-def _gate_tokens_from_user_query(user_query: str) -> tuple[str, ...]:
-    text = (user_query or "").strip()
-    if not text:
-        return ()
-    tokens: list[str] = []
-    for pattern, names in _NEARBY_QUALIFIER_PATTERNS:
-        if pattern.search(text):
-            tokens.extend(names)
-    return tuple(dict.fromkeys(tokens))
-
-
-def _coords_from_place_candidate(item: dict) -> dict[str, float] | None:
-    if not isinstance(item, dict):
-        return None
-    lat, lng = item.get("latitude"), item.get("longitude")
-    if lat is None or lng is None:
-        return None
-    return {"latitude": float(lat), "longitude": float(lng)}
-
-
-def _iter_place_candidate_items(claim) -> list[dict]:
-    bucket = claim.normalized_value or claim.value
-    if isinstance(bucket, dict):
-        bucket = bucket.get("candidates") or []
-    if isinstance(bucket, list):
-        return [item for item in bucket if isinstance(item, dict)]
-    return []
-
-
-def resolve_nearby_anchor_coordinates(
-    evidence_list: list,
-    *,
-    user_query: str = "",
-    structured_result: dict | None = None,
-) -> dict[str, float] | None:
-    """Pick gate/entrance coords when the user names 北门/解放门/etc.; else first anchor."""
-    gate_tokens = _gate_tokens_from_user_query(user_query)
-    if gate_tokens:
-        for ev in evidence_list:
-            for claim in getattr(ev, "claims", []) or []:
-                if claim.claim_type != ClaimType.PLACE_CANDIDATES:
-                    continue
-                for item in _iter_place_candidate_items(claim):
-                    label = " ".join(
-                        filter(
-                            None,
-                            [
-                                str(item.get("name") or ""),
-                                str(item.get("address") or ""),
-                            ],
-                        )
-                    )
-                    if not label:
-                        continue
-                    if any(token in label for token in gate_tokens):
-                        coords = _coords_from_place_candidate(item)
-                        if coords:
-                            return coords
-    return resolve_coordinates_from_evidence(evidence_list, structured_result=structured_result)
-
-
-def resolve_coordinates_from_evidence(
-    evidence_list: list,
-    *,
-    structured_result: dict | None = None,
-) -> dict[str, float] | None:
-    for ev in evidence_list:
-        for claim in getattr(ev, "claims", []) or []:
-            if claim.claim_type == ClaimType.COORDINATES:
-                coords = _coords_from_claim_value(claim.normalized_value) or _coords_from_claim_value(claim.value)
-                if coords:
-                    return coords
-            if claim.claim_type == ClaimType.PLACE_CANDIDATES:
-                for item in _iter_place_candidate_items(claim):
-                    coords = _coords_from_place_candidate(item)
-                    if coords:
-                        return coords
-            if claim.claim_type == ClaimType.TRAVEL_ADVICE:
-                coords = _coords_from_claim_value(claim.value)
-                if coords:
-                    return coords
-    if isinstance(structured_result, dict):
-        resolved = structured_result.get("resolved_coordinates")
-        if isinstance(resolved, dict):
-            coords = _coords_from_claim_value(resolved)
-            if coords:
-                return coords
     return None

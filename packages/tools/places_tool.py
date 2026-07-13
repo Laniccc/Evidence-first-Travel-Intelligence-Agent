@@ -1,5 +1,5 @@
-﻿from app.schemas.evidence import Evidence
-from app.schemas.place import PlaceInfo
+from app.evidence.evidence_model import Evidence
+from app.understanding.place_info import PlaceInfo
 from tools.base import BaseTool
 from tools.mock_data import PLACE_REGISTRY, normalize_place_name
 
