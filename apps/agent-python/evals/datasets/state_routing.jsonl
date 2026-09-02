@@ -1,0 +1,8 @@
+{"case_id":"route-fact-hours","query":"故宫开放时间是什么","expected_terminal":"fact_query"}
+{"case_id":"route-fact-hours-2","query":"颐和园几点开放","expected_terminal":"fact_query"}
+{"case_id":"route-suitability-elderly","query":"故宫适合老人参观吗","expected_terminal":"suitability"}
+{"case_id":"route-suitability-access","query":"颐和园有无障碍通道吗","expected_terminal":"suitability"}
+{"case_id":"route-comparison","query":"比较故宫和颐和园哪个更适合老人","expected_terminal":"comparison"}
+{"case_id":"route-comparison-2","query":"天坛和八达岭长城哪个更适合轻松参观","expected_terminal":"comparison"}
+{"case_id":"route-pruned-itinerary","query":"帮我安排故宫一日游行程","expected_terminal":"clarification"}
+{"case_id":"route-missing-place","query":"这个景点开放时间是什么","expected_terminal":"clarification"}

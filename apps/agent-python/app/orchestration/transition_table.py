@@ -5,7 +5,12 @@ from app.orchestration.state_contracts import AgentState
 
 ALLOWED_TRANSITIONS: dict[AgentState, frozenset[AgentState]] = {
     AgentState.INGRESS: frozenset(
-        {AgentState.CONTEXT, AgentState.SAFE_FAILURE, AgentState.FAILED}
+        {
+            AgentState.CONTEXT,
+            AgentState.DELIVER,
+            AgentState.SAFE_FAILURE,
+            AgentState.FAILED,
+        }
     ),
     AgentState.CONTEXT: frozenset(
         {AgentState.UNDERSTAND, AgentState.SAFE_FAILURE, AgentState.FAILED}
@@ -29,15 +34,23 @@ ALLOWED_TRANSITIONS: dict[AgentState, frozenset[AgentState]] = {
         }
     ),
     AgentState.FACT_QUERY: frozenset(
-        {AgentState.RAG_RETRIEVE, AgentState.SAFE_FAILURE, AgentState.FAILED}
+        {AgentState.RETRIEVAL_PLAN, AgentState.SAFE_FAILURE, AgentState.FAILED}
     ),
     AgentState.SUITABILITY: frozenset(
-        {AgentState.RAG_RETRIEVE, AgentState.SAFE_FAILURE, AgentState.FAILED}
+        {AgentState.RETRIEVAL_PLAN, AgentState.SAFE_FAILURE, AgentState.FAILED}
     ),
     AgentState.COMPARISON: frozenset(
-        {AgentState.RAG_RETRIEVE, AgentState.SAFE_FAILURE, AgentState.FAILED}
+        {AgentState.RETRIEVAL_PLAN, AgentState.SAFE_FAILURE, AgentState.FAILED}
     ),
-    AgentState.RAG_RETRIEVE: frozenset(
+    AgentState.RETRIEVAL_PLAN: frozenset(
+        {
+            AgentState.HYBRID_RETRIEVE,
+            AgentState.CLARIFICATION,
+            AgentState.SAFE_FAILURE,
+            AgentState.FAILED,
+        }
+    ),
+    AgentState.HYBRID_RETRIEVE: frozenset(
         {
             AgentState.EVIDENCE_EVALUATE,
             AgentState.LIVE_GAP_FILL,

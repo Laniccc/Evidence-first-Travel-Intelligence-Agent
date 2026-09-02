@@ -12,6 +12,7 @@ from typing import Iterator
 from uuid import uuid4
 
 from app.evidence.knowledge.models import (
+    Attraction,
     DocumentVersion,
     IngestResult,
     IndexGeneration,
@@ -69,9 +70,12 @@ class KnowledgeRepository:
                 ) VALUES (?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(attraction_id) DO UPDATE SET
                     name = excluded.name,
-                    aliases_json = excluded.aliases_json,
-                    city = excluded.city,
-                    country = excluded.country,
+                    aliases_json = CASE
+                        WHEN excluded.aliases_json = '[]' THEN attraction.aliases_json
+                        ELSE excluded.aliases_json
+                    END,
+                    city = COALESCE(excluded.city, attraction.city),
+                    country = COALESCE(excluded.country, attraction.country),
                     updated_at = excluded.updated_at
                 """,
                 (
@@ -591,6 +595,46 @@ class KnowledgeRepository:
             "attraction": dict(attraction),
             "versions": [dict(row) for row in versions],
         }
+
+    def find_attractions_in_text(self, text: str, *, limit: int = 2) -> list[Attraction]:
+        """Resolve mentions from the governed attraction catalog, not a code registry."""
+        normalized_text = text.casefold()
+        with self._connect() as connection:
+            rows = connection.execute(
+                "SELECT attraction_id, name, aliases_json, city, country FROM attraction"
+            ).fetchall()
+
+        matches: list[tuple[int, int, Attraction]] = []
+        removable_suffixes = ("博物院", "博物馆", "景区", "公园")
+        for row in rows:
+            aliases = [row["name"], *json.loads(row["aliases_json"] or "[]")]
+            for suffix in removable_suffixes:
+                if row["name"].endswith(suffix) and len(row["name"]) > len(suffix):
+                    aliases.append(row["name"][: -len(suffix)])
+            candidates = sorted({item for item in aliases if item}, key=len, reverse=True)
+            found = [
+                (normalized_text.find(alias.casefold()), len(alias))
+                for alias in candidates
+                if alias.casefold() in normalized_text
+            ]
+            if not found:
+                continue
+            position, matched_length = min(found, key=lambda item: (item[0], -item[1]))
+            matches.append(
+                (
+                    position,
+                    -matched_length,
+                    Attraction(
+                        attraction_id=row["attraction_id"],
+                        name=row["name"],
+                        aliases=json.loads(row["aliases_json"] or "[]"),
+                        city=row["city"],
+                        country=row["country"],
+                    ),
+                )
+            )
+        matches.sort(key=lambda item: (item[0], item[1]))
+        return [item[2] for item in matches[:limit]]
 
     @staticmethod
     def _version_from_row(row: sqlite3.Row) -> DocumentVersion:

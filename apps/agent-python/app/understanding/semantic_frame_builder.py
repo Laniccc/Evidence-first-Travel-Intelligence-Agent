@@ -221,9 +221,9 @@ class SemanticFrameBuilder:
     def _requires_live_data(cls, text: str, needs: list[str], time_scope: TimeScope) -> bool:
         if time_scope == TimeScope.CURRENT:
             return True
-        return any(n in {"weather_today", "current_crowd", "opening_hours"} for n in needs) and _TODAY_PATTERN.search(
-            text
-        )
+        return any(
+            n in {"weather_today", "current_crowd", "opening_hours"} for n in needs
+        ) and bool(_TODAY_PATTERN.search(text))
 
     @classmethod
     def _requires_exact_fact(
@@ -258,6 +258,8 @@ class SemanticFrameBuilder:
 
     @classmethod
     def _infer_task_family(cls, task_type: TravelTaskType, decision_type: DecisionType) -> TaskFamily:
+        if decision_type == DecisionType.FACT_LOOKUP:
+            return TaskFamily.FACT_LOOKUP
         mapping = {
             TravelTaskType.CROWD_INQUIRY: TaskFamily.CROWD,
             TravelTaskType.COMPARE_PLACES: TaskFamily.COMPARISON,

@@ -110,6 +110,7 @@ class NormalizedUserRequest(BaseModel):
         "risk_check",
         "route_plan",
         "nearby_search",
+        "fact_lookup",
         "opening_hours",
         "ticket_price",
         "crowd_level",

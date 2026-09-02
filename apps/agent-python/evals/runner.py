@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 import json
 import tempfile
 from datetime import datetime
@@ -26,7 +27,14 @@ from app.evidence.retrieval.lexical import SQLiteLexicalRetriever
 from app.evidence.retrieval.reranker import filter_and_rerank
 from app.evidence.retrieval.fusion import reciprocal_rank_fusion
 from app.integrations.qdrant.vector_index import QdrantVectorIndex
+from app.orchestration.state_contracts import AgentState, StateContext
+from app.orchestration.states.context_loading import ContextLoadingHandler
+from app.orchestration.states.ingress import IngressHandler
+from app.orchestration.states.llm_understanding import UnderstandingHandler
+from app.orchestration.states.routing import RouteHandler
+from app.orchestration.transition_table import is_allowed_transition
 from evals.graders.retrieval import RetrievalCaseResult, grade_retrieval
+from evals.graders.state_path import StatePathCaseResult, grade_state_paths
 from evals.graders.versioning import VersionCaseResult, grade_versioning
 
 
@@ -34,11 +42,14 @@ ROOT = Path(__file__).resolve().parent
 FIXTURE_PATH = ROOT / "fixtures" / "knowledge.json"
 RETRIEVAL_DATASET = ROOT / "datasets" / "retrieval.jsonl"
 VERSIONING_DATASET = ROOT / "datasets" / "versioning.jsonl"
+STATE_ROUTING_DATASET = ROOT / "datasets" / "state_routing.jsonl"
 
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--suite", choices=("retrieval", "versioning"), required=True)
+    parser.add_argument(
+        "--suite", choices=("retrieval", "versioning", "state_routing"), required=True
+    )
     parser.add_argument("--mode", choices=("lexical", "dense", "hybrid"), default="hybrid")
     parser.add_argument("--offline", action="store_true")
     parser.add_argument("--profile", choices=("offline", "real-embedding"), default="offline")
@@ -278,11 +289,70 @@ def _versioning_suite(environment) -> dict:
     }
 
 
+async def _run_routing_case(row: dict, repository: KnowledgeRepository) -> StatePathCaseResult:
+    context = StateContext(
+        run_id=f"eval-{row['case_id']}",
+        session_id=f"session-{row['case_id']}",
+        query_id=row["case_id"],
+        raw_query=row["query"],
+    )
+    path = [AgentState.INGRESS]
+    handlers = {
+        AgentState.INGRESS: IngressHandler(),
+        AgentState.CONTEXT: ContextLoadingHandler(),
+        AgentState.UNDERSTAND: UnderstandingHandler(
+            attraction_matcher=repository.find_attractions_in_text
+        ),
+        AgentState.ROUTE: RouteHandler(),
+    }
+    state = AgentState.INGRESS
+    illegal = 0
+    while state in handlers:
+        result = await handlers[state].run(context)
+        context.artifacts[state.value] = result.output
+        if not is_allowed_transition(state, result.next_state):
+            illegal += 1
+            break
+        state = result.next_state
+        path.append(state)
+    return StatePathCaseResult(
+        case_id=row["case_id"],
+        expected_terminal=row["expected_terminal"],
+        actual_terminal=state.value,
+        illegal_transition_count=illegal,
+    )
+
+
+def _state_routing_suite() -> dict:
+    rows = _load_jsonl(STATE_ROUTING_DATASET)
+    with tempfile.TemporaryDirectory(prefix="routing-eval-") as temp_dir:
+        repository = KnowledgeRepository(Path(temp_dir) / "knowledge.sqlite3")
+        _seed(repository)
+        results = [asyncio.run(_run_routing_case(row, repository)) for row in rows]
+        return {
+            "metrics": grade_state_paths(results).model_dump(),
+            "cases": [item.model_dump() for item in results],
+        }
+
+
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     if args.offline and args.profile == "real-embedding":
         raise SystemExit("--offline cannot be combined with --profile real-embedding")
     profile = "offline" if args.offline else args.profile
+    if args.suite == "state_routing":
+        payload = {
+            "suite": args.suite,
+            "mode": "deterministic",
+            "profile": "offline",
+            **_state_routing_suite(),
+        }
+        args.report.parent.mkdir(parents=True, exist_ok=True)
+        args.report.write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+        print(json.dumps(payload["metrics"], ensure_ascii=False, indent=2))
+        return 0
     environment = _environment(profile=profile)
     temp_dir, client, _, corpus, _, _, generation, _, _, _ = environment
     try:

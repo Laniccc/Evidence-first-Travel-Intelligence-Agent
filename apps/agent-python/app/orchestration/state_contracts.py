@@ -20,7 +20,8 @@ class AgentState(StrEnum):
     FACT_QUERY = "fact_query"
     SUITABILITY = "suitability"
     COMPARISON = "comparison"
-    RAG_RETRIEVE = "rag_retrieve"
+    RETRIEVAL_PLAN = "retrieval_plan"
+    HYBRID_RETRIEVE = "hybrid_retrieve"
     LIVE_GAP_FILL = "live_gap_fill"
     EVIDENCE_EVALUATE = "evidence_evaluate"
     COMPOSE = "compose"
@@ -66,6 +67,8 @@ class StateContext(BaseModel):
     session_id: str
     query_id: str
     raw_query: str = Field(exclude=True)
+    user_context: dict[str, Any] = Field(default_factory=dict, exclude=True)
+    idempotency_key: str | None = None
     trace_id: str | None = None
     current_state: AgentState = AgentState.INGRESS
     artifacts: dict[str, Any] = Field(default_factory=dict)

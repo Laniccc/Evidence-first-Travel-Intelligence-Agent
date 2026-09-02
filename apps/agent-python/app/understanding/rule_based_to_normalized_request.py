@@ -8,6 +8,7 @@ from .normalized_user_request import (
     NormalizedUserConstraints,
     NormalizedUserRequest,
 )
+from .place_candidate import PlaceCandidate
 from .rule_based_understanding import RuleBasedUnderstanding
 from .semantic_frame_builder import SemanticFrameBuilder
 from .user_query import UserContext
@@ -27,10 +28,18 @@ class RuleBasedToNormalizedRequest:
         raw_query: str,
         context: ConversationContext | None,
         user_ctx: UserContext | None = None,
+        place_candidates: list[PlaceCandidate] | None = None,
     ) -> NormalizedUserRequest:
         ctx = context or ConversationContext()
-        qu = RuleBasedUnderstanding.understand(raw_query, ctx, user_ctx)
-        frame = qu.semantic_frame or SemanticFrameBuilder.build(raw_query, qu)
+        qu = RuleBasedUnderstanding.understand(
+            raw_query,
+            ctx,
+            user_ctx,
+            place_candidates=place_candidates,
+        )
+        frame = qu.semantic_frame or SemanticFrameBuilder.build(
+            raw_query, qu, place_candidates
+        )
 
         entities: list[NormalizedEntity] = []
         if frame.entities.country:

@@ -61,6 +61,7 @@ class RuleBasedUnderstanding:
         raw_query: str,
         context: ConversationContext,
         user_ctx: UserContext | None = None,
+        place_candidates: list[PlaceCandidate] | None = None,
     ) -> QueryUnderstandingResult:
         text = raw_query.strip()
         resolved: dict[str, str] = {}
@@ -76,7 +77,11 @@ class RuleBasedUnderstanding:
                 if concern_key not in concerns:
                     concerns.append(concern_key)
 
-        candidates = PlaceResolver.resolve_sync(text, context)
+        candidates = (
+            place_candidates
+            if place_candidates is not None
+            else PlaceResolver.resolve_sync(text, context)
+        )
         place_from_query = [
             c.canonical_name or c.mention for c in candidates if c.is_poi and (c.canonical_name or c.mention)
         ]
