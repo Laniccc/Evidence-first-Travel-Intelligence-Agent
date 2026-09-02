@@ -247,7 +247,15 @@ class TravelAgentStateMachine:
         self._agent_core_record_answer_draft(state, compose_kwargs)
         return state
 
-    async def run(self, query: str, user_context: dict | None = None, session_id: str | None = None) -> TravelQueryResponse:
+    async def run(
+        self,
+        query: str,
+        user_context: dict | None = None,
+        session_id: str | None = None,
+        *,
+        debug: bool = False,
+        trace_id: str | None = None,
+    ) -> TravelQueryResponse:
         return await RootAgentSupervisor(self).run(
             query=query,
             user_context=user_context,

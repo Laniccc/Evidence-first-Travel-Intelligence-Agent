@@ -9,7 +9,15 @@ from app.orchestration.state_machine import TravelAgentStateMachine
 
 
 class AgentStateMachine(Protocol):
-    async def run(self, query: str, user_context: dict) -> Any:
+    async def run(
+        self,
+        query: str,
+        user_context: dict,
+        session_id: str | None = None,
+        *,
+        debug: bool = False,
+        trace_id: str | None = None,
+    ) -> Any:
         ...
 
 
@@ -34,11 +42,15 @@ class AgentRunService:
         result = await self._state_machine.run(
             session_context.query,
             session_context.to_agent_user_context(),
+            session_context.session_id,
+            debug=payload.debug,
+            trace_id=None,
         )
-        try:
-            self._debug_writer(session_context.query, result)
-        except Exception as exc:
-            self._logger.warning("debug_session_log_failed", error=str(exc))
+        if payload.debug:
+            try:
+                self._debug_writer(session_context.query, result)
+            except Exception as exc:
+                self._logger.warning("debug_session_log_failed", error=str(exc))
         return AgentQueryResponse.from_legacy(result, session_id=session_context.session_id)
 
 

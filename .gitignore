@@ -78,6 +78,7 @@ apps/agent-python/.cache/
 apps/agent-python/data/*.db
 apps/agent-python/data/*.sqlite
 apps/agent-python/data/*.sqlite3
+apps/agent-python/evals/reports/generated/
 data/*.db
 data/*.sqlite
 data/*.sqlite3

@@ -31,8 +31,16 @@ class FakeStateMachine:
     def __init__(self):
         self.calls = []
 
-    async def run(self, query: str, user_context: dict):
-        self.calls.append((query, user_context))
+    async def run(
+        self,
+        query: str,
+        user_context: dict,
+        session_id: str | None = None,
+        *,
+        debug: bool = False,
+        trace_id: str | None = None,
+    ):
+        self.calls.append((query, user_context, session_id, debug, trace_id))
         return LegacyResult()
 
 
@@ -69,7 +77,7 @@ def test_response_from_legacy_keeps_java_consumed_fields_stable():
 
 
 @pytest.mark.asyncio
-async def test_agent_run_service_delegates_to_state_machine_and_writes_debug_log():
+async def test_agent_run_service_delegates_to_state_machine_without_debug_log_by_default():
     state_machine = FakeStateMachine()
     debug_calls = []
     service = AgentRunService(
@@ -89,9 +97,10 @@ async def test_agent_run_service_delegates_to_state_machine_and_writes_debug_log
         (
             "Plan a Java internship trip",
             {"user_id": "user-1", "session_id": "session-2"},
+            "session-2",
+            False,
+            None,
         )
     ]
-    assert len(debug_calls) == 1
-    assert debug_calls[0][0] == "Plan a Java internship trip"
-    assert isinstance(debug_calls[0][1], LegacyResult)
+    assert debug_calls == []
     assert response.session_id == "session-2"
