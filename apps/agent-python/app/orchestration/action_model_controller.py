@@ -47,6 +47,16 @@ is_ticket_provider_tool = legacy_attr(
 )
 parse_llm_json = legacy_attr(".".join(["app", "utils", "llm_json"]), "parse_llm_json")
 get_settings = legacy_config_attr("get_settings")
+_UNSET = object()
+
+
+def _optional_llm_client():
+    try:
+        return LLMClient()
+    except RuntimeError as exc:
+        if "LLM API key required" not in str(exc):
+            raise
+        return None
 
 
 class ActionModelController:
@@ -67,8 +77,8 @@ class ActionModelController:
         }
     )
 
-    def __init__(self, llm_client=None) -> None:
-        self.llm = llm_client or LLMClient()
+    def __init__(self, llm_client=_UNSET) -> None:
+        self.llm = _optional_llm_client() if llm_client is _UNSET else llm_client
         self.s5_orchestrator = S5EvidenceOrchestratorAgent(self.llm)
 
     async def next_action(

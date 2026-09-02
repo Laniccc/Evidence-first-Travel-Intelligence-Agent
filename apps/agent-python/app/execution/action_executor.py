@@ -8,6 +8,7 @@ from .actions import ActionResult, AgentAction, AgentActionType
 from .entity_resolution import EntityResolutionAgent
 
 logger = logging.getLogger(__name__)
+_UNSET = object()
 
 
 def _module(name: str):
@@ -29,8 +30,16 @@ def _execution_agent_class(module_name: str, class_name: str):
 class ActionExecutor:
     """Execute validated actions — tools, subagents, clarification."""
 
-    def __init__(self, llm_client=None, tools=None) -> None:
-        self.llm = llm_client or _llm_client_class()()
+    def __init__(self, llm_client=_UNSET, tools=None) -> None:
+        if llm_client is _UNSET:
+            try:
+                self.llm = _llm_client_class()()
+            except RuntimeError as exc:
+                if "LLM API key required" not in str(exc):
+                    raise
+                self.llm = None
+        else:
+            self.llm = llm_client
         self.tools = tools
         self._qu_agent = _query_understanding_agent_class()(self.llm)
 

@@ -7,7 +7,7 @@ from uuid import NAMESPACE_URL, uuid5
 
 from qdrant_client import QdrantClient, models
 
-from app.evidence.retrieval.contracts import VectorFilters, VectorHit, VectorPoint
+from app.contracts.vector_index import VectorFilters, VectorHit, VectorPoint
 
 
 class QdrantVectorIndex:

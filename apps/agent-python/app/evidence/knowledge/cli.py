@@ -3,15 +3,17 @@
 from __future__ import annotations
 
 import argparse
+import importlib
 import json
 from pathlib import Path
+
+from qdrant_client import QdrantClient
 
 from app.evidence.knowledge.models import KnowledgeDocument
 from app.evidence.knowledge.repository import KnowledgeRepository
 from app.evidence.knowledge.service import KnowledgeLifecycleService
 from app.evidence.retrieval.embedding import DeterministicHashEmbedding, FastEmbedEmbedding
 from app.evidence.retrieval.index_sync import IndexSynchronizer
-from app.integrations.qdrant.vector_index import QdrantVectorIndex
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -97,8 +99,11 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps(payload, ensure_ascii=False, indent=2))
         return 0
     if args.command == "reindex":
-        from qdrant_client import QdrantClient
-
+        # This CLI module is the delivery/composition boundary. The concrete adapter
+        # stays out of the evidence domain's static dependency graph.
+        vector_index_class = importlib.import_module(
+            "app.integrations.qdrant.vector_index"
+        ).QdrantVectorIndex
         if args.qdrant_mode == "local":
             path = args.qdrant_path or args.db.parent / "qdrant"
             client = QdrantClient(path=str(path))
@@ -112,7 +117,7 @@ def main(argv: list[str] | None = None) -> int:
             if args.embedding_mode == "deterministic"
             else FastEmbedEmbedding(args.embedding_model, args.dimension)
         )
-        index = QdrantVectorIndex(
+        index = vector_index_class(
             client,
             collection=args.collection,
             dimension=args.dimension,

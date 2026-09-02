@@ -62,6 +62,7 @@ is_day_trip_query = evidence_is_day_trip_query
 parse_llm_json = legacy_attr(".".join(["app", "utils", "llm_json"]), "parse_llm_json")
 
 logger = logging.getLogger(__name__)
+_UNSET = object()
 
 
 def _route_endpoints_from_text(text: str) -> tuple[str | None, str | None]:
@@ -116,8 +117,16 @@ _REPAIR = "\n\nReturn ONLY valid JSON matching the schema above."
 
 
 class S5EvidenceOrchestratorAgent:
-    def __init__(self, llm_client: LLMClient | None = None) -> None:
-        self.llm = llm_client or LLMClient()
+    def __init__(self, llm_client=_UNSET) -> None:
+        if llm_client is _UNSET:
+            try:
+                self.llm = LLMClient()
+            except RuntimeError as exc:
+                if "LLM API key required" not in str(exc):
+                    raise
+                self.llm = None
+        else:
+            self.llm = llm_client
 
     async def next_action(
         self,

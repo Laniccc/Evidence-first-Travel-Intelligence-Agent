@@ -152,7 +152,7 @@ TARGET_LAYER_IMPORT_RULES = {
     "planning": {"understanding", "context", "contracts", "evidence"},
     "execution": {"planning", "tools", "integrations", "observability"},
     "tools": {"contracts", "evidence"},
-    "integrations": {"config"},
+    "integrations": {"config", "contracts"},
     "evidence": {"contracts", "evidence"},
     "composition": {"evidence", "contracts"},
     "orchestration": {

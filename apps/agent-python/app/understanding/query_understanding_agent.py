@@ -19,7 +19,7 @@ class QueryUnderstandingAgent:
 
     def __init__(self, llm_client) -> None:
         self.llm = llm_client
-        self.llm_agent = LLMUnderstandingSubAgent(llm_client)
+        self.llm_agent = LLMUnderstandingSubAgent(llm_client) if llm_client else None
         self.settings = get_settings()
 
     async def run(
@@ -30,7 +30,7 @@ class QueryUnderstandingAgent:
         user_ctx: UserContext | None = None,
         place_candidates: list | None = None,
     ) -> QueryUnderstandingResult:
-        if self.llm._should_use_anthropic():
+        if self.llm and self.llm._should_use_anthropic():
             normalized = await self.llm_agent.run(
                 raw_query, conversation_context, user_ctx, supported_regions
             )
