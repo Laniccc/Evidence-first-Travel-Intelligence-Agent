@@ -51,7 +51,9 @@ class QdrantVectorIndex:
             payload = point.model_dump(exclude={"vector"})
             records.append(
                 models.PointStruct(
-                    id=self.point_id(f"{point.corpus_version}:{point.chunk_id}"),
+                    id=self.point_id(
+                        f"{point.corpus_version}:{point.embedding_model}:{point.chunk_id}"
+                    ),
                     vector=point.vector,
                     payload=payload,
                 )
@@ -64,9 +66,15 @@ class QdrantVectorIndex:
                 wait=True,
             )
 
-    def delete(self, chunk_ids: Iterable[str], *, corpus_version: str) -> None:
+    def delete(
+        self,
+        chunk_ids: Iterable[str],
+        *,
+        corpus_version: str,
+        embedding_model: str,
+    ) -> None:
         ids = [
-            self.point_id(f"{corpus_version}:{chunk_id}")
+            self.point_id(f"{corpus_version}:{embedding_model}:{chunk_id}")
             for chunk_id in chunk_ids
         ]
         if ids:
@@ -150,6 +158,13 @@ class QdrantVectorIndex:
                 models.FieldCondition(
                     key="corpus_version",
                     match=models.MatchValue(value=filters.corpus_version),
+                )
+            )
+        if filters.embedding_model:
+            must.append(
+                models.FieldCondition(
+                    key="embedding_model",
+                    match=models.MatchValue(value=filters.embedding_model),
                 )
             )
         return models.Filter(must=must)

@@ -1,6 +1,6 @@
 from datetime import datetime
 from enum import Enum
-from typing import Any
+from typing import Any, Literal
 from uuid import uuid4
 
 from pydantic import BaseModel, Field
@@ -95,6 +95,19 @@ class Claim(BaseModel):
     confidence: float = Field(default=0.7, ge=0.0, le=1.0)
 
 
+class EvidenceProvenance(BaseModel):
+    source_id: str
+    document_version_id: str
+    chunk_id: str
+    content_hash: str
+    locator: str | None = None
+    valid_from: datetime | None = None
+    valid_to: datetime | None = None
+    retrieval_channels: list[Literal["lexical", "dense"]]
+    retrieval_score: float
+    corpus_version: str
+
+
 class Evidence(BaseModel):
     evidence_id: str = Field(default_factory=lambda: str(uuid4()))
     source_name: str
@@ -110,3 +123,4 @@ class Evidence(BaseModel):
     confidence: float = Field(default=0.7, ge=0.0, le=1.0)
     claims: list[Claim] = Field(default_factory=list)
     limitations: list[str] = Field(default_factory=list)
+    provenance: EvidenceProvenance | None = None

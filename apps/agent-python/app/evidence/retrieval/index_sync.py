@@ -54,6 +54,11 @@ class IndexSynchronizer:
                     document_version_id=chunk.document_version_id,
                     content_hash=chunk.content_hash,
                     corpus_version=corpus_version,
+                    embedding_model=self.embedder.model_name,
+                    source_id=chunk.source_id,
+                    source_authority=chunk.source_authority,
+                    valid_from=chunk.valid_from,
+                    valid_to=chunk.valid_to,
                 )
                 for chunk, vector in zip(chunks, vectors, strict=True)
             ]
@@ -63,7 +68,7 @@ class IndexSynchronizer:
                     generation.generation_id,
                     chunk_id=chunk.chunk_id,
                     qdrant_point_id=self.vector_index.point_id(
-                        f"{corpus_version}:{chunk.chunk_id}"
+                        f"{corpus_version}:{self.embedder.model_name}:{chunk.chunk_id}"
                     ),
                     content_hash=chunk.content_hash,
                 )
@@ -104,6 +109,7 @@ class IndexSynchronizer:
                 self.vector_index.delete(
                     old_chunk_ids,
                     corpus_version=active.corpus_version,
+                    embedding_model=active.embedding_model,
                 )
                 deleted_count = self.repository.mark_generation_chunks_deleted(
                     active.generation_id
@@ -136,6 +142,7 @@ class IndexSynchronizer:
             VectorFilters(
                 attraction_ids=list(dict.fromkeys(chunk.attraction_id for chunk in chunks)),
                 corpus_version=corpus_version,
+                embedding_model=self.embedder.model_name,
             )
         )
 

@@ -41,21 +41,22 @@ class FakeVectorIndex:
         if self.fail_upsert:
             raise TimeoutError("qdrant timeout")
         for point in points:
-            self.points[(point.corpus_version, point.chunk_id)] = point
+            self.points[(point.corpus_version, point.embedding_model, point.chunk_id)] = point
 
     def count(self, filters=None) -> int:
         if filters is None or filters.corpus_version is None:
             return len(self.points)
         return sum(
             corpus_version == filters.corpus_version
+            and (filters.embedding_model is None or embedding_model == filters.embedding_model)
             and point.attraction_id in filters.attraction_ids
-            for (corpus_version, _), point in self.points.items()
+            for (corpus_version, embedding_model, _), point in self.points.items()
         )
 
-    def delete(self, chunk_ids, *, corpus_version: str) -> None:
+    def delete(self, chunk_ids, *, corpus_version: str, embedding_model: str) -> None:
         for chunk_id in chunk_ids:
-            self.points.pop((corpus_version, chunk_id), None)
-            self.deleted.append((corpus_version, chunk_id))
+            self.points.pop((corpus_version, embedding_model, chunk_id), None)
+            self.deleted.append((corpus_version, embedding_model, chunk_id))
 
 
 @pytest.fixture
@@ -139,7 +140,7 @@ def test_successful_rebuild_removes_superseded_generation_points(repo):
     result = synchronizer.rebuild(corpus_version="corpus-2")
 
     assert result.status == "active"
-    assert ("corpus-1", old_chunk_id) in vector_index.deleted
+    assert ("corpus-1", "deterministic-hash-v1", old_chunk_id) in vector_index.deleted
     assert repo.list_generation_chunk_ids(old_generation_id) == []
     assert repo.list_generation_chunk_ids(result.generation_id)
     assert all(key[0] == "corpus-2" for key in vector_index.points)
@@ -161,6 +162,7 @@ def test_rebuild_works_with_qdrant_local_mode(repo):
             VectorFilters(
                 attraction_ids=["forbidden-city"],
                 corpus_version="corpus-local",
+                embedding_model="deterministic-hash-v1",
             )
         ) == 1
     finally:

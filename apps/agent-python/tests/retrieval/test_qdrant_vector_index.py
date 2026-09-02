@@ -23,6 +23,9 @@ def point(
         document_version_id="version-1",
         content_hash=f"hash-{chunk_id}",
         corpus_version=corpus_version,
+        embedding_model="fake-v1",
+        source_id="source-1",
+        source_authority=1.0,
     )
 
 
@@ -50,6 +53,7 @@ def test_qdrant_index_filters_and_round_trips_payload(client):
             attraction_ids=["forbidden-city"],
             fact_types=["reservation"],
             corpus_version="corpus-1",
+            embedding_model="fake-v1",
         ),
         limit=3,
     )
@@ -57,6 +61,7 @@ def test_qdrant_index_filters_and_round_trips_payload(client):
     assert [hit.chunk_id for hit in hits] == ["chunk-1"]
     assert hits[0].payload["document_version_id"] == "version-1"
     assert hits[0].payload["content_hash"] == "hash-chunk-1"
+    assert hits[0].payload["embedding_model"] == "fake-v1"
     assert index.count() == 3
     assert index.health() is True
 

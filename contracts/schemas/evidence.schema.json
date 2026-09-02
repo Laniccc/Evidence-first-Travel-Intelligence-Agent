@@ -38,7 +38,13 @@
     "source_url": { "type": ["string", "null"] },
     "country": { "type": "string" },
     "city": { "type": ["string", "null"] },
-    "place_name": { "type": ["string", "null"] }
+    "place_name": { "type": ["string", "null"] },
+    "provenance": {
+      "oneOf": [
+        { "$ref": "#/$defs/EvidenceProvenance" },
+        { "type": "null" }
+      ]
+    }
   },
   "$defs": {
     "Claim": {
@@ -55,6 +61,36 @@
           "minimum": 0,
           "maximum": 1
         }
+      }
+    },
+    "EvidenceProvenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source_id",
+        "document_version_id",
+        "chunk_id",
+        "content_hash",
+        "retrieval_channels",
+        "retrieval_score",
+        "corpus_version"
+      ],
+      "properties": {
+        "source_id": { "type": "string" },
+        "document_version_id": { "type": "string" },
+        "chunk_id": { "type": "string" },
+        "content_hash": { "type": "string" },
+        "locator": { "type": ["string", "null"] },
+        "valid_from": { "type": ["string", "null"], "format": "date-time" },
+        "valid_to": { "type": ["string", "null"], "format": "date-time" },
+        "retrieval_channels": {
+          "type": "array",
+          "items": { "enum": ["lexical", "dense"] },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "retrieval_score": { "type": "number" },
+        "corpus_version": { "type": "string" }
       }
     }
   }
