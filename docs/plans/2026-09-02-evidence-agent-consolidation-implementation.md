@@ -1,5 +1,7 @@
 # Evidence-first Travel Agent Consolidation Implementation Plan
 
+> **状态：已被修订。** Task 1–3 已完成；Task 4 以后由 `2026-09-02-agentic-rag-revised-implementation.md` 取代。修订原因是将 FTS5-only 检索升级为 SQLite + Qdrant Hybrid RAG，并明确不采用 Neo4j/知识图谱。
+
 > **For Claude:** REQUIRED SUB-SKILL: Use `executing-plans` to implement this plan task-by-task.
 
 **Goal:** 将当前“大而散、运行链与测试链脱节”的旅行 Agent 收敛为一个只支持景点事实问答、适合度建议、景点比较和多轮澄清的可审计系统，并用最小动态 RAG 与离线 Eval 证明其可靠性。
