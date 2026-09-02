@@ -6,7 +6,7 @@ import argparse
 import asyncio
 import json
 import tempfile
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 
 from qdrant_client import QdrantClient
@@ -19,12 +19,19 @@ from app.evidence.knowledge.models import (
     SourceType,
 )
 from app.evidence.knowledge.repository import KnowledgeRepository
+from app.evidence.claim_decision import evaluate_claims
 from app.evidence.retrieval.contracts import RetrievalPlan, VectorPoint
 from app.evidence.retrieval.embedding import DeterministicHashEmbedding, FastEmbedEmbedding
 from app.evidence.retrieval.hybrid import HybridRetriever, QdrantDenseRetriever
 from app.evidence.retrieval.index_sync import IndexSynchronizer
 from app.evidence.retrieval.lexical import SQLiteLexicalRetriever
 from app.evidence.retrieval.reranker import filter_and_rerank
+from app.evidence.retrieval.report import (
+    LatencyBreakdown,
+    RetrievalAttempt,
+    RetrievalReport,
+    RetrievedChunk,
+)
 from app.evidence.retrieval.fusion import reciprocal_rank_fusion
 from app.integrations.qdrant.vector_index import QdrantVectorIndex
 from app.orchestration.state_contracts import AgentState, StateContext
@@ -32,9 +39,18 @@ from app.orchestration.states.context_loading import ContextLoadingHandler
 from app.orchestration.states.ingress import IngressHandler
 from app.orchestration.states.llm_understanding import UnderstandingHandler
 from app.orchestration.states.routing import RouteHandler
+from app.orchestration.states.evidence_evaluation import EvidenceEvaluationHandler
+from app.orchestration.states.hybrid_retrieval import HybridRetrievalHandler
+from app.orchestration.states.live_gap_fill import LiveGapFillHandler
 from app.orchestration.transition_table import is_allowed_transition
 from evals.graders.retrieval import RetrievalCaseResult, grade_retrieval
 from evals.graders.state_path import StatePathCaseResult, grade_state_paths
+from evals.graders.operations import (
+    ConflictCaseResult,
+    RecoveryCaseResult,
+    grade_conflicts,
+    grade_recovery,
+)
 from evals.graders.versioning import VersionCaseResult, grade_versioning
 
 
@@ -43,12 +59,22 @@ FIXTURE_PATH = ROOT / "fixtures" / "knowledge.json"
 RETRIEVAL_DATASET = ROOT / "datasets" / "retrieval.jsonl"
 VERSIONING_DATASET = ROOT / "datasets" / "versioning.jsonl"
 STATE_ROUTING_DATASET = ROOT / "datasets" / "state_routing.jsonl"
+EVIDENCE_CONFLICT_DATASET = ROOT / "datasets" / "evidence_conflict.jsonl"
+FAILURE_RECOVERY_DATASET = ROOT / "datasets" / "failure_recovery.jsonl"
 
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
-        "--suite", choices=("retrieval", "versioning", "state_routing"), required=True
+        "--suite",
+        choices=(
+            "retrieval",
+            "versioning",
+            "state_routing",
+            "evidence_conflict",
+            "failure_recovery",
+        ),
+        required=True,
     )
     parser.add_argument("--mode", choices=("lexical", "dense", "hybrid"), default="hybrid")
     parser.add_argument("--offline", action="store_true")
@@ -335,17 +361,258 @@ def _state_routing_suite() -> dict:
         }
 
 
+def _operation_plan(*, fact_type: FactType = FactType.OPENING_HOURS) -> RetrievalPlan:
+    return RetrievalPlan(
+        task_type="fact_query",
+        query_text="故宫事实查询",
+        attraction_ids=["forbidden-city"],
+        fact_types=[fact_type],
+        as_of=datetime(2026, 9, 2, tzinfo=UTC),
+        top_k=3,
+        subtask_id="operation-subtask",
+    )
+
+
+def _operation_chunk(
+    *, chunk_id: str, fact_type: str, content: str, authority: float
+) -> RetrievedChunk:
+    return RetrievedChunk(
+        chunk_id=chunk_id,
+        document_version_id=f"version-{chunk_id}",
+        attraction_id="forbidden-city",
+        fact_type=fact_type,
+        content=content,
+        source_id=f"source-{chunk_id}",
+        source_url=f"https://example.test/{chunk_id}",
+        source_title=chunk_id,
+        source_authority=authority,
+        content_hash=f"hash-{chunk_id}",
+        retrieval_channels=["lexical"],
+        rrf_score=0.1,
+        final_score=authority,
+        corpus_version="eval-corpus",
+    )
+
+
+def _operation_report(
+    plan: RetrievalPlan,
+    *,
+    hits: list[RetrievedChunk] | None = None,
+    degradation: str = "none",
+    lexical_failure: str | None = None,
+    dense_failure: str | None = None,
+) -> RetrievalReport:
+    hits = hits or []
+    return RetrievalReport(
+        subtask_id=plan.subtask_id,
+        retrieval_plan=plan,
+        corpus_version="eval-corpus",
+        lexical_attempt=RetrievalAttempt(
+            channel="lexical",
+            status="failed" if lexical_failure else ("success" if hits else "empty"),
+            result_count=0 if lexical_failure else len(hits),
+            latency_ms=0,
+            failure_code=lexical_failure,
+        ),
+        dense_attempt=RetrievalAttempt(
+            channel="dense",
+            status="failed" if dense_failure else ("success" if hits else "empty"),
+            result_count=0 if dense_failure else len(hits),
+            latency_ms=0,
+            failure_code=dense_failure,
+        ),
+        final_hits=hits,
+        degradation=degradation,
+        latency_breakdown=LatencyBreakdown(
+            lexical_ms=0,
+            dense_ms=0,
+            fusion_ms=0,
+            post_filter_rerank_ms=0,
+            total_ms=0,
+        ),
+    )
+
+
+def _evidence_conflict_suite() -> dict:
+    results = []
+    for row in _load_jsonl(EVIDENCE_CONFLICT_DATASET):
+        fact_type = FactType(row["fact_type"])
+        plan = _operation_plan(fact_type=fact_type)
+        hits = [
+            _operation_chunk(
+                chunk_id=f"{row['case_id']}-{index}",
+                fact_type=row["fact_type"],
+                content=value,
+                authority=row["authorities"][index],
+            )
+            for index, value in enumerate(row["values"])
+        ]
+        evaluation = evaluate_claims(
+            plans=[plan], reports=[_operation_report(plan, hits=hits)]
+        )
+        decision = evaluation.claim_decisions[0]
+        preferred_index = max(
+            range(len(row["authorities"])), key=row["authorities"].__getitem__
+        )
+        results.append(
+            ConflictCaseResult(
+                case_id=row["case_id"],
+                expected_conflict=row["expected_conflict"],
+                actual_conflict=bool(decision.conflict_evidence_ids),
+                expected_source_count=len(row["values"]),
+                retained_source_count=len(decision.adopted_evidence_ids),
+                preferred_authority_ok=decision.adopted_value
+                == row["values"][preferred_index],
+            )
+        )
+    return {
+        "metrics": grade_conflicts(results).model_dump(),
+        "cases": [item.model_dump() for item in results],
+    }
+
+
+class _StaticOperationRetriever:
+    def __init__(self, report: RetrievalReport) -> None:
+        self.report = report
+
+    def retrieve(self, plan: RetrievalPlan) -> RetrievalReport:
+        return self.report
+
+
+class _OperationGapTool:
+    def __init__(self, scenario: str) -> None:
+        self.scenario = scenario
+
+    async def fetch(self, task: dict, *, attempt: int) -> dict:
+        if self.scenario == "rate_then_success" and attempt == 1:
+            raise RuntimeError("429 rate limit")
+        if self.scenario == "malformed_twice":
+            return {"unexpected": True}
+        return {
+            "evidence_id": "live-eval",
+            "attraction_id": task["attraction_id"],
+            "fact_type": task["fact_type"],
+            "content": "故宫今日八点三十分开放",
+            "source_name": "故宫官网",
+            "source_url": "https://www.dpm.org.cn/visit/hours",
+        }
+
+
+async def _run_recovery_case(row: dict) -> RecoveryCaseResult:
+    plan = _operation_plan()
+    scenario = row["scenario"]
+    hit = _operation_chunk(
+        chunk_id="active-hours",
+        fact_type="opening_hours",
+        content="故宫八点三十分开放",
+        authority=1.0,
+    )
+    context = StateContext(
+        run_id=f"eval-{row['case_id']}",
+        session_id="eval-session",
+        query_id=row["case_id"],
+        raw_query="故宫开放时间",
+        artifacts={
+            AgentState.RETRIEVAL_PLAN.value: {
+                "retrieval_plans": [plan.model_dump(mode="json")]
+            }
+        },
+    )
+    if scenario in {"dense_timeout", "embedding_error", "both_empty", "all_failed"}:
+        report = _operation_report(
+            plan,
+            hits=[] if scenario in {"both_empty", "all_failed"} else [hit],
+            degradation=(
+                "lexical_only"
+                if scenario in {"dense_timeout", "embedding_error"}
+                else ("all_failed" if scenario == "all_failed" else "no_results")
+            ),
+            lexical_failure="dependency_unavailable" if scenario == "all_failed" else None,
+            dense_failure=(
+                "timeout"
+                if scenario == "dense_timeout"
+                else (
+                    "embedding_unavailable"
+                    if scenario == "embedding_error"
+                    else ("dependency_unavailable" if scenario == "all_failed" else None)
+                )
+            ),
+        )
+        state_result = await HybridRetrievalHandler(
+            retriever=_StaticOperationRetriever(report)
+        ).run(context)
+        return RecoveryCaseResult(
+            case_id=row["case_id"],
+            expected_outcome=row["expected_outcome"],
+            actual_outcome=state_result.next_state.value,
+            attempt_count=0,
+            logical_task_count=0,
+        )
+
+    empty_report = _operation_report(plan, degradation="no_results")
+    context.artifacts[AgentState.HYBRID_RETRIEVE.value] = {
+        "retrieval_reports": [empty_report.model_dump(mode="json")]
+    }
+    context.artifacts[AgentState.EVIDENCE_EVALUATE.value] = {
+        "coverage_report": {
+            "items": [
+                {
+                    "claim_type": f"{plan.subtask_id}:opening_hours",
+                    "covered": False,
+                }
+            ]
+        }
+    }
+    gap_result = await LiveGapFillHandler(tool=_OperationGapTool(scenario)).run(context)
+    context.artifacts[AgentState.LIVE_GAP_FILL.value] = gap_result.output
+    final_evaluation = await EvidenceEvaluationHandler().run(context)
+    attempts = gap_result.output["attempts"]
+    abstention_correct = (
+        final_evaluation.next_state is AgentState.SAFE_FAILURE
+        if scenario == "malformed_twice"
+        else final_evaluation.next_state is AgentState.COMPOSE
+    )
+    return RecoveryCaseResult(
+        case_id=row["case_id"],
+        expected_outcome=row["expected_outcome"],
+        actual_outcome=gap_result.next_state.value,
+        attempt_count=len(attempts),
+        logical_task_count=gap_result.output["logical_gap_task_count"],
+        abstention_correct=abstention_correct,
+    )
+
+
+def _failure_recovery_suite() -> dict:
+    results = [
+        asyncio.run(_run_recovery_case(row))
+        for row in _load_jsonl(FAILURE_RECOVERY_DATASET)
+    ]
+    return {
+        "metrics": grade_recovery(results).model_dump(),
+        "cases": [item.model_dump() for item in results],
+    }
+
+
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     if args.offline and args.profile == "real-embedding":
         raise SystemExit("--offline cannot be combined with --profile real-embedding")
     profile = "offline" if args.offline else args.profile
-    if args.suite == "state_routing":
+    if args.suite in {"state_routing", "evidence_conflict", "failure_recovery"}:
+        suite_result = (
+            _state_routing_suite()
+            if args.suite == "state_routing"
+            else (
+                _evidence_conflict_suite()
+                if args.suite == "evidence_conflict"
+                else _failure_recovery_suite()
+            )
+        )
         payload = {
             "suite": args.suite,
             "mode": "deterministic",
             "profile": "offline",
-            **_state_routing_suite(),
+            **suite_result,
         }
         args.report.parent.mkdir(parents=True, exist_ok=True)
         args.report.write_text(

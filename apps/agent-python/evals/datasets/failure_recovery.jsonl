@@ -1,0 +1,6 @@
+{"case_id":"dense-timeout","scenario":"dense_timeout","expected_outcome":"evidence_evaluate"}
+{"case_id":"embedding-error","scenario":"embedding_error","expected_outcome":"evidence_evaluate"}
+{"case_id":"both-empty","scenario":"both_empty","expected_outcome":"live_gap_fill"}
+{"case_id":"all-failed","scenario":"all_failed","expected_outcome":"live_gap_fill"}
+{"case_id":"rate-then-success","scenario":"rate_then_success","expected_outcome":"evidence_evaluate"}
+{"case_id":"malformed-twice","scenario":"malformed_twice","expected_outcome":"evidence_evaluate"}

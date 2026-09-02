@@ -1,0 +1,6 @@
+{"case_id":"hours-conflict","fact_type":"opening_hours","values":["八点三十分开放","九点开放"],"authorities":[1.0,0.8],"expected_conflict":true}
+{"case_id":"ticket-conflict","fact_type":"ticket_price","values":["成人票六十元","成人票八十元"],"authorities":[1.0,0.55],"expected_conflict":true}
+{"case_id":"reservation-conflict","fact_type":"reservation","values":["需要实名预约","无需预约"],"authorities":[1.0,0.8],"expected_conflict":true}
+{"case_id":"transport-consistent","fact_type":"transport","values":["地铁一号线到达","地铁一号线到达"],"authorities":[1.0,0.8],"expected_conflict":false}
+{"case_id":"access-consistent","fact_type":"accessibility","values":["提供无障碍通道"],"authorities":[1.0],"expected_conflict":false}
+{"case_id":"notice-conflict","fact_type":"visitor_notice","values":["东门开放","东门临时关闭"],"authorities":[1.0,0.55],"expected_conflict":true}

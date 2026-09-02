@@ -46,6 +46,9 @@ class ClaimDecision(BaseModel):
     must_show_limitation: bool = False
     missing_evidence: list[str] = Field(default_factory=list)
     claim_id: str | None = None
+    attraction_id: str | None = None
+    subtask_id: str | None = None
+    conflict_evidence_ids: list[str] = Field(default_factory=list)
     source_strength_summary: dict = Field(default_factory=dict)
     user_visible_limitations: list[str] = Field(default_factory=list)
     internal_debug_limitations: list[str] = Field(default_factory=list)
