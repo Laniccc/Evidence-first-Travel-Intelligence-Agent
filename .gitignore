@@ -94,3 +94,7 @@ logs/
 .worktrees/
 tmp/
 temp/
+# Local Qdrant state and downloaded embedding artifacts
+qdrant_storage/
+.fastembed_cache/
+apps/agent-python/data/knowledge.sqlite3*

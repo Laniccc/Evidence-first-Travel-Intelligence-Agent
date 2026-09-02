@@ -1,0 +1,13 @@
+services:
+  qdrant:
+    image: qdrant/qdrant:v1.19.0
+    ports:
+      - "127.0.0.1:6333:6333"
+      - "127.0.0.1:6334:6334"
+    environment:
+      QDRANT__SERVICE__API_KEY: ${QDRANT_API_KEY:-local-dev-key}
+    volumes:
+      - qdrant_storage:/qdrant/storage
+
+volumes:
+  qdrant_storage:

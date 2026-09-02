@@ -130,6 +130,16 @@ class Settings(BaseSettings):
     knowledge_default_ttl_days: int = 30
     knowledge_retrieval_top_k: int = 3
 
+    # Rebuildable dense retrieval index. SQLite remains the authority.
+    qdrant_mode: Literal["local", "server"] = "local"
+    qdrant_url: str = "http://127.0.0.1:6333"
+    qdrant_api_key: str | None = None
+    qdrant_collection: str = "attraction-facts"
+    embedding_mode: Literal["deterministic", "fastembed"] = "deterministic"
+    embedding_model: str = "BAAI/bge-small-zh-v1.5"
+    embedding_dimension: int = 512
+    vector_search_limit: int = 20
+
     # Agent Core Store
     agent_core_store_backend: Literal["memory", "jsonl", "sqlite"] = "memory"
     agent_core_store_jsonl_path: str = "./data/agent_core_store.jsonl"
@@ -232,6 +242,7 @@ class Settings(BaseSettings):
         "fliggy_ticket_api_key",
         "fliggy_ticket_api_secret",
         "fliggy_flyai_api_key",
+        "qdrant_api_key",
         mode="before",
     )
     @classmethod
