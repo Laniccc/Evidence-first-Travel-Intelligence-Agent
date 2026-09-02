@@ -17,6 +17,21 @@ class VersionStatus(StrEnum):
     REJECTED = "rejected"
 
 
+class IndexGenerationStatus(StrEnum):
+    PENDING = "pending"
+    BUILDING = "building"
+    ACTIVE = "active"
+    FAILED = "failed"
+    SUPERSEDED = "superseded"
+
+
+class ChunkIndexStatus(StrEnum):
+    PENDING = "pending"
+    INDEXED = "indexed"
+    FAILED = "failed"
+    DELETED = "deleted"
+
+
 class FactType(StrEnum):
     OPENING_HOURS = "opening_hours"
     TICKET_PRICE = "ticket_price"
@@ -101,6 +116,51 @@ class SourceDocumentRecord(BaseModel):
     title: str
     source_type: SourceType
     authority_score: float
+
+
+class IndexableChunk(BaseModel):
+    chunk_id: str
+    document_version_id: str
+    attraction_id: str
+    fact_type: FactType
+    content: str
+    locator: str | None = None
+    language: str
+    content_hash: str
+    source_id: str
+    source_url: str
+    source_title: str
+    source_type: SourceType
+    source_authority: float
+    valid_from: datetime | None = None
+    valid_to: datetime | None = None
+    published_at: datetime | None = None
+    version_status: VersionStatus
+
+
+class IndexGeneration(BaseModel):
+    generation_id: str
+    corpus_version: str
+    embedding_model: str
+    status: IndexGenerationStatus
+    started_at: datetime
+    completed_at: datetime | None = None
+    indexed_chunk_count: int = 0
+    failed_chunk_count: int = 0
+    deleted_chunk_count: int = 0
+    failure_code: str | None = None
+
+
+class IndexSyncResult(BaseModel):
+    generation_id: str
+    corpus_version: str
+    embedding_model: str
+    status: IndexGenerationStatus
+    indexed_chunk_count: int = 0
+    failed_chunk_count: int = 0
+    deleted_chunk_count: int = 0
+    reused: bool = False
+    cleanup_failure_code: str | None = None
 
 
 SOURCE_AUTHORITY: dict[SourceType, float] = {

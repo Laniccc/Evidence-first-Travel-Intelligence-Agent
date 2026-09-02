@@ -1,0 +1,155 @@
+"""Blue/green synchronization from authoritative SQLite chunks to Qdrant."""
+
+from __future__ import annotations
+
+from datetime import UTC, datetime
+
+from app.evidence.knowledge.models import IndexSyncResult
+from app.evidence.knowledge.repository import KnowledgeRepository
+from app.evidence.retrieval.contracts import VectorFilters, VectorPoint
+from app.evidence.retrieval.embedding import EmbeddingProvider
+
+
+class IndexSyncError(RuntimeError):
+    """A failed generation that has already been persisted for audit."""
+
+    def __init__(self, generation_id: str, message: str) -> None:
+        super().__init__(message)
+        self.generation_id = generation_id
+
+
+class IndexSynchronizer:
+    def __init__(self, repository: KnowledgeRepository, *, vector_index, embedder: EmbeddingProvider) -> None:
+        self.repository = repository
+        self.vector_index = vector_index
+        self.embedder = embedder
+
+    def rebuild(self, *, corpus_version: str) -> IndexSyncResult:
+        active = self.repository.active_index_generation()
+        if (
+            active is not None
+            and active.corpus_version == corpus_version
+            and active.embedding_model == self.embedder.model_name
+        ):
+            return IndexSyncResult(**active.model_dump(), reused=True)
+
+        generation = self.repository.start_index_generation(
+            corpus_version,
+            self.embedder.model_name,
+        )
+        chunks = self.repository.list_active_chunks(datetime.now(UTC))
+        try:
+            self._ensure_collection()
+            vectors = self.embedder.embed_documents([chunk.content for chunk in chunks])
+            if len(vectors) != len(chunks):
+                raise ValueError(
+                    f"embedding count mismatch: expected {len(chunks)}, got {len(vectors)}"
+                )
+            points = [
+                VectorPoint(
+                    chunk_id=chunk.chunk_id,
+                    vector=vector,
+                    attraction_id=chunk.attraction_id,
+                    fact_type=chunk.fact_type.value,
+                    document_version_id=chunk.document_version_id,
+                    content_hash=chunk.content_hash,
+                    corpus_version=corpus_version,
+                )
+                for chunk, vector in zip(chunks, vectors, strict=True)
+            ]
+            self.vector_index.upsert(points)
+            for chunk in chunks:
+                self.repository.mark_chunk_indexed(
+                    generation.generation_id,
+                    chunk_id=chunk.chunk_id,
+                    qdrant_point_id=self.vector_index.point_id(
+                        f"{corpus_version}:{chunk.chunk_id}"
+                    ),
+                    content_hash=chunk.content_hash,
+                )
+            actual_count = self._generation_count(chunks, corpus_version)
+            if actual_count != len(chunks):
+                raise ValueError(
+                    f"Qdrant consistency mismatch: expected {len(chunks)}, got {actual_count}"
+                )
+        except Exception as exc:
+            failure_code = self._failure_code(exc)
+            for chunk in chunks:
+                if chunk.chunk_id not in self.repository.list_generation_chunk_ids(
+                    generation.generation_id
+                ):
+                    self.repository.mark_chunk_failed(
+                        generation.generation_id,
+                        chunk_id=chunk.chunk_id,
+                        content_hash=chunk.content_hash,
+                        failure_code=failure_code,
+                    )
+            self.repository.fail_index_generation(
+                generation.generation_id,
+                failure_code=failure_code,
+                failed_chunk_count=len(chunks),
+            )
+            raise IndexSyncError(generation.generation_id, str(exc)) from exc
+
+        completed = self.repository.complete_index_generation(
+            generation.generation_id,
+            indexed_chunk_count=len(chunks),
+        )
+
+        deleted_count = 0
+        cleanup_failure_code = None
+        if active is not None:
+            old_chunk_ids = self.repository.list_generation_chunk_ids(active.generation_id)
+            try:
+                self.vector_index.delete(
+                    old_chunk_ids,
+                    corpus_version=active.corpus_version,
+                )
+                deleted_count = self.repository.mark_generation_chunks_deleted(
+                    active.generation_id
+                )
+            except Exception as exc:
+                cleanup_failure_code = self._failure_code(exc)
+        self.repository.record_generation_cleanup(
+            completed.generation_id,
+            deleted_chunk_count=deleted_count,
+            failure_code=cleanup_failure_code,
+        )
+        completed = self.repository.get_index_generation(completed.generation_id)
+        return IndexSyncResult(
+            **completed.model_dump(),
+            cleanup_failure_code=cleanup_failure_code,
+        )
+
+    def _ensure_collection(self) -> None:
+        try:
+            self.vector_index.health()
+        except ValueError as exc:
+            if "does not exist" not in str(exc):
+                raise
+            self.vector_index.recreate()
+
+    def _generation_count(self, chunks, corpus_version: str) -> int:
+        if not chunks:
+            return 0
+        return self.vector_index.count(
+            VectorFilters(
+                attraction_ids=list(dict.fromkeys(chunk.attraction_id for chunk in chunks)),
+                corpus_version=corpus_version,
+            )
+        )
+
+    @staticmethod
+    def _failure_code(exc: Exception) -> str:
+        name = type(exc).__name__.removesuffix("Error")
+        words = []
+        current = ""
+        for char in name:
+            if char.isupper() and current:
+                words.append(current.lower())
+                current = char
+            else:
+                current += char
+        if current:
+            words.append(current.lower())
+        return "_".join(words) or "index_sync_failure"

@@ -102,3 +102,41 @@ CREATE TABLE IF NOT EXISTS retrieval_log (
     result_chunk_ids_json TEXT NOT NULL,
     created_at TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS index_generation (
+    generation_id TEXT PRIMARY KEY,
+    corpus_version TEXT NOT NULL,
+    embedding_model TEXT NOT NULL,
+    status TEXT NOT NULL CHECK (
+        status IN ('pending', 'building', 'active', 'failed', 'superseded')
+    ),
+    started_at TEXT NOT NULL,
+    completed_at TEXT,
+    indexed_chunk_count INTEGER NOT NULL DEFAULT 0,
+    failed_chunk_count INTEGER NOT NULL DEFAULT 0,
+    deleted_chunk_count INTEGER NOT NULL DEFAULT 0,
+    failure_code TEXT
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_index_generation_active
+ON index_generation(status)
+WHERE status = 'active';
+
+CREATE INDEX IF NOT EXISTS idx_index_generation_corpus_model
+ON index_generation(corpus_version, embedding_model, status);
+
+CREATE TABLE IF NOT EXISTS chunk_index_state (
+    generation_id TEXT NOT NULL REFERENCES index_generation(generation_id) ON DELETE CASCADE,
+    chunk_id TEXT NOT NULL REFERENCES fact_chunk(chunk_id) ON DELETE CASCADE,
+    qdrant_point_id TEXT,
+    content_hash TEXT NOT NULL,
+    status TEXT NOT NULL CHECK (
+        status IN ('pending', 'indexed', 'failed', 'deleted')
+    ),
+    last_attempt_at TEXT NOT NULL,
+    failure_code TEXT,
+    PRIMARY KEY (generation_id, chunk_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_chunk_index_state_status
+ON chunk_index_state(generation_id, status);

@@ -98,3 +98,4 @@ temp/
 qdrant_storage/
 .fastembed_cache/
 apps/agent-python/data/knowledge.sqlite3*
+apps/agent-python/data/qdrant/

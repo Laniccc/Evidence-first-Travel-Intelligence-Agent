@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import sqlite3
 from contextlib import contextmanager
 from datetime import UTC, datetime
@@ -13,6 +14,9 @@ from uuid import uuid4
 from app.evidence.knowledge.models import (
     DocumentVersion,
     IngestResult,
+    IndexGeneration,
+    IndexGenerationStatus,
+    IndexableChunk,
     KnowledgeDocument,
     SOURCE_AUTHORITY,
     SourceDocumentRecord,
@@ -277,6 +281,294 @@ class KnowledgeRepository:
             authority_score=row["authority_score"],
         )
 
+    def list_active_chunks(self, as_of: datetime) -> list[IndexableChunk]:
+        cutoff = _iso(as_of)
+        with self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT
+                    chunk.chunk_id,
+                    chunk.version_id AS document_version_id,
+                    chunk.attraction_id,
+                    chunk.fact_type,
+                    chunk.content,
+                    chunk.locator,
+                    chunk.language,
+                    version.content_hash,
+                    version.valid_from,
+                    version.valid_to,
+                    version.published_at,
+                    version.status AS version_status,
+                    source.source_id,
+                    source.url AS source_url,
+                    source.title AS source_title,
+                    source.source_type,
+                    source.authority_score AS source_authority
+                FROM fact_chunk AS chunk
+                JOIN document_version AS version ON version.version_id = chunk.version_id
+                JOIN source_document AS source ON source.source_id = version.source_id
+                WHERE version.status = 'active'
+                  AND (version.valid_from IS NULL OR version.valid_from <= ?)
+                  AND (version.valid_to IS NULL OR version.valid_to > ?)
+                ORDER BY chunk.chunk_id
+                """,
+                (cutoff, cutoff),
+            ).fetchall()
+        return [self._indexable_chunk_from_row(row) for row in rows]
+
+    def compute_corpus_version(self, as_of: datetime | None = None) -> str:
+        chunks = self.list_active_chunks(as_of or datetime.now(UTC))
+        digest_input = "\n".join(
+            ":".join(
+                (
+                    chunk.source_id,
+                    chunk.content_hash,
+                    chunk.fact_type.value,
+                    hashlib.sha256(chunk.content.encode("utf-8")).hexdigest(),
+                )
+            )
+            for chunk in chunks
+        )
+        return hashlib.sha256(digest_input.encode("utf-8")).hexdigest()[:16]
+
+    def get_chunk(self, chunk_id: str) -> IndexableChunk | None:
+        with self._connect() as connection:
+            row = connection.execute(
+                """
+                SELECT
+                    chunk.chunk_id,
+                    chunk.version_id AS document_version_id,
+                    chunk.attraction_id,
+                    chunk.fact_type,
+                    chunk.content,
+                    chunk.locator,
+                    chunk.language,
+                    version.content_hash,
+                    version.valid_from,
+                    version.valid_to,
+                    version.published_at,
+                    version.status AS version_status,
+                    source.source_id,
+                    source.url AS source_url,
+                    source.title AS source_title,
+                    source.source_type,
+                    source.authority_score AS source_authority
+                FROM fact_chunk AS chunk
+                JOIN document_version AS version ON version.version_id = chunk.version_id
+                JOIN source_document AS source ON source.source_id = version.source_id
+                WHERE chunk.chunk_id = ?
+                """,
+                (chunk_id,),
+            ).fetchone()
+        return self._indexable_chunk_from_row(row) if row else None
+
+    def start_index_generation(
+        self,
+        corpus_version: str,
+        embedding_model: str,
+    ) -> IndexGeneration:
+        generation_id = f"idx-{uuid4()}"
+        now = _iso(datetime.now(UTC))
+        with self._connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO index_generation(
+                    generation_id, corpus_version, embedding_model, status, started_at
+                ) VALUES (?, ?, ?, 'building', ?)
+                """,
+                (generation_id, corpus_version, embedding_model, now),
+            )
+        return self.get_index_generation(generation_id)
+
+    def mark_chunk_indexed(
+        self,
+        generation_id: str,
+        *,
+        chunk_id: str,
+        qdrant_point_id: str,
+        content_hash: str,
+    ) -> None:
+        with self._connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO chunk_index_state(
+                    generation_id, chunk_id, qdrant_point_id, content_hash,
+                    status, last_attempt_at, failure_code
+                ) VALUES (?, ?, ?, ?, 'indexed', ?, NULL)
+                ON CONFLICT(generation_id, chunk_id) DO UPDATE SET
+                    qdrant_point_id = excluded.qdrant_point_id,
+                    content_hash = excluded.content_hash,
+                    status = 'indexed',
+                    last_attempt_at = excluded.last_attempt_at,
+                    failure_code = NULL
+                """,
+                (
+                    generation_id,
+                    chunk_id,
+                    qdrant_point_id,
+                    content_hash,
+                    _iso(datetime.now(UTC)),
+                ),
+            )
+
+    def mark_chunk_failed(
+        self,
+        generation_id: str,
+        *,
+        chunk_id: str,
+        content_hash: str,
+        failure_code: str,
+    ) -> None:
+        with self._connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO chunk_index_state(
+                    generation_id, chunk_id, content_hash, status,
+                    last_attempt_at, failure_code
+                ) VALUES (?, ?, ?, 'failed', ?, ?)
+                ON CONFLICT(generation_id, chunk_id) DO UPDATE SET
+                    status = 'failed',
+                    last_attempt_at = excluded.last_attempt_at,
+                    failure_code = excluded.failure_code
+                """,
+                (
+                    generation_id,
+                    chunk_id,
+                    content_hash,
+                    _iso(datetime.now(UTC)),
+                    failure_code,
+                ),
+            )
+
+    def complete_index_generation(
+        self,
+        generation_id: str,
+        *,
+        indexed_chunk_count: int,
+        failed_chunk_count: int = 0,
+        deleted_chunk_count: int = 0,
+    ) -> IndexGeneration:
+        now = _iso(datetime.now(UTC))
+        with self._connect() as connection:
+            target = connection.execute(
+                "SELECT status FROM index_generation WHERE generation_id = ?",
+                (generation_id,),
+            ).fetchone()
+            if target is None:
+                raise KeyError(f"Unknown index generation: {generation_id}")
+            if target["status"] not in {
+                IndexGenerationStatus.PENDING.value,
+                IndexGenerationStatus.BUILDING.value,
+            }:
+                raise ValueError("Only a pending or building generation can be activated")
+            connection.execute(
+                """
+                UPDATE index_generation
+                SET status = 'superseded', completed_at = COALESCE(completed_at, ?)
+                WHERE status = 'active' AND generation_id <> ?
+                """,
+                (now, generation_id),
+            )
+            connection.execute(
+                """
+                UPDATE index_generation
+                SET status = 'active', completed_at = ?, indexed_chunk_count = ?,
+                    failed_chunk_count = ?, deleted_chunk_count = ?, failure_code = NULL
+                WHERE generation_id = ?
+                """,
+                (
+                    now,
+                    indexed_chunk_count,
+                    failed_chunk_count,
+                    deleted_chunk_count,
+                    generation_id,
+                ),
+            )
+        return self.get_index_generation(generation_id)
+
+    def fail_index_generation(
+        self,
+        generation_id: str,
+        *,
+        failure_code: str,
+        failed_chunk_count: int = 0,
+    ) -> IndexGeneration:
+        with self._connect() as connection:
+            changed = connection.execute(
+                """
+                UPDATE index_generation
+                SET status = 'failed', completed_at = ?, failure_code = ?,
+                    failed_chunk_count = ?
+                WHERE generation_id = ? AND status IN ('pending', 'building')
+                """,
+                (
+                    _iso(datetime.now(UTC)),
+                    failure_code,
+                    failed_chunk_count,
+                    generation_id,
+                ),
+            ).rowcount
+            if not changed:
+                raise ValueError("Only a pending or building generation can fail")
+        return self.get_index_generation(generation_id)
+
+    def record_generation_cleanup(
+        self,
+        generation_id: str,
+        *,
+        deleted_chunk_count: int,
+        failure_code: str | None = None,
+    ) -> None:
+        with self._connect() as connection:
+            connection.execute(
+                """
+                UPDATE index_generation
+                SET deleted_chunk_count = ?, failure_code = ?
+                WHERE generation_id = ? AND status = 'active'
+                """,
+                (deleted_chunk_count, failure_code, generation_id),
+            )
+
+    def active_index_generation(self) -> IndexGeneration | None:
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT * FROM index_generation WHERE status = 'active'"
+            ).fetchone()
+        return self._index_generation_from_row(row) if row else None
+
+    def get_index_generation(self, generation_id: str) -> IndexGeneration:
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT * FROM index_generation WHERE generation_id = ?",
+                (generation_id,),
+            ).fetchone()
+        if row is None:
+            raise KeyError(f"Unknown index generation: {generation_id}")
+        return self._index_generation_from_row(row)
+
+    def list_generation_chunk_ids(self, generation_id: str) -> list[str]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT chunk_id FROM chunk_index_state
+                WHERE generation_id = ? AND status = 'indexed'
+                ORDER BY chunk_id
+                """,
+                (generation_id,),
+            ).fetchall()
+        return [row["chunk_id"] for row in rows]
+
+    def mark_generation_chunks_deleted(self, generation_id: str) -> int:
+        with self._connect() as connection:
+            return connection.execute(
+                """
+                UPDATE chunk_index_state
+                SET status = 'deleted', last_attempt_at = ?, failure_code = NULL
+                WHERE generation_id = ? AND status = 'indexed'
+                """,
+                (_iso(datetime.now(UTC)), generation_id),
+            ).rowcount
+
     def inspect_attraction(self, attraction_id: str) -> dict:
         with self._connect() as connection:
             attraction = connection.execute(
@@ -313,4 +605,41 @@ class KnowledgeRepository:
             published_at=_datetime(row["published_at"]),
             supersedes_version_id=row["supersedes_version_id"],
             rejection_reason=row["rejection_reason"],
+        )
+
+    @staticmethod
+    def _indexable_chunk_from_row(row: sqlite3.Row) -> IndexableChunk:
+        return IndexableChunk(
+            chunk_id=row["chunk_id"],
+            document_version_id=row["document_version_id"],
+            attraction_id=row["attraction_id"],
+            fact_type=row["fact_type"],
+            content=row["content"],
+            locator=row["locator"],
+            language=row["language"],
+            content_hash=row["content_hash"],
+            source_id=row["source_id"],
+            source_url=row["source_url"],
+            source_title=row["source_title"],
+            source_type=row["source_type"],
+            source_authority=row["source_authority"],
+            valid_from=_datetime(row["valid_from"]),
+            valid_to=_datetime(row["valid_to"]),
+            published_at=_datetime(row["published_at"]),
+            version_status=row["version_status"],
+        )
+
+    @staticmethod
+    def _index_generation_from_row(row: sqlite3.Row) -> IndexGeneration:
+        return IndexGeneration(
+            generation_id=row["generation_id"],
+            corpus_version=row["corpus_version"],
+            embedding_model=row["embedding_model"],
+            status=row["status"],
+            started_at=_datetime(row["started_at"]),
+            completed_at=_datetime(row["completed_at"]),
+            indexed_chunk_count=row["indexed_chunk_count"],
+            failed_chunk_count=row["failed_chunk_count"],
+            deleted_chunk_count=row["deleted_chunk_count"],
+            failure_code=row["failure_code"],
         )

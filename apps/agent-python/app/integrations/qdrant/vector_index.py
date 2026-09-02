@@ -51,7 +51,7 @@ class QdrantVectorIndex:
             payload = point.model_dump(exclude={"vector"})
             records.append(
                 models.PointStruct(
-                    id=self.point_id(point.chunk_id),
+                    id=self.point_id(f"{point.corpus_version}:{point.chunk_id}"),
                     vector=point.vector,
                     payload=payload,
                 )
@@ -64,8 +64,11 @@ class QdrantVectorIndex:
                 wait=True,
             )
 
-    def delete(self, chunk_ids: Iterable[str]) -> None:
-        ids = [self.point_id(chunk_id) for chunk_id in chunk_ids]
+    def delete(self, chunk_ids: Iterable[str], *, corpus_version: str) -> None:
+        ids = [
+            self.point_id(f"{corpus_version}:{chunk_id}")
+            for chunk_id in chunk_ids
+        ]
         if ids:
             self.client.delete(
                 collection_name=self.collection,

@@ -9,6 +9,9 @@ from pathlib import Path
 from app.evidence.knowledge.models import KnowledgeDocument
 from app.evidence.knowledge.repository import KnowledgeRepository
 from app.evidence.knowledge.service import KnowledgeLifecycleService
+from app.evidence.retrieval.embedding import DeterministicHashEmbedding, FastEmbedEmbedding
+from app.evidence.retrieval.index_sync import IndexSynchronizer
+from app.integrations.qdrant.vector_index import QdrantVectorIndex
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -29,9 +32,22 @@ def _parser() -> argparse.ArgumentParser:
     publish.add_argument("--db", required=True, type=Path)
     publish.add_argument("--version-id", required=True)
 
-    inspect = subparsers.add_parser("inspect", help="inspect attraction versions")
+    inspect = subparsers.add_parser("inspect", help="inspect attraction versions or vector index")
     inspect.add_argument("--db", required=True, type=Path)
-    inspect.add_argument("--attraction", required=True)
+    inspect.add_argument("--attraction")
+    inspect.add_argument("--index", action="store_true")
+
+    reindex = subparsers.add_parser("reindex", help="rebuild the Qdrant vector generation")
+    reindex.add_argument("--db", required=True, type=Path)
+    reindex.add_argument("--qdrant-mode", choices=("local", "server"), default="local")
+    reindex.add_argument("--qdrant-path", type=Path)
+    reindex.add_argument("--qdrant-url", default="http://127.0.0.1:6333")
+    reindex.add_argument("--qdrant-api-key")
+    reindex.add_argument("--collection", default="attraction-facts")
+    reindex.add_argument("--embedding-mode", choices=("deterministic", "fastembed"), default="deterministic")
+    reindex.add_argument("--embedding-model", default="BAAI/bge-small-zh-v1.5")
+    reindex.add_argument("--dimension", type=int, default=512)
+    reindex.add_argument("--corpus-version")
     return parser
 
 
@@ -70,7 +86,48 @@ def main(argv: list[str] | None = None) -> int:
         print(repository.publish(args.version_id).model_dump_json(indent=2))
         return 0
     if args.command == "inspect":
-        print(json.dumps(repository.inspect_attraction(args.attraction), ensure_ascii=False, indent=2))
+        if not args.attraction and not args.index:
+            raise SystemExit("inspect requires --attraction and/or --index")
+        payload = {}
+        if args.attraction:
+            payload["knowledge"] = repository.inspect_attraction(args.attraction)
+        if args.index:
+            generation = repository.active_index_generation()
+            payload["index"] = generation.model_dump(mode="json") if generation else None
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
+        return 0
+    if args.command == "reindex":
+        from qdrant_client import QdrantClient
+
+        if args.qdrant_mode == "local":
+            path = args.qdrant_path or args.db.parent / "qdrant"
+            client = QdrantClient(path=str(path))
+        else:
+            client = QdrantClient(
+                url=args.qdrant_url,
+                api_key=args.qdrant_api_key or None,
+            )
+        embedder = (
+            DeterministicHashEmbedding(dimension=args.dimension)
+            if args.embedding_mode == "deterministic"
+            else FastEmbedEmbedding(args.embedding_model, args.dimension)
+        )
+        index = QdrantVectorIndex(
+            client,
+            collection=args.collection,
+            dimension=args.dimension,
+        )
+        try:
+            result = IndexSynchronizer(
+                repository,
+                vector_index=index,
+                embedder=embedder,
+            ).rebuild(
+                corpus_version=args.corpus_version or repository.compute_corpus_version()
+            )
+            print(result.model_dump_json(indent=2))
+        finally:
+            client.close()
         return 0
     raise AssertionError(f"Unhandled command: {args.command}")
 
