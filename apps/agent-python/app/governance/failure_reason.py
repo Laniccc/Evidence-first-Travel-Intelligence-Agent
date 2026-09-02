@@ -15,6 +15,22 @@ class FailureCategory(str, Enum):
     UNKNOWN = "unknown"
 
 
+class FailureClass(str, Enum):
+    """Operational failure classes shared by all explicit Agent states."""
+
+    VALIDATION = "validation"
+    TIMEOUT = "timeout"
+    RATE_LIMIT = "rate_limit"
+    EMPTY_RESULT = "empty_result"
+    PARSE_ERROR = "parse_error"
+    POLICY_DENIED = "policy_denied"
+    DEPENDENCY_UNAVAILABLE = "dependency_unavailable"
+    ILLEGAL_TRANSITION = "illegal_transition"
+    UNSUPPORTED_CLAIM = "unsupported_claim"
+    BUDGET_EXHAUSTED = "budget_exhausted"
+    INTERNAL = "internal"
+
+
 class FailureReason(BaseModel):
     category: FailureCategory = FailureCategory.UNKNOWN
     code: str
