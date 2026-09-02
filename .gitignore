@@ -90,5 +90,6 @@ external/
 logs/
 *.log
 .cache/
+.worktrees/
 tmp/
 temp/
