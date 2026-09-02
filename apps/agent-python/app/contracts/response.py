@@ -29,6 +29,9 @@ class AgentQueryResponse(BaseModel):
     semantic_frame_summary: dict | None = None
     answer_mode: str | None = None
     orchestration_summary: dict | None = None
+    answer_claims: list[dict] = Field(default_factory=list)
+    citation_report: dict | None = None
+    retrieval_reports: list[dict] = Field(default_factory=list)
 
     @classmethod
     def from_legacy(cls, result, session_id: str | None = None) -> "AgentQueryResponse":

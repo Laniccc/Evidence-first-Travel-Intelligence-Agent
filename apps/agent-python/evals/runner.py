@@ -20,6 +20,8 @@ from app.evidence.knowledge.models import (
 )
 from app.evidence.knowledge.repository import KnowledgeRepository
 from app.evidence.claim_decision import evaluate_claims
+from app.composition.answer_claim import AnswerClaim
+from app.evidence.citation_checker import CitationChecker
 from app.evidence.retrieval.contracts import RetrievalPlan, VectorPoint
 from app.evidence.retrieval.embedding import DeterministicHashEmbedding, FastEmbedEmbedding
 from app.evidence.retrieval.hybrid import HybridRetriever, QdrantDenseRetriever
@@ -51,6 +53,7 @@ from evals.graders.operations import (
     grade_conflicts,
     grade_recovery,
 )
+from evals.graders.citation import CitationCaseResult, grade_citations
 from evals.graders.versioning import VersionCaseResult, grade_versioning
 
 
@@ -61,6 +64,7 @@ VERSIONING_DATASET = ROOT / "datasets" / "versioning.jsonl"
 STATE_ROUTING_DATASET = ROOT / "datasets" / "state_routing.jsonl"
 EVIDENCE_CONFLICT_DATASET = ROOT / "datasets" / "evidence_conflict.jsonl"
 FAILURE_RECOVERY_DATASET = ROOT / "datasets" / "failure_recovery.jsonl"
+CITATION_DATASET = ROOT / "datasets" / "citation.jsonl"
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -73,6 +77,7 @@ def _parser() -> argparse.ArgumentParser:
             "state_routing",
             "evidence_conflict",
             "failure_recovery",
+            "citation",
         ),
         required=True,
     )
@@ -593,19 +598,60 @@ def _failure_recovery_suite() -> dict:
     }
 
 
+def _citation_suite() -> dict:
+    results = []
+    audit = []
+    for row in _load_jsonl(CITATION_DATASET):
+        claim = AnswerClaim(
+            claim_id=row["case_id"],
+            text="故宫开放时间声明",
+            claim_type="opening_hours",
+            hard_fact=True,
+            evidence_ids=row["evidence_ids"],
+            conflict_disclosed=row["conflict_disclosed"],
+        )
+        report = CitationChecker.check(claims=[claim], evidence_index=row["evidence"])
+        decision = report.decisions[0]
+        actual_supported = decision.status == "supported"
+        results.append(
+            CitationCaseResult(
+                case_id=row["case_id"],
+                expected_supported=row["expected_supported"],
+                actual_supported=actual_supported,
+                expected_abstain=row["expected_abstain"],
+                actual_abstain=report.safe_failure,
+            )
+        )
+        audit.append({"case_id": row["case_id"], "decision": decision.model_dump()})
+    return {
+        "metrics": grade_citations(results).model_dump(),
+        "cases": [item.model_dump() for item in results],
+        "citation_audit": audit,
+    }
+
+
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     if args.offline and args.profile == "real-embedding":
         raise SystemExit("--offline cannot be combined with --profile real-embedding")
     profile = "offline" if args.offline else args.profile
-    if args.suite in {"state_routing", "evidence_conflict", "failure_recovery"}:
+    if args.suite in {
+        "state_routing",
+        "evidence_conflict",
+        "failure_recovery",
+        "citation",
+    }:
         suite_result = (
             _state_routing_suite()
             if args.suite == "state_routing"
             else (
                 _evidence_conflict_suite()
                 if args.suite == "evidence_conflict"
-                else _failure_recovery_suite()
+                else (
+                    _failure_recovery_suite()
+                    if args.suite == "failure_recovery"
+                    else _citation_suite()
+                )
             )
         )
         payload = {

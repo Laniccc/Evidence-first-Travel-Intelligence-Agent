@@ -90,6 +90,51 @@
         { "type": "null" }
       ]
     },
-    "answer_mode": { "type": ["string", "null"] }
+    "answer_mode": { "type": ["string", "null"] },
+    "answer_claims": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["claim_id", "text", "claim_type", "hard_fact", "evidence_ids"],
+        "properties": {
+          "claim_id": { "type": "string", "minLength": 1 },
+          "text": { "type": "string", "minLength": 1 },
+          "claim_type": { "type": "string", "minLength": 1 },
+          "hard_fact": { "type": "boolean" },
+          "evidence_ids": {
+            "type": "array",
+            "items": { "type": "string" },
+            "uniqueItems": true
+          },
+          "attraction_id": { "type": ["string", "null"] },
+          "subtask_id": { "type": ["string", "null"] },
+          "conflict_disclosed": { "type": "boolean", "default": false }
+        }
+      },
+      "default": []
+    },
+    "citation_report": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": true,
+          "required": ["passed", "safe_failure", "decisions", "unsupported_hard_fact_count"],
+          "properties": {
+            "passed": { "type": "boolean" },
+            "safe_failure": { "type": "boolean" },
+            "decisions": { "type": "array", "items": { "type": "object" } },
+            "unsupported_hard_fact_count": { "type": "integer", "minimum": 0 },
+            "citation_precision": { "type": "number", "minimum": 0, "maximum": 1 }
+          }
+        },
+        { "type": "null" }
+      ]
+    },
+    "retrieval_reports": {
+      "type": "array",
+      "items": { "type": "object", "additionalProperties": true },
+      "default": []
+    }
   }
 }

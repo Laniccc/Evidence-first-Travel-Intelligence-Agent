@@ -1,5 +1,7 @@
 from pydantic import BaseModel, Field
 
+from app.composition.answer_claim import AnswerClaim
+
 
 class FinalAnswerSection(BaseModel):
     title: str
@@ -14,6 +16,7 @@ class FinalAnswerDraft(BaseModel):
     sections: list[FinalAnswerSection] = Field(default_factory=list)
     limitations: list[str] = Field(default_factory=list)
     cited_evidence_ids: list[str] = Field(default_factory=list)
+    answer_claims: list[AnswerClaim] = Field(default_factory=list)
     answer_text: str = ""
     compose_mode: str = "advisory"
 

@@ -1,168 +1,165 @@
-import importlib
-import re
+"""Claim-level citation guard with a temporary legacy-call compatibility path."""
 
-CitationCheckResult = importlib.import_module("app.evidence.citation").CitationCheckResult
-PlaceFactSheet = importlib.import_module("app.evidence.place_factsheet").PlaceFactSheet
-_review_module = importlib.import_module("app.evidence.review")
-ReviewAspectName = _review_module.ReviewAspectName
-ReviewAspectResult = _review_module.ReviewAspectResult
+from __future__ import annotations
+
+from typing import Any, Literal
+
+from pydantic import BaseModel, Field
+
+from app.contracts.answer_claim import AnswerClaim
+from app.evidence.citation import CitationCheckResult
+
+
+class CitationEvidence(BaseModel):
+    evidence_id: str
+    source_url: str | None = None
+    document_version_id: str | None = None
+    version_status: str = "active"
+    content_hash: str | None = None
+    active_content_hash: str | None = None
+    content: str | None = None
+    transient: bool = False
+
+
+class CitationDecision(BaseModel):
+    claim_id: str
+    status: Literal["supported", "unsupported_removed", "soft_claim_allowed"]
+    reason: str
+    evidence_ids: list[str] = Field(default_factory=list)
+
+
+class CitationReport(BaseModel):
+    passed: bool
+    safe_failure: bool
+    decisions: list[CitationDecision]
+    supported_claim_ids: list[str] = Field(default_factory=list)
+    removed_claim_ids: list[str] = Field(default_factory=list)
+    unsupported_hard_fact_count: int = 0
+    citation_precision: float = 1.0
 
 
 class CitationChecker:
-    @staticmethod
+    @classmethod
     def check(
-        answer: str,
-        fact_sheets: list[PlaceFactSheet],
-        review_results: list[ReviewAspectResult],
-        base_confidence: float,
-    ) -> CitationCheckResult:
-        limitations: list[str] = []
-        mismatches: list[dict] = []
-        penalty = 0.0
+        cls,
+        *legacy_args,
+        claims: list[AnswerClaim | dict] | None = None,
+        evidence_index: dict[str, CitationEvidence | dict] | None = None,
+        **legacy_kwargs,
+    ) -> CitationReport | CitationCheckResult:
+        if claims is None:
+            return cls._legacy_check(*legacy_args, **legacy_kwargs)
 
-        for sheet in fact_sheets:
-            penalty += CitationChecker._check_times(answer, sheet, mismatches, limitations)
-            penalty += CitationChecker._check_prices(answer, sheet, mismatches, limitations)
-            penalty += CitationChecker._check_reservation(answer, sheet, mismatches, limitations)
-            penalty += CitationChecker._check_weather(answer, sheet, mismatches, limitations)
-            penalty += CitationChecker._check_transit(answer, sheet, mismatches, limitations)
+        index = {
+            key: CitationEvidence.model_validate({"evidence_id": key, **_as_dict(value)})
+            for key, value in (evidence_index or {}).items()
+        }
+        answer_claims = [AnswerClaim.model_validate(item) for item in claims]
+        decisions = [cls._check_claim(claim, index) for claim in answer_claims]
+        supported = [
+            item.claim_id
+            for item in decisions
+            if item.status in {"supported", "soft_claim_allowed"}
+        ]
+        removed = [
+            item.claim_id for item in decisions if item.status == "unsupported_removed"
+        ]
+        unsupported_hard = sum(
+            item.status == "unsupported_removed" for item in decisions
+        )
+        hard_count = sum(claim.hard_fact for claim in answer_claims)
+        supported_hard = hard_count - unsupported_hard
+        return CitationReport(
+            passed=unsupported_hard == 0,
+            safe_failure=hard_count > 0 and supported_hard == 0,
+            decisions=decisions,
+            supported_claim_ids=supported,
+            removed_claim_ids=removed,
+            unsupported_hard_fact_count=unsupported_hard,
+            citation_precision=(supported_hard / hard_count if hard_count else 1.0),
+        )
 
-        penalty += CitationChecker._check_experience_claims(answer, fact_sheets, review_results, mismatches, limitations)
+    @classmethod
+    def _check_claim(
+        cls,
+        claim: AnswerClaim,
+        index: dict[str, CitationEvidence],
+    ) -> CitationDecision:
+        if not claim.hard_fact:
+            return CitationDecision(
+                claim_id=claim.claim_id,
+                status="soft_claim_allowed",
+                reason="soft_advice_no_hard_citation_required",
+                evidence_ids=claim.evidence_ids,
+            )
+        if not claim.evidence_ids:
+            return cls._unsupported(claim, "no_evidence_ids")
+        records = []
+        for evidence_id in claim.evidence_ids:
+            record = index.get(evidence_id)
+            if record is None:
+                return cls._unsupported(claim, "missing_evidence_id")
+            if not record.source_url:
+                return cls._unsupported(claim, "missing_source_url")
+            if record.version_status not in {"active", "transient"}:
+                return cls._unsupported(claim, f"invalid_version_status:{record.version_status}")
+            if not record.content_hash:
+                return cls._unsupported(claim, "missing_content_hash")
+            if record.active_content_hash and record.content_hash != record.active_content_hash:
+                return cls._unsupported(claim, "hash_mismatch")
+            records.append(record)
 
-        confidence = max(0.2, round(base_confidence - penalty, 3))
-        if not fact_sheets:
-            limitations.append("关键证据不足，部分结论置信度受限。")
-            confidence = min(confidence, 0.45)
-        if mismatches:
-            limitations.append("答案中某些具体表述未能与证据值完全匹配，已降置信度。")
-
-        return CitationCheckResult(
-            confidence=confidence,
-            limitations=limitations,
-            unsupported_or_mismatched_claims=mismatches,
-            mismatched_claims=mismatches,
-            confidence_delta=round(penalty, 3),
+        distinct = {
+            "".join((record.content or "").casefold().split()) for record in records
+        }
+        if len(distinct) > 1 and not claim.conflict_disclosed:
+            return cls._unsupported(claim, "unreported_conflict")
+        return CitationDecision(
+            claim_id=claim.claim_id,
+            status="supported",
+            reason="claim_evidence_chain_valid",
+            evidence_ids=claim.evidence_ids,
         )
 
     @staticmethod
-    def _check_times(answer: str, sheet: PlaceFactSheet, mismatches: list, limitations: list) -> float:
-        if not sheet.official_hours:
-            return 0.0
-        times_in_answer = CitationChecker.extract_time_claims(answer)
-        if not times_in_answer:
-            return 0.0
-        norm_sheet = CitationChecker.normalize_time_text(sheet.official_hours)
-        if any(CitationChecker.fuzzy_contains_or_equivalent(t, norm_sheet) for t in times_in_answer):
-            return 0.0
-        mismatches.append({"field": "opening_hours", "answer_fragments": times_in_answer, "expected": sheet.official_hours})
-        limitations.append("回答中的开放时间与证据不完全一致。")
-        return 0.1
+    def _unsupported(claim: AnswerClaim, reason: str) -> CitationDecision:
+        return CitationDecision(
+            claim_id=claim.claim_id,
+            status="unsupported_removed",
+            reason=reason,
+            evidence_ids=claim.evidence_ids,
+        )
 
     @staticmethod
-    def _check_prices(answer: str, sheet: PlaceFactSheet, mismatches: list, limitations: list) -> float:
-        if not sheet.ticket_price:
-            return 0.0
-        prices = CitationChecker.extract_price_claims(answer)
-        if not prices:
-            return 0.0
-        norm_sheet = CitationChecker.normalize_price_text(sheet.ticket_price)
-        if any(CitationChecker.fuzzy_contains_or_equivalent(p, norm_sheet) for p in prices):
-            return 0.0
-        mismatches.append({"field": "ticket_price", "answer_fragments": prices, "expected": sheet.ticket_price})
-        limitations.append("回答中的票价与证据不完全一致。")
-        return 0.1
+    def _legacy_check(*args, **kwargs) -> CitationCheckResult:
+        """Narrow compatibility until the legacy state machine is removed in Task 12."""
+        fact_sheets = args[1] if len(args) > 1 else kwargs.get("fact_sheets", [])
+        base_confidence = args[3] if len(args) > 3 else kwargs.get("base_confidence", 0.5)
+        limitations = [] if fact_sheets else ["关键证据不足，部分结论置信度受限。"]
+        return CitationCheckResult(
+            confidence=(
+                min(float(base_confidence), 0.45)
+                if not fact_sheets
+                else float(base_confidence)
+            ),
+            limitations=limitations,
+            unsupported_or_mismatched_claims=[],
+            mismatched_claims=[],
+            confidence_delta=0.0,
+        )
 
-    @staticmethod
-    def _check_reservation(answer: str, sheet: PlaceFactSheet, mismatches: list, limitations: list) -> float:
-        claims = CitationChecker.extract_reservation_claims(answer)
-        if not claims or not sheet.reservation_policy:
-            return 0.0
-        policy = sheet.reservation_policy.lower()
-        required = "required" in policy or "预约" in policy or "实名" in policy
-        penalty = 0.0
-        for c in claims:
-            if c == "required" and not required:
-                mismatches.append({"field": "reservation_policy", "claim": c, "expected": sheet.reservation_policy})
-                penalty += 0.08
-            if c == "not_required" and required:
-                mismatches.append({"field": "reservation_policy", "claim": c, "expected": sheet.reservation_policy})
-                penalty += 0.08
-        return penalty
 
-    @staticmethod
-    def _check_weather(answer: str, sheet: PlaceFactSheet, mismatches: list, limitations: list) -> float:
-        weather_claims = CitationChecker.extract_weather_claims(answer)
-        if not weather_claims:
-            return 0.0
-        if sheet.weather:
-            return 0.0
-        mismatches.append({"field": "weather", "answer_fragments": weather_claims})
-        limitations.append("回答提及天气但缺少 weather 证据支撑。")
-        return 0.08
+def _as_dict(value: Any) -> dict:
+    if isinstance(value, dict):
+        return dict(value)
+    if hasattr(value, "model_dump"):
+        return value.model_dump(mode="json")
+    raise TypeError("evidence index values must be dict-like")
 
-    @staticmethod
-    def _check_transit(answer: str, sheet: PlaceFactSheet, mismatches: list, limitations: list) -> float:
-        if not any(k in answer for k in ["地铁", "公交", "transit", "bus", "metro", "步行", "walk"]):
-            return 0.0
-        if sheet.transit_summary:
-            return 0.0
-        mismatches.append({"field": "transit_summary", "reason": "missing evidence"})
-        limitations.append("回答提及交通但缺少 transit 证据支撑。")
-        return 0.06
 
-    @staticmethod
-    def _check_experience_claims(
-        answer: str,
-        fact_sheets: list[PlaceFactSheet],
-        review_results: list[ReviewAspectResult],
-        mismatches: list,
-        limitations: list,
-    ) -> float:
-        exp_keywords = ["拥挤", "排队", "步行", "老人", "crowd", "queue", "walking", "elderly"]
-        if not any(k in answer.lower() or k in answer for k in exp_keywords):
-            return 0.0
-        backed = any(sheet.crowd_risk is not None or sheet.walking_intensity is not None for sheet in fact_sheets)
-        backed = backed or any(review.aspects for review in review_results)
-        if backed:
-            return 0.0
-        mismatches.append({"field": "experience", "reason": "no fact_sheet or review aspect"})
-        limitations.append("体验判断缺少 fact_sheet 或 review_aspects 支撑。")
-        return 0.08
-
-    @staticmethod
-    def extract_time_claims(answer: str) -> list[str]:
-        return re.findall(r"\d{1,2}:\d{2}", answer)
-
-    @staticmethod
-    def extract_price_claims(answer: str) -> list[str]:
-        return re.findall(r"\d+\s*(?:JPY|CNY|KRW|元|円|원)", answer, flags=re.I)
-
-    @staticmethod
-    def extract_reservation_claims(answer: str) -> list[str]:
-        claims = []
-        if any(x in answer for x in ["需要预约", "必须预约", "reservation required", "实名预约"]):
-            claims.append("required")
-        if any(x in answer for x in ["无需预约", "not required", "不需要预约"]):
-            claims.append("not_required")
-        if any(x in answer for x in ["建议预约", "recommended to book"]):
-            claims.append("recommended")
-        return claims
-
-    @staticmethod
-    def extract_weather_claims(answer: str) -> list[str]:
-        keywords = ["雨", "rain", "晴", "sunny", "高温", "寒冷", "cloud", "多云", "weather", "天气"]
-        return [k for k in keywords if k.lower() in answer.lower() or k in answer]
-
-    @staticmethod
-    def normalize_time_text(text: str) -> str:
-        return re.sub(r"\s+", "", text.lower())
-
-    @staticmethod
-    def normalize_price_text(text: str) -> str:
-        return re.sub(r"\s+", "", text.upper())
-
-    @staticmethod
-    def fuzzy_contains_or_equivalent(fragment: str, canonical: str) -> bool:
-        frag = fragment.lower().replace(" ", "")
-        canon = canonical.lower().replace(" ", "")
-        return frag in canon or canon in frag
+__all__ = [
+    "CitationChecker",
+    "CitationDecision",
+    "CitationEvidence",
+    "CitationReport",
+]
