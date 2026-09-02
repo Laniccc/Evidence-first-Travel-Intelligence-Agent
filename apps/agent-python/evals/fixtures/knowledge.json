@@ -1,0 +1,118 @@
+{
+  "corpus_version": "portfolio-2026-09-02",
+  "as_of": "2026-09-02T00:00:00Z",
+  "historical_documents": [
+    {"source_id":"main-forbidden-city","attraction_id":"forbidden-city","name":"故宫博物院","url":"https://www.dpm.org.cn/visit/hours","title":"故宫旧版须知","source_type":"official","expected_status":"superseded","facts":[{"chunk_id":"stale-fc-hours","fact_type":"opening_hours","content":"故宫 开放 时间 旧版 八点开放","locator":"archive-hours"}]},
+    {"source_id":"main-summer-palace","attraction_id":"summer-palace","name":"颐和园","url":"https://www.summerpalace-china.com/visit","title":"颐和园旧版须知","source_type":"official","expected_status":"superseded","facts":[{"chunk_id":"stale-sp-ticket","fact_type":"ticket_price","content":"颐和园 门票 旧版 价格 四十元","locator":"archive-ticket"}]},
+    {"source_id":"main-temple-of-heaven","attraction_id":"temple-of-heaven","name":"天坛公园","url":"https://www.tiantanpark.com/visit","title":"天坛旧版须知","source_type":"official","expected_status":"superseded","facts":[{"chunk_id":"stale-th-reservation","fact_type":"reservation","content":"天坛 预约 旧版 无需预约","locator":"archive-reservation"}]},
+    {"source_id":"main-badaling","attraction_id":"badaling","name":"八达岭长城","url":"https://www.badaling.cn/visit","title":"八达岭旧版须知","source_type":"official","expected_status":"superseded","facts":[{"chunk_id":"stale-bd-transport","fact_type":"transport","content":"八达岭 交通 旧版 仅有公交","locator":"archive-transport"}]},
+    {"source_id":"main-shanghai-museum","attraction_id":"shanghai-museum","name":"上海博物馆","url":"https://www.shanghaimuseum.net/visit","title":"上博旧版须知","source_type":"official","expected_status":"superseded","facts":[{"chunk_id":"stale-sm-hours","fact_type":"opening_hours","content":"上海博物馆 开放 时间 旧版 九点半","locator":"archive-hours"}]},
+    {"source_id":"main-west-lake","attraction_id":"west-lake","name":"杭州西湖","url":"https://wgly.hangzhou.gov.cn/westlake","title":"西湖旧版须知","source_type":"official","expected_status":"superseded","facts":[{"chunk_id":"stale-wl-notice","fact_type":"visitor_notice","content":"西湖 游览 须知 旧版 全线施工","locator":"archive-notice"}]},
+    {"source_id":"expired-tc","attraction_id":"terracotta-army","name":"秦始皇帝陵博物院","url":"https://www.bmy.com.cn/archive/hours","title":"兵马俑过期开放公告","source_type":"official","expected_status":"expired","valid_to":"2025-01-01T00:00:00Z","facts":[{"chunk_id":"expired-tc-hours","fact_type":"opening_hours","content":"兵马俑 开放 时间 过期 七点开放","locator":"expired-hours"}]},
+    {"source_id":"expired-jz","attraction_id":"jiuzhaigou","name":"九寨沟景区","url":"https://www.jiuzhai.com/archive/ticket","title":"九寨沟过期票价","source_type":"official","expected_status":"expired","valid_to":"2025-01-01T00:00:00Z","facts":[{"chunk_id":"expired-jz-ticket","fact_type":"ticket_price","content":"九寨沟 门票 过期 价格 一百元","locator":"expired-ticket"}]},
+    {"source_id":"expired-fc","attraction_id":"forbidden-city","name":"故宫博物院","url":"https://www.dpm.org.cn/archive/reservation","title":"故宫过期预约公告","source_type":"official","expected_status":"expired","valid_to":"2025-01-01T00:00:00Z","facts":[{"chunk_id":"expired-fc-reservation","fact_type":"reservation","content":"故宫 预约 过期 可现场购票","locator":"expired-reservation"}]},
+    {"source_id":"expired-sp","attraction_id":"summer-palace","name":"颐和园","url":"https://www.summerpalace-china.com/archive/access","title":"颐和园过期无障碍公告","source_type":"official","expected_status":"expired","valid_to":"2025-01-01T00:00:00Z","facts":[{"chunk_id":"expired-sp-access","fact_type":"accessibility","content":"颐和园 无障碍 过期 西门关闭","locator":"expired-access"}]},
+    {"source_id":"expired-th","attraction_id":"temple-of-heaven","name":"天坛公园","url":"https://www.tiantanpark.com/archive/ticket","title":"天坛过期联票公告","source_type":"official","expected_status":"expired","valid_to":"2025-01-01T00:00:00Z","facts":[{"chunk_id":"expired-th-ticket","fact_type":"ticket_price","content":"天坛 联票 过期 价格 二十元","locator":"expired-ticket"}]},
+    {"source_id":"expired-bd","attraction_id":"badaling","name":"八达岭长城","url":"https://www.badaling.cn/archive/notice","title":"八达岭过期公告","source_type":"official","expected_status":"expired","valid_to":"2025-01-01T00:00:00Z","facts":[{"chunk_id":"expired-bd-notice","fact_type":"visitor_notice","content":"八达岭 游览 过期 南线关闭","locator":"expired-notice"}]}
+  ],
+  "active_documents": [
+    {"source_id":"main-forbidden-city","attraction_id":"forbidden-city","name":"故宫博物院","aliases":["故宫","Forbidden City"],"city":"北京","country":"中国","url":"https://www.dpm.org.cn/visit/hours","title":"故宫参观服务","source_type":"official","expected_status":"active","facts":[
+      {"chunk_id":"fc-hours","fact_type":"opening_hours","content":"故宫 开放 时间 旺季 八点三十分 至 十七点","locator":"hours"},
+      {"chunk_id":"fc-ticket","fact_type":"ticket_price","content":"故宫 门票 价格 旺季 成人票 六十元","locator":"tickets"},
+      {"chunk_id":"fc-reservation","fact_type":"reservation","content":"故宫 预约 入馆 需要 提前 实名预约","locator":"reservation"},
+      {"chunk_id":"fc-transport","fact_type":"transport","content":"故宫 交通 地铁 一号线 天安门东站 步行到达","locator":"transport"},
+      {"chunk_id":"fc-access","fact_type":"accessibility","content":"故宫 无障碍 服务 提供 轮椅 通道","locator":"accessibility"},
+      {"chunk_id":"fc-notice","fact_type":"visitor_notice","content":"故宫 参观 须知 禁止 携带 危险物品","locator":"notice"},
+      {"chunk_id":"fc-description","fact_type":"general_description","content":"故宫 简介 是 明清 皇家 宫殿 博物院","locator":"about"},
+      {"chunk_id":"fc-season-notice","fact_type":"visitor_notice","content":"故宫 暑期 提示 建议 错峰 参观","locator":"summer"}
+    ]},
+    {"source_id":"main-summer-palace","attraction_id":"summer-palace","name":"颐和园","aliases":["Summer Palace"],"city":"北京","country":"中国","url":"https://www.summerpalace-china.com/visit","title":"颐和园游览服务","source_type":"official","expected_status":"active","facts":[
+      {"chunk_id":"sp-hours","fact_type":"opening_hours","content":"颐和园 开放 时间 旺季 六点 至 二十点","locator":"hours"},
+      {"chunk_id":"sp-ticket","fact_type":"ticket_price","content":"颐和园 门票 价格 旺季 成人票 三十元","locator":"tickets"},
+      {"chunk_id":"sp-reservation","fact_type":"reservation","content":"颐和园 预约 入园 可提前 在线预约","locator":"reservation"},
+      {"chunk_id":"sp-transport","fact_type":"transport","content":"颐和园 交通 地铁 四号线 北宫门站 到达","locator":"transport"},
+      {"chunk_id":"sp-access","fact_type":"accessibility","content":"颐和园 无障碍 服务 东宫门 提供 无障碍通道","locator":"accessibility"},
+      {"chunk_id":"sp-notice","fact_type":"visitor_notice","content":"颐和园 游览 须知 湖边 注意 安全","locator":"notice"},
+      {"chunk_id":"sp-description","fact_type":"general_description","content":"颐和园 简介 是 皇家 园林 世界遗产","locator":"about"},
+      {"chunk_id":"sp-season-notice","fact_type":"visitor_notice","content":"颐和园 冬季 提示 部分 游船 停航","locator":"winter"}
+    ]},
+    {"source_id":"main-temple-of-heaven","attraction_id":"temple-of-heaven","name":"天坛公园","aliases":["Temple of Heaven"],"city":"北京","country":"中国","url":"https://www.tiantanpark.com/visit","title":"天坛参观服务","source_type":"official","expected_status":"active","facts":[
+      {"chunk_id":"th-hours","fact_type":"opening_hours","content":"天坛 开放 时间 公园 六点 开放","locator":"hours"},
+      {"chunk_id":"th-ticket","fact_type":"ticket_price","content":"天坛 联票 价格 旺季 三十四元","locator":"tickets"},
+      {"chunk_id":"th-reservation","fact_type":"reservation","content":"天坛 预约 参观 建议 提前 购票","locator":"reservation"},
+      {"chunk_id":"th-transport","fact_type":"transport","content":"天坛 交通 地铁 五号线 天坛东门站","locator":"transport"},
+      {"chunk_id":"th-access","fact_type":"accessibility","content":"天坛 无障碍 服务 主要 门区 提供 坡道","locator":"accessibility"},
+      {"chunk_id":"th-notice","fact_type":"visitor_notice","content":"天坛 参观 须知 祈年殿 区域 禁止 攀爬","locator":"notice"},
+      {"chunk_id":"th-description","fact_type":"general_description","content":"天坛 简介 是 明清 皇帝 祭天 建筑群","locator":"about"},
+      {"chunk_id":"th-season-notice","fact_type":"visitor_notice","content":"天坛 暑期 提示 中午 注意 防晒","locator":"summer"}
+    ]},
+    {"source_id":"main-badaling","attraction_id":"badaling","name":"八达岭长城","aliases":["Badaling Great Wall"],"city":"北京","country":"中国","url":"https://www.badaling.cn/visit","title":"八达岭游览服务","source_type":"official","expected_status":"active","facts":[
+      {"chunk_id":"bd-hours","fact_type":"opening_hours","content":"八达岭 开放 时间 旺季 六点三十分 开放","locator":"hours"},
+      {"chunk_id":"bd-ticket","fact_type":"ticket_price","content":"八达岭 门票 价格 旺季 成人票 四十元","locator":"tickets"},
+      {"chunk_id":"bd-reservation","fact_type":"reservation","content":"八达岭 预约 入园 实行 实名 购票","locator":"reservation"},
+      {"chunk_id":"bd-transport","fact_type":"transport","content":"八达岭 交通 可乘 京张高铁 至 八达岭长城站","locator":"transport"},
+      {"chunk_id":"bd-access","fact_type":"accessibility","content":"八达岭 无障碍 服务 部分 区域 提供 电梯","locator":"accessibility"},
+      {"chunk_id":"bd-notice","fact_type":"visitor_notice","content":"八达岭 游览 须知 山区 天气 多变 注意 防滑","locator":"notice"},
+      {"chunk_id":"bd-description","fact_type":"general_description","content":"八达岭 简介 是 明长城 代表性 段落","locator":"about"},
+      {"chunk_id":"bd-season-notice","fact_type":"visitor_notice","content":"八达岭 冬季 提示 大风 天气 可能 临时关闭","locator":"winter"}
+    ]},
+    {"source_id":"main-shanghai-museum","attraction_id":"shanghai-museum","name":"上海博物馆","aliases":["Shanghai Museum"],"city":"上海","country":"中国","url":"https://www.shanghaimuseum.net/visit","title":"上海博物馆参观服务","source_type":"official","expected_status":"active","facts":[
+      {"chunk_id":"sm-hours","fact_type":"opening_hours","content":"上海博物馆 开放 时间 九点 至 十七点","locator":"hours"},
+      {"chunk_id":"sm-ticket","fact_type":"ticket_price","content":"上海博物馆 常设展 门票 免费","locator":"tickets"},
+      {"chunk_id":"sm-reservation","fact_type":"reservation","content":"上海博物馆 预约 入馆 需要 实名预约","locator":"reservation"},
+      {"chunk_id":"sm-transport","fact_type":"transport","content":"上海博物馆 交通 地铁 八号线 人民广场站","locator":"transport"},
+      {"chunk_id":"sm-access","fact_type":"accessibility","content":"上海博物馆 无障碍 服务 提供 无障碍电梯","locator":"accessibility"},
+      {"chunk_id":"sm-notice","fact_type":"visitor_notice","content":"上海博物馆 参观 须知 大件 行李 需要 寄存","locator":"notice"},
+      {"chunk_id":"sm-description","fact_type":"general_description","content":"上海博物馆 简介 收藏 中国 古代 艺术品","locator":"about"},
+      {"chunk_id":"sm-season-notice","fact_type":"visitor_notice","content":"上海博物馆 节假日 提示 预约 名额 紧张","locator":"holiday"}
+    ]},
+    {"source_id":"main-west-lake","attraction_id":"west-lake","name":"杭州西湖","aliases":["West Lake"],"city":"杭州","country":"中国","url":"https://wgly.hangzhou.gov.cn/westlake","title":"杭州西湖游览服务","source_type":"official","expected_status":"active","facts":[
+      {"chunk_id":"wl-hours","fact_type":"opening_hours","content":"杭州西湖 开放 时间 公共 湖滨 区域 全天开放","locator":"hours"},
+      {"chunk_id":"wl-ticket","fact_type":"ticket_price","content":"杭州西湖 湖滨 公共 区域 门票 免费","locator":"tickets"},
+      {"chunk_id":"wl-reservation","fact_type":"reservation","content":"杭州西湖 公共 区域 无需 预约","locator":"reservation"},
+      {"chunk_id":"wl-transport","fact_type":"transport","content":"杭州西湖 交通 地铁 一号线 龙翔桥站","locator":"transport"},
+      {"chunk_id":"wl-access","fact_type":"accessibility","content":"杭州西湖 无障碍 服务 湖滨 步道 较为 平缓","locator":"accessibility"},
+      {"chunk_id":"wl-notice","fact_type":"visitor_notice","content":"杭州西湖 游览 须知 禁止 下水 游泳","locator":"notice"},
+      {"chunk_id":"wl-description","fact_type":"general_description","content":"杭州西湖 简介 是 湖泊 类 世界文化遗产","locator":"about"},
+      {"chunk_id":"wl-season-notice","fact_type":"visitor_notice","content":"杭州西湖 雨季 提示 石阶 湿滑 注意 安全","locator":"rain"}
+    ]},
+    {"source_id":"main-terracotta-army","attraction_id":"terracotta-army","name":"秦始皇帝陵博物院","aliases":["兵马俑","Terracotta Army"],"city":"西安","country":"中国","url":"https://www.bmy.com.cn/visit","title":"兵马俑参观服务","source_type":"official","expected_status":"active","facts":[
+      {"chunk_id":"tc-hours","fact_type":"opening_hours","content":"兵马俑 开放 时间 旺季 八点三十分 开放","locator":"hours"},
+      {"chunk_id":"tc-ticket","fact_type":"ticket_price","content":"兵马俑 门票 价格 成人票 一百二十元","locator":"tickets"},
+      {"chunk_id":"tc-reservation","fact_type":"reservation","content":"兵马俑 预约 入馆 需要 实名 购票","locator":"reservation"},
+      {"chunk_id":"tc-transport","fact_type":"transport","content":"兵马俑 交通 可从 西安 乘坐 景区 专线","locator":"transport"},
+      {"chunk_id":"tc-access","fact_type":"accessibility","content":"兵马俑 无障碍 服务 展厅 提供 无障碍通道","locator":"accessibility"},
+      {"chunk_id":"tc-notice","fact_type":"visitor_notice","content":"兵马俑 参观 须知 展厅 禁止 使用 闪光灯","locator":"notice"},
+      {"chunk_id":"tc-description","fact_type":"general_description","content":"兵马俑 简介 展示 秦代 陶俑 军阵","locator":"about"},
+      {"chunk_id":"tc-season-notice","fact_type":"visitor_notice","content":"兵马俑 暑期 提示 建议 预留 三小时","locator":"summer"}
+    ]},
+    {"source_id":"main-jiuzhaigou","attraction_id":"jiuzhaigou","name":"九寨沟景区","aliases":["Jiuzhaigou"],"city":"阿坝","country":"中国","url":"https://www.jiuzhai.com/visit","title":"九寨沟游览服务","source_type":"official","expected_status":"active","facts":[
+      {"chunk_id":"jz-hours","fact_type":"opening_hours","content":"九寨沟 开放 时间 旺季 七点三十分 开园","locator":"hours"},
+      {"chunk_id":"jz-ticket","fact_type":"ticket_price","content":"九寨沟 门票 价格 旺季 成人票 一百九十元","locator":"tickets"},
+      {"chunk_id":"jz-reservation","fact_type":"reservation","content":"九寨沟 预约 入园 需要 提前 实名购票","locator":"reservation"},
+      {"chunk_id":"jz-transport","fact_type":"transport","content":"九寨沟 交通 可从 成都 乘坐 长途客运","locator":"transport"},
+      {"chunk_id":"jz-access","fact_type":"accessibility","content":"九寨沟 无障碍 服务 观光车 可到达 主要 站点","locator":"accessibility"},
+      {"chunk_id":"jz-notice","fact_type":"visitor_notice","content":"九寨沟 游览 须知 高海拔 地区 注意 身体状况","locator":"notice"},
+      {"chunk_id":"jz-description","fact_type":"general_description","content":"九寨沟 简介 以 高山 湖泊 瀑布 著名","locator":"about"},
+      {"chunk_id":"jz-season-notice","fact_type":"visitor_notice","content":"九寨沟 冬季 提示 部分 栈道 可能 关闭","locator":"winter"}
+    ]}
+  ],
+  "conflict_documents": [
+    {"source_id":"conflict-fc-hours","attraction_id":"forbidden-city","name":"故宫博物院","url":"https://data.example.test/fc-hours","title":"故宫结构化开放数据","source_type":"structured","expected_status":"active","facts":[{"chunk_id":"conflict-fc-hours","fact_type":"opening_hours","content":"故宫 开放 时间 数据源 声称 九点开放","locator":"row-1","conflict_group":"fc-hours"}]},
+    {"source_id":"conflict-sp-ticket","attraction_id":"summer-palace","name":"颐和园","url":"https://data.example.test/sp-ticket","title":"颐和园结构化票价数据","source_type":"structured","expected_status":"active","facts":[{"chunk_id":"conflict-sp-ticket","fact_type":"ticket_price","content":"颐和园 门票 价格 数据源 声称 三十五元","locator":"row-2","conflict_group":"sp-ticket"}]},
+    {"source_id":"conflict-th-reservation","attraction_id":"temple-of-heaven","name":"天坛公园","url":"https://data.example.test/th-reservation","title":"天坛结构化预约数据","source_type":"structured","expected_status":"active","facts":[{"chunk_id":"conflict-th-reservation","fact_type":"reservation","content":"天坛 预约 数据源 声称 无需预约","locator":"row-3","conflict_group":"th-reservation"}]},
+    {"source_id":"conflict-bd-transport","attraction_id":"badaling","name":"八达岭长城","url":"https://data.example.test/bd-transport","title":"八达岭结构化交通数据","source_type":"structured","expected_status":"active","facts":[{"chunk_id":"conflict-bd-transport","fact_type":"transport","content":"八达岭 交通 数据源 声称 高铁站 停运","locator":"row-4","conflict_group":"bd-transport"}]},
+    {"source_id":"conflict-sm-hours","attraction_id":"shanghai-museum","name":"上海博物馆","url":"https://data.example.test/sm-hours","title":"上博结构化开放数据","source_type":"structured","expected_status":"active","facts":[{"chunk_id":"conflict-sm-hours","fact_type":"opening_hours","content":"上海博物馆 开放 时间 数据源 声称 十点开放","locator":"row-5","conflict_group":"sm-hours"}]},
+    {"source_id":"conflict-jz-ticket","attraction_id":"jiuzhaigou","name":"九寨沟景区","url":"https://data.example.test/jz-ticket","title":"九寨沟结构化票价数据","source_type":"structured","expected_status":"active","facts":[{"chunk_id":"conflict-jz-ticket","fact_type":"ticket_price","content":"九寨沟 门票 价格 数据源 声称 二百元","locator":"row-6","conflict_group":"jz-ticket"}]}
+  ],
+  "review_documents": [
+    {"source_id":"pending-fc","attraction_id":"forbidden-city","name":"故宫博物院","url":"https://forum.example.test/fc","title":"待审核故宫信息","source_type":"forum","expected_status":"pending","facts":[{"chunk_id":"pending-fc","fact_type":"visitor_notice","content":"故宫 待审核 信息 声称 可以 夜游","locator":"post-1"}]},
+    {"source_id":"pending-sp","attraction_id":"summer-palace","name":"颐和园","url":"https://forum.example.test/sp","title":"待审核颐和园信息","source_type":"forum","expected_status":"pending","facts":[{"chunk_id":"pending-sp","fact_type":"ticket_price","content":"颐和园 待审核 信息 声称 门票免费","locator":"post-2"}]},
+    {"source_id":"pending-tc","attraction_id":"terracotta-army","name":"秦始皇帝陵博物院","url":"https://forum.example.test/tc","title":"待审核兵马俑信息","source_type":"forum","expected_status":"pending","facts":[{"chunk_id":"pending-tc","fact_type":"reservation","content":"兵马俑 待审核 信息 声称 无需预约","locator":"post-3"}]},
+    {"source_id":"pending-jz","attraction_id":"jiuzhaigou","name":"九寨沟景区","url":"https://forum.example.test/jz","title":"待审核九寨沟信息","source_type":"forum","expected_status":"pending","facts":[{"chunk_id":"pending-jz","fact_type":"transport","content":"九寨沟 待审核 信息 声称 地铁直达","locator":"post-4"}]},
+    {"source_id":"rejected-fc","attraction_id":"forbidden-city","name":"故宫博物院","url":"https://forum.example.test/rejected-fc","title":"拒绝的故宫信息","source_type":"forum","expected_status":"rejected","facts":[{"chunk_id":"rejected-fc","fact_type":"ticket_price","content":"故宫 拒绝 信息 声称 门票一元","locator":"post-5"}]},
+    {"source_id":"rejected-wl","attraction_id":"west-lake","name":"杭州西湖","url":"https://forum.example.test/rejected-wl","title":"拒绝的西湖信息","source_type":"forum","expected_status":"rejected","facts":[{"chunk_id":"rejected-wl","fact_type":"reservation","content":"杭州西湖 拒绝 信息 声称 强制预约","locator":"post-6"}]},
+    {"source_id":"rejected-sm","attraction_id":"shanghai-museum","name":"上海博物馆","url":"https://forum.example.test/rejected-sm","title":"拒绝的上博信息","source_type":"forum","expected_status":"rejected","facts":[{"chunk_id":"rejected-sm","fact_type":"opening_hours","content":"上海博物馆 拒绝 信息 声称 通宵开放","locator":"post-7"}]},
+    {"source_id":"rejected-bd","attraction_id":"badaling","name":"八达岭长城","url":"https://forum.example.test/rejected-bd","title":"拒绝的八达岭信息","source_type":"forum","expected_status":"rejected","facts":[{"chunk_id":"rejected-bd","fact_type":"accessibility","content":"八达岭 拒绝 信息 声称 全程无障碍","locator":"post-8"}]}
+  ]
+}

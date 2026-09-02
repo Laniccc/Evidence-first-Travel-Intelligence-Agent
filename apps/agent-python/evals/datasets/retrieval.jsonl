@@ -1,0 +1,20 @@
+{"case_id":"ret-01","task_type":"fact_query","query_text":"故宫 预约 入馆 需要 提前 实名预约","attraction_ids":["forbidden-city"],"fact_types":["reservation"],"expected_chunk_ids":["fc-reservation"]}
+{"case_id":"ret-02","task_type":"fact_query","query_text":"颐和园 预约 入园 可提前 在线预约","attraction_ids":["summer-palace"],"fact_types":["reservation"],"expected_chunk_ids":["sp-reservation"]}
+{"case_id":"ret-03","task_type":"fact_query","query_text":"天坛 预约 参观 建议 提前 购票","attraction_ids":["temple-of-heaven"],"fact_types":["reservation"],"expected_chunk_ids":["th-reservation"]}
+{"case_id":"ret-04","task_type":"fact_query","query_text":"八达岭 预约 入园 实行 实名 购票","attraction_ids":["badaling"],"fact_types":["reservation"],"expected_chunk_ids":["bd-reservation"]}
+{"case_id":"ret-05","task_type":"fact_query","query_text":"上海博物馆 预约 入馆 需要 实名预约","attraction_ids":["shanghai-museum"],"fact_types":["reservation"],"expected_chunk_ids":["sm-reservation"]}
+{"case_id":"ret-06","task_type":"fact_query","query_text":"杭州西湖 公共 区域 无需 预约","attraction_ids":["west-lake"],"fact_types":["reservation"],"expected_chunk_ids":["wl-reservation"]}
+{"case_id":"ret-07","task_type":"fact_query","query_text":"兵马俑 预约 入馆 需要 实名 购票","attraction_ids":["terracotta-army"],"fact_types":["reservation"],"expected_chunk_ids":["tc-reservation"]}
+{"case_id":"ret-08","task_type":"fact_query","query_text":"九寨沟 预约 入园 需要 提前 实名购票","attraction_ids":["jiuzhaigou"],"fact_types":["reservation"],"expected_chunk_ids":["jz-reservation"]}
+{"case_id":"ret-09","task_type":"fact_query","query_text":"故宫 交通 地铁 一号线 天安门东站","attraction_ids":["forbidden-city"],"fact_types":["transport"],"expected_chunk_ids":["fc-transport"]}
+{"case_id":"ret-10","task_type":"fact_query","query_text":"颐和园 交通 地铁 四号线 北宫门站","attraction_ids":["summer-palace"],"fact_types":["transport"],"expected_chunk_ids":["sp-transport"]}
+{"case_id":"ret-11","task_type":"fact_query","query_text":"八达岭 交通 京张高铁 八达岭长城站","attraction_ids":["badaling"],"fact_types":["transport"],"expected_chunk_ids":["bd-transport"]}
+{"case_id":"ret-12","task_type":"fact_query","query_text":"九寨沟 交通 成都 长途客运","attraction_ids":["jiuzhaigou"],"fact_types":["transport"],"expected_chunk_ids":["jz-transport"]}
+{"case_id":"ret-13","task_type":"suitability","query_text":"故宫 无障碍 服务 轮椅 通道","attraction_ids":["forbidden-city"],"fact_types":["accessibility"],"expected_chunk_ids":["fc-access"]}
+{"case_id":"ret-14","task_type":"suitability","query_text":"颐和园 无障碍 服务 东宫门 无障碍通道","attraction_ids":["summer-palace"],"fact_types":["accessibility"],"expected_chunk_ids":["sp-access"]}
+{"case_id":"ret-15","task_type":"suitability","query_text":"上海博物馆 无障碍 服务 无障碍电梯","attraction_ids":["shanghai-museum"],"fact_types":["accessibility"],"expected_chunk_ids":["sm-access"]}
+{"case_id":"ret-16","task_type":"suitability","query_text":"九寨沟 无障碍 服务 观光车 主要站点","attraction_ids":["jiuzhaigou"],"fact_types":["accessibility"],"expected_chunk_ids":["jz-access"]}
+{"case_id":"ret-17","task_type":"fact_query","query_text":"故宫 简介 明清 皇家 宫殿 博物院","attraction_ids":["forbidden-city"],"fact_types":["general_description"],"expected_chunk_ids":["fc-description"]}
+{"case_id":"ret-18","task_type":"fact_query","query_text":"颐和园 简介 皇家 园林 世界遗产","attraction_ids":["summer-palace"],"fact_types":["general_description"],"expected_chunk_ids":["sp-description"]}
+{"case_id":"ret-19","task_type":"fact_query","query_text":"兵马俑 简介 秦代 陶俑 军阵","attraction_ids":["terracotta-army"],"fact_types":["general_description"],"expected_chunk_ids":["tc-description"]}
+{"case_id":"ret-20","task_type":"fact_query","query_text":"九寨沟 简介 高山 湖泊 瀑布","attraction_ids":["jiuzhaigou"],"fact_types":["general_description"],"expected_chunk_ids":["jz-description"]}

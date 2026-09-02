@@ -1,0 +1,48 @@
+{
+  "measured_on": "2026-09-02",
+  "profile": "offline",
+  "embedding_model": "deterministic-hash-v1",
+  "corpus": {
+    "attractions": 8,
+    "active_chunks": 70,
+    "superseded_or_expired_chunks": 12,
+    "pending_or_rejected_chunks": 8,
+    "conflict_groups": 6
+  },
+  "retrieval_cases": 20,
+  "ablations": {
+    "lexical": {
+      "recall_at_3": 1.0,
+      "mrr": 1.0,
+      "ndcg_at_5": 1.0,
+      "metadata_filter_accuracy": 1.0,
+      "provenance_completeness": 1.0
+    },
+    "dense": {
+      "recall_at_3": 1.0,
+      "mrr": 1.0,
+      "ndcg_at_5": 1.0,
+      "metadata_filter_accuracy": 1.0,
+      "provenance_completeness": 1.0
+    },
+    "hybrid": {
+      "recall_at_3": 1.0,
+      "mrr": 1.0,
+      "ndcg_at_5": 1.0,
+      "metadata_filter_accuracy": 1.0,
+      "provenance_completeness": 1.0
+    }
+  },
+  "versioning_cases": 20,
+  "versioning": {
+    "expired_leakage_rate": 0.0,
+    "superseded_leakage_rate": 0.0,
+    "non_active_leakage_rate": 0.0,
+    "stale_vector_rejection": 1.0
+  },
+  "limitations": [
+    "The deterministic feature-hashing profile validates orchestration, filters, fusion and version controls; it does not measure real semantic embedding quality.",
+    "Queries are fixture-aligned regression cases. A real Chinese embedding profile and adversarial paraphrases are required before claiming semantic lift.",
+    "Identical lexical, dense and hybrid scores mean this baseline proves correctness gates, not an ablation improvement claim."
+  ]
+}

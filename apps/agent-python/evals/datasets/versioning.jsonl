@@ -1,0 +1,20 @@
+{"case_id":"ver-01","chunk_id":"stale-fc-hours","status":"superseded","query_text":"故宫 开放 时间 旧版 八点开放","attraction_id":"forbidden-city","fact_type":"opening_hours"}
+{"case_id":"ver-02","chunk_id":"stale-sp-ticket","status":"superseded","query_text":"颐和园 门票 旧版 价格 四十元","attraction_id":"summer-palace","fact_type":"ticket_price"}
+{"case_id":"ver-03","chunk_id":"stale-th-reservation","status":"superseded","query_text":"天坛 预约 旧版 无需预约","attraction_id":"temple-of-heaven","fact_type":"reservation"}
+{"case_id":"ver-04","chunk_id":"stale-bd-transport","status":"superseded","query_text":"八达岭 交通 旧版 仅有公交","attraction_id":"badaling","fact_type":"transport"}
+{"case_id":"ver-05","chunk_id":"stale-sm-hours","status":"superseded","query_text":"上海博物馆 开放 时间 旧版 九点半","attraction_id":"shanghai-museum","fact_type":"opening_hours"}
+{"case_id":"ver-06","chunk_id":"stale-wl-notice","status":"superseded","query_text":"西湖 游览 须知 旧版 全线施工","attraction_id":"west-lake","fact_type":"visitor_notice"}
+{"case_id":"ver-07","chunk_id":"expired-tc-hours","status":"expired","query_text":"兵马俑 开放 时间 过期 七点开放","attraction_id":"terracotta-army","fact_type":"opening_hours"}
+{"case_id":"ver-08","chunk_id":"expired-jz-ticket","status":"expired","query_text":"九寨沟 门票 过期 价格 一百元","attraction_id":"jiuzhaigou","fact_type":"ticket_price"}
+{"case_id":"ver-09","chunk_id":"expired-fc-reservation","status":"expired","query_text":"故宫 预约 过期 可现场购票","attraction_id":"forbidden-city","fact_type":"reservation"}
+{"case_id":"ver-10","chunk_id":"expired-sp-access","status":"expired","query_text":"颐和园 无障碍 过期 西门关闭","attraction_id":"summer-palace","fact_type":"accessibility"}
+{"case_id":"ver-11","chunk_id":"expired-th-ticket","status":"expired","query_text":"天坛 联票 过期 价格 二十元","attraction_id":"temple-of-heaven","fact_type":"ticket_price"}
+{"case_id":"ver-12","chunk_id":"expired-bd-notice","status":"expired","query_text":"八达岭 游览 过期 南线关闭","attraction_id":"badaling","fact_type":"visitor_notice"}
+{"case_id":"ver-13","chunk_id":"pending-fc","status":"pending","query_text":"故宫 待审核 信息 夜游","attraction_id":"forbidden-city","fact_type":"visitor_notice"}
+{"case_id":"ver-14","chunk_id":"pending-sp","status":"pending","query_text":"颐和园 待审核 信息 门票免费","attraction_id":"summer-palace","fact_type":"ticket_price"}
+{"case_id":"ver-15","chunk_id":"pending-tc","status":"pending","query_text":"兵马俑 待审核 信息 无需预约","attraction_id":"terracotta-army","fact_type":"reservation"}
+{"case_id":"ver-16","chunk_id":"pending-jz","status":"pending","query_text":"九寨沟 待审核 信息 地铁直达","attraction_id":"jiuzhaigou","fact_type":"transport"}
+{"case_id":"ver-17","chunk_id":"rejected-fc","status":"rejected","query_text":"故宫 拒绝 信息 门票一元","attraction_id":"forbidden-city","fact_type":"ticket_price"}
+{"case_id":"ver-18","chunk_id":"rejected-wl","status":"rejected","query_text":"杭州西湖 拒绝 信息 强制预约","attraction_id":"west-lake","fact_type":"reservation"}
+{"case_id":"ver-19","chunk_id":"rejected-sm","status":"rejected","query_text":"上海博物馆 拒绝 信息 通宵开放","attraction_id":"shanghai-museum","fact_type":"opening_hours"}
+{"case_id":"ver-20","chunk_id":"rejected-bd","status":"rejected","query_text":"八达岭 拒绝 信息 全程无障碍","attraction_id":"badaling","fact_type":"accessibility"}

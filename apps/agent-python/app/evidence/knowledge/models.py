@@ -59,6 +59,7 @@ class Attraction(BaseModel):
 
 
 class FactChunkDraft(BaseModel):
+    chunk_id: str | None = None
     fact_type: FactType
     content: str = Field(min_length=1)
     locator: str | None = None
@@ -68,6 +69,13 @@ class FactChunkDraft(BaseModel):
     @classmethod
     def normalize_content(cls, value: str) -> str:
         return " ".join(value.split())
+
+    @field_validator("chunk_id")
+    @classmethod
+    def reject_blank_chunk_id(cls, value: str | None) -> str | None:
+        if value is not None and not value.strip():
+            raise ValueError("chunk_id must not be blank")
+        return value
 
 
 class KnowledgeDocument(BaseModel):

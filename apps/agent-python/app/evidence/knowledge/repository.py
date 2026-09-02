@@ -155,7 +155,7 @@ class KnowledgeRepository:
                     ) VALUES (?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
-                        f"chunk-{uuid4()}",
+                        chunk.chunk_id or f"chunk-{uuid4()}",
                         version_id,
                         document.attraction.attraction_id,
                         chunk.fact_type.value,
