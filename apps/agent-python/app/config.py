@@ -125,6 +125,11 @@ class Settings(BaseSettings):
     evidence_confidence_threshold: float = 0.55
     low_confidence_threshold: float = 0.35
 
+    # Versioned attraction knowledge corpus (SQLite + FTS5)
+    knowledge_db_path: str = "./data/knowledge.sqlite3"
+    knowledge_default_ttl_days: int = 30
+    knowledge_retrieval_top_k: int = 3
+
     # Agent Core Store
     agent_core_store_backend: Literal["memory", "jsonl", "sqlite"] = "memory"
     agent_core_store_jsonl_path: str = "./data/agent_core_store.jsonl"
