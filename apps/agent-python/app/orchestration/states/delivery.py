@@ -24,6 +24,11 @@ class DeliveryHandler:
             answer_claims=list(guarded.get("supported_claims", [])),
             citation_report=citation_report,
             retrieval_reports=list(retrieval.get("retrieval_reports", [])),
+            metrics={
+                "citation_precision": float(
+                    citation_report.get("citation_precision", 0.0)
+                )
+            },
             orchestration_summary={
                 "run_id": context.run_id,
                 "terminal_state": AgentState.DELIVER.value,

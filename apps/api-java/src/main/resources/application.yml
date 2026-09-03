@@ -25,6 +25,7 @@ agent:
   base-url: ${AGENT_BASE_URL:http://localhost:8001}
   connect-timeout: 5s
   read-timeout: ${AGENT_READ_TIMEOUT:300s}
+  service-key: ${AGENT_SERVICE_KEY:}
 
 tool-gateway:
   enabled: ${TOOL_GATEWAY_ENABLED:true}

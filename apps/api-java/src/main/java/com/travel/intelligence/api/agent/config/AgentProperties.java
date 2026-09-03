@@ -10,6 +10,7 @@ public class AgentProperties {
     private String baseUrl = "http://localhost:8001";
     private Duration connectTimeout = Duration.ofSeconds(5);
     private Duration readTimeout = Duration.ofMinutes(5);
+    private String serviceKey;
 
     public String getBaseUrl() {
         return baseUrl;
@@ -33,5 +34,13 @@ public class AgentProperties {
 
     public void setReadTimeout(Duration readTimeout) {
         this.readTimeout = readTimeout;
+    }
+
+    public String getServiceKey() {
+        return serviceKey;
+    }
+
+    public void setServiceKey(String serviceKey) {
+        this.serviceKey = serviceKey;
     }
 }

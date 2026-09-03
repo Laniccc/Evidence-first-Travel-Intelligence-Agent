@@ -10,6 +10,7 @@ import java.util.Map;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
@@ -25,8 +26,10 @@ public class TravelProxyController {
     }
 
     @PostMapping("/query")
-    public JsonNode travelQuery(@RequestBody JsonNode requestBody) {
-        AgentQueryResult result = travelQueryService.travelQuery(toCommand(requestBody));
+    public JsonNode travelQuery(
+            @RequestBody JsonNode requestBody,
+            @RequestHeader(value = "X-Trace-Id", required = false) String traceId) {
+        AgentQueryResult result = travelQueryService.travelQuery(toCommand(requestBody).withTraceId(traceId));
         return objectMapper.valueToTree(result.rawResponse());
     }
 

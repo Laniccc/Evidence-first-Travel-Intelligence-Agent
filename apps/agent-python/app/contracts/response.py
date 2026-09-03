@@ -34,6 +34,7 @@ class AgentQueryResponse(BaseModel):
     answer_claims: list[dict] = Field(default_factory=list)
     citation_report: dict | None = None
     retrieval_reports: list[dict] = Field(default_factory=list)
+    metrics: dict[str, float] = Field(default_factory=dict)
 
     @classmethod
     def from_legacy(cls, result, session_id: str | None = None) -> "AgentQueryResponse":

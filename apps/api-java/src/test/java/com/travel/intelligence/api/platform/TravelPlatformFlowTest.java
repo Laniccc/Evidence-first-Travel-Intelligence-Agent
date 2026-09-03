@@ -89,6 +89,7 @@ class TravelPlatformFlowTest {
                 .getResponse()
                 .getContentAsString();
         Long conversationId = objectMapper.readTree(conversationJson).path("id").asLong();
+        String agentSessionId = objectMapper.readTree(conversationJson).path("agentSessionId").asText();
 
         String askJson = mockMvc.perform(post("/api/platform/conversations/{id}/query", conversationId)
                         .header("Authorization", "Bearer " + token)
@@ -117,7 +118,7 @@ class TravelPlatformFlowTest {
         mockMvc.perform(get("/api/platform/records/{recordId}/response", recordId)
                         .header("Authorization", "Bearer " + token))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.session_id").value("agent-session"))
+                .andExpect(jsonPath("$.session_id").value(agentSessionId))
                 .andExpect(jsonPath("$.visible_trace[0]").value("evidence_checked"))
                 .andExpect(jsonPath("$.limitations[0]").value("stairs may be difficult"))
                 .andExpect(jsonPath("$.tool_traces[0].tool_name").value("search_mcp"))
@@ -130,6 +131,7 @@ class TravelPlatformFlowTest {
         org.assertj.core.api.Assertions.assertThat(forwarded.query())
                 .isEqualTo("Is Kiyomizu-dera suitable for parents?");
         org.assertj.core.api.Assertions.assertThat(forwarded.sessionId()).isNotBlank();
+        org.assertj.core.api.Assertions.assertThat(forwarded.sessionId()).isEqualTo(agentSessionId);
         org.assertj.core.api.Assertions.assertThat(((java.util.List<?>) forwarded.userContext().get("party")).get(0))
                 .isEqualTo("elderly");
     }

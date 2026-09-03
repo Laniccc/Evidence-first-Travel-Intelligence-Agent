@@ -5,6 +5,7 @@ import org.springframework.http.HttpStatus;
 public enum ApplicationErrorCode {
     AGENT_ERROR("agent_error", HttpStatus.BAD_GATEWAY),
     AGENT_TIMEOUT("agent_timeout", HttpStatus.GATEWAY_TIMEOUT),
+    AGENT_UNAUTHORIZED("agent_unauthorized", HttpStatus.BAD_GATEWAY),
     AGENT_UNAVAILABLE("agent_unavailable", HttpStatus.BAD_GATEWAY),
     BAD_CREDENTIALS("bad_credentials", HttpStatus.UNAUTHORIZED),
     CONVERSATION_NOT_FOUND("conversation_not_found", HttpStatus.NOT_FOUND),

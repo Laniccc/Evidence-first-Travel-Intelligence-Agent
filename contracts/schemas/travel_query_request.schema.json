@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://travel.intelligence/contracts/schemas/travel_query_request.schema.json",
   "title": "TravelQueryRequest",
-  "description": "POST /api/travel/query request body.",
+  "description": "POST /api/travel/query request body. X-Trace-Id is propagated to Python and X-Agent-Service-Key authenticates the Java-Python hop.",
   "type": "object",
   "additionalProperties": false,
   "required": ["query"],
@@ -19,6 +19,13 @@
     "user_context": {
       "type": "object",
       "description": "Optional session / user profile context.",
+      "properties": {
+        "idempotency_key": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Optional logical request key consumed by Agent ingress."
+        }
+      },
       "additionalProperties": true,
       "default": {}
     },

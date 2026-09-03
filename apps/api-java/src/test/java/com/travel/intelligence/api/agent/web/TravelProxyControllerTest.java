@@ -2,6 +2,7 @@ package com.travel.intelligence.api.agent.web;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.verify;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -13,6 +14,7 @@ import com.travel.intelligence.api.common.HealthController;
 import com.travel.intelligence.api.infrastructure.security.JwtService;
 import com.travel.intelligence.api.agent.application.TravelQueryService;
 import java.util.Map;
+import org.mockito.ArgumentCaptor;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -43,11 +45,17 @@ class TravelProxyControllerTest {
                         "session_id", "s-1")));
 
         mockMvc.perform(post("/api/travel/query")
+                        .header("X-Trace-Id", "trace-proxy-1")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"query\":\"Kyoto\"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.answer").value("ok"))
                 .andExpect(jsonPath("$.session_id").value("s-1"));
+
+        ArgumentCaptor<com.travel.intelligence.api.agent.application.AgentQueryCommand> captor =
+                ArgumentCaptor.forClass(com.travel.intelligence.api.agent.application.AgentQueryCommand.class);
+        verify(travelQueryService).travelQuery(captor.capture());
+        org.assertj.core.api.Assertions.assertThat(captor.getValue().traceId()).isEqualTo("trace-proxy-1");
     }
 
     @Test

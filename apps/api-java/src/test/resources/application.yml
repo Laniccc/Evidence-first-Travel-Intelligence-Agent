@@ -12,6 +12,9 @@ spring:
     console:
       enabled: false
 
+agent:
+  service-key: test-agent-service-key
+
 app:
   security:
     jwt:

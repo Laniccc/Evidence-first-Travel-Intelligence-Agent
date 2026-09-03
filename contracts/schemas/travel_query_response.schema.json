@@ -11,7 +11,12 @@
     "evidence_summary",
     "limitations",
     "confidence",
-    "tool_traces"
+    "tool_traces",
+    "answer_claims",
+    "citation_report",
+    "retrieval_reports",
+    "metrics",
+    "orchestration_summary"
   ],
   "properties": {
     "answer": {
@@ -118,12 +123,27 @@
       "oneOf": [
         {
           "type": "object",
-          "additionalProperties": true,
-          "required": ["passed", "safe_failure", "decisions", "unsupported_hard_fact_count"],
+          "additionalProperties": false,
+          "required": ["passed", "safe_failure", "decisions", "supported_claim_ids", "removed_claim_ids", "unsupported_hard_fact_count", "citation_precision"],
           "properties": {
             "passed": { "type": "boolean" },
             "safe_failure": { "type": "boolean" },
-            "decisions": { "type": "array", "items": { "type": "object" } },
+            "decisions": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["claim_id", "status", "reason", "evidence_ids"],
+                "properties": {
+                  "claim_id": { "type": "string" },
+                  "status": { "enum": ["supported", "unsupported_removed", "soft_claim_allowed"] },
+                  "reason": { "type": "string" },
+                  "evidence_ids": { "type": "array", "items": { "type": "string" } }
+                }
+              }
+            },
+            "supported_claim_ids": { "type": "array", "items": { "type": "string" } },
+            "removed_claim_ids": { "type": "array", "items": { "type": "string" } },
             "unsupported_hard_fact_count": { "type": "integer", "minimum": 0 },
             "citation_precision": { "type": "number", "minimum": 0, "maximum": 1 }
           }
@@ -133,8 +153,55 @@
     },
     "retrieval_reports": {
       "type": "array",
-      "items": { "type": "object", "additionalProperties": true },
+      "items": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": ["subtask_id", "retrieval_plan", "corpus_version", "lexical_attempt", "dense_attempt", "final_hits", "degradation", "latency_breakdown"],
+        "properties": {
+          "subtask_id": { "type": "string" },
+          "corpus_version": { "type": "string" },
+          "index_generation": { "type": ["string", "null"] },
+          "embedding_model": { "type": ["string", "null"] },
+          "retrieval_plan": { "type": "object" },
+          "lexical_attempt": { "$ref": "#/$defs/retrievalAttempt" },
+          "dense_attempt": { "$ref": "#/$defs/retrievalAttempt" },
+          "final_hits": { "type": "array", "items": { "type": "object" } },
+          "degradation": { "enum": ["none", "lexical_only", "dense_only", "no_results", "all_failed"] },
+          "latency_breakdown": { "type": "object" }
+        }
+      },
       "default": []
+    },
+    "metrics": {
+      "type": "object",
+      "additionalProperties": { "type": "number" },
+      "default": {}
+    },
+    "orchestration_summary": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["run_id", "terminal_state"],
+      "properties": {
+        "run_id": { "type": "string" },
+        "terminal_state": { "type": "string" },
+        "trace_id": { "type": ["string", "null"] },
+        "steps": { "type": "integer", "minimum": 0 },
+        "state_audit": { "type": "array", "items": { "type": "object" } }
+      }
+    }
+  },
+  "$defs": {
+    "retrievalAttempt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["channel", "status", "result_count", "latency_ms"],
+      "properties": {
+        "channel": { "enum": ["lexical", "dense"] },
+        "status": { "enum": ["success", "empty", "failed", "skipped"] },
+        "result_count": { "type": "integer", "minimum": 0 },
+        "latency_ms": { "type": "number", "minimum": 0 },
+        "failure_code": { "type": ["string", "null"] }
+      }
     }
   }
 }

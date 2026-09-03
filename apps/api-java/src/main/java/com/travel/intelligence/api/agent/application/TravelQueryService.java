@@ -36,7 +36,7 @@ public class TravelQueryService {
         AgentQueryResult response = pythonAgentGateway.query(forward);
 
         String resolvedSessionId = textOrNull(response.sessionId());
-        if (resolvedSessionId == null) {
+        if (resolvedSessionId == null || !resolvedSessionId.equals(sessionId)) {
             resolvedSessionId = sessionId;
             response = response.withSessionId(resolvedSessionId);
         }
