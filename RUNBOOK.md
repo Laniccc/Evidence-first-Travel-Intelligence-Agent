@@ -1,178 +1,161 @@
 # Runbook
 
-## Ports
+## 运行边界
 
-| Component | Port | Notes |
-| --- | ---: | --- |
-| Web | 5173 | Vite dev server |
-| Java Platform API | 8082 | Spring Boot, auth, conversations, gateway |
-| Python Agent | 8001 | FastAPI Agent runtime |
-| MCP search | 3210 | Optional open-webSearch helper |
+| 组件 | 端口 | 责任 |
+|---|---:|---|
+| Web | 5173 | 只访问 Java API |
+| Java Platform API | 8082 | 认证、会话、记录、收藏、Agent 网关 |
+| Python Agent | 8001 | 一次可审计 Agent run |
+| Qdrant | 6333 | 可选的稠密向量索引；SQLite 仍是事实权威 |
 
-## Install
+支持的产品行为仅有景点事实查询、适合度判断、双景点比较和必要澄清。行程、周边、评论挖掘、票务爬虫和人流估算不在运行范围内。
+
+## 安装与配置
+
+需要 Python 3.13、Java 21、Node.js 20；Docker 只在演示 Qdrant 服务边界时需要。
 
 ```powershell
 cd apps/agent-python
 pip install -r requirements.txt
 copy .env.example .env
 
-cd ..\web
+cd ../web
 npm install
-
-cd ..\api-java
-mvn test
 ```
 
-`apps/api-java/.env.example` is a template. Export those variables in your shell or set them in the IDE run configuration when you want to override defaults.
+离线测试和默认本地运行不需要真实 LLM key。Python `.env` 中的重要设置：
 
-## Environment
+- `AGENT_SERVICE_KEY`：Java 与 Python 必须一致。
+- `KNOWLEDGE_DB_PATH`：SQLite 知识权威库。
+- `AGENT_RUN_DB_PATH`：状态审计、Evidence、claim、引用决策和回放产物。
+- `QDRANT_MODE=local`：进程内本地索引，最适合快速演示。
+- `QDRANT_MODE=server`：连接独立 Qdrant；同时设置 URL 与 API key。
+- `EMBEDDING_MODE=deterministic`：可重复的离线控制面验证，不代表真实语义质量。
 
-Java Platform API:
+Java 读取 `AGENT_BASE_URL` 和 `AGENT_SERVICE_KEY`：
 
 ```powershell
-$env:SERVER_PORT="8082"
-$env:APP_DB_URL="jdbc:h2:file:./data/api-java-db;AUTO_SERVER=TRUE;MODE=PostgreSQL"
-$env:APP_JWT_SECRET="dev-change-me-to-a-long-random-secret-before-sharing"
-$env:PYTHON_AGENT_BASE_URL="http://127.0.0.1:8001"
-$env:TOOL_GATEWAY_ENABLED="true"
+$env:AGENT_BASE_URL="http://127.0.0.1:8001"
+$env:AGENT_SERVICE_KEY="change-me"
 ```
 
-Python Agent:
+## 启动
+
+如需独立 Qdrant：
 
 ```powershell
-copy apps\agent-python\.env.example apps\agent-python\.env
+$env:QDRANT_API_KEY="local-dev-key"
+docker compose -f infra/qdrant/compose.yml up -d
 ```
 
-Set at least one supported LLM key in `apps/agent-python/.env` before starting the Agent. Tool and MCP provider variables are also configured there. The Java Tool Gateway URL used by Python should point at the Java API when Python delegates tool calls back to Java.
-
-Web:
+随后分别启动三个进程：
 
 ```powershell
-copy apps\web\.env.example apps\web\.env
-```
-
-Vite proxies `/api` to the Java Platform API during local development.
-
-## Architecture Boundaries
-
-Java Platform API uses domain-first layering. Runtime code should stay under the
-`user`, `platform`, `agent`, `tool`, `common`, and `infrastructure.security`
-domains, with controllers in `web`, use cases in `application`, business state in
-`domain`, and persistence or external clients in `infrastructure`.
-
-Python Agent uses product capability layers: `api`, `contracts`, `context`,
-`understanding`, `planning`, `execution`, `tools`, `integrations`, `evidence`,
-`composition`, `orchestration`, `governance`, and `observability`. The Agent API
-keeps HTTP handling at the edge and delegates one Agent run through orchestration.
-
-The Java-Agent boundary is intentionally narrow. Java owns users, authentication,
-conversations, query records, favorites, profiles, and future billing or
-subscriptions. Python owns a single Agent run and returns intelligence fields such
-as `answer`, `session_id`, `query_id`, `confidence`, `evidence_summary`,
-`tool_traces`, `visible_trace`, `limitations`, and `structured_result`.
-
-### Retired Python Paths
-
-The completed Agent consolidation removed `app.agents`, `app.orchestrator`,
-`app.schemas`, `app.tool_gateway`, `app.storage`, `app.catalog`, `app.prompts`,
-and `app.policies`. Do not import or recreate them. New Python behavior belongs in
-the capability owner listed above. The only retained compatibility module is
-`app.contract`, a contracts-only re-export for the public request/response models.
-
-When a Java-Python request or response field changes, update both service owners
-and run Python contract coverage plus Java client/platform-flow coverage before
-changing the web client.
-
-## Start
-
-Python Agent:
-
-```powershell
+# Terminal 1
 cd apps/agent-python
 uvicorn app.main:app --host 127.0.0.1 --port 8001 --reload
-```
 
-Java Platform API:
-
-```powershell
+# Terminal 2
 cd apps/api-java
 mvn spring-boot:run
-```
 
-Web:
-
-```powershell
+# Terminal 3
 cd apps/web
 npm run dev
 ```
 
-## Platform Smoke Test
-
-Register:
+健康检查：
 
 ```powershell
-curl.exe -s -X POST http://127.0.0.1:8082/api/auth/register `
-  -H "Content-Type: application/json" `
-  -d '{"username":"demo","email":"demo@example.com","password":"secret123","displayName":"Demo User"}'
+curl.exe http://127.0.0.1:8001/agent/health/live
+curl.exe http://127.0.0.1:8001/agent/health/ready
+curl.exe http://127.0.0.1:8082/health
 ```
 
-Use the returned token:
+## 知识维护闭环
+
+所有命令在 `apps/agent-python` 下执行。fixture 格式见 `evals/fixtures/knowledge.json`。
 
 ```powershell
-$token = "paste-token-here"
+# 导入并直接发布受控知识
+python -m app.evidence.knowledge.cli seed `
+  --db ./data/knowledge.sqlite3 `
+  --fixture ./evals/fixtures/knowledge.json `
+  --auto-publish
+
+# 重新摄取指定来源；同内容幂等，修改 fixture 后生成 pending 版本
+python -m app.evidence.knowledge.cli refresh `
+  --db ./data/knowledge.sqlite3 `
+  --source-id main-forbidden-city `
+  --fixture ./evals/fixtures/knowledge.json
+
+# 审核后发布；发布会原子 supersede 同一来源的旧 active 版本
+python -m app.evidence.knowledge.cli publish `
+  --db ./data/knowledge.sqlite3 `
+  --version-id <version-id>
+
+# 查看景点版本与当前索引 generation
+python -m app.evidence.knowledge.cli inspect `
+  --db ./data/knowledge.sqlite3 `
+  --attraction forbidden-city `
+  --index
+
+# 从 SQLite 活动版本重建本地向量索引
+python -m app.evidence.knowledge.cli reindex `
+  --db ./data/knowledge.sqlite3 `
+  --qdrant-mode local `
+  --qdrant-path ./data/qdrant
 ```
 
-Create a conversation:
+独立 Qdrant 时把最后一条改为 `--qdrant-mode server --qdrant-url http://127.0.0.1:6333 --qdrant-api-key local-dev-key`。索引失败不会改变 SQLite 中的事实版本；稠密结果返回后还会由 SQLite 重新校验版本和内容哈希。
+
+## 审计与回放
+
+每次请求返回 `query_id`。用它检查逐状态 attempt、失败码、恢复动作、Evidence、claims 和引用决策：
 
 ```powershell
-curl.exe -s -X POST http://127.0.0.1:8082/api/platform/conversations `
-  -H "Authorization: Bearer $token" `
-  -H "Content-Type: application/json" `
-  -d '{"title":"Kyoto family trip"}'
+python -m app.orchestration.run_cli inspect `
+  --db ./data/agent_runs.sqlite3 `
+  --query-id <query-id>
+
+python -m app.orchestration.run_cli replay `
+  --db ./data/agent_runs.sqlite3 `
+  --query-id <query-id> `
+  --from-state evidence_evaluate
 ```
 
-Ask the Travel Agent:
+回放只消费已持久化产物，不重新调用检索或外部模型。
+
+## 验证与发布门禁
 
 ```powershell
-curl.exe -s -X POST http://127.0.0.1:8082/api/platform/conversations/1/query `
-  -H "Authorization: Bearer $token" `
-  -H "Content-Type: application/json; charset=utf-8" `
-  -d '{"query":"京都清水寺适合带父母去吗？","userContext":{"party":["elderly"]}}'
-```
+cd apps/agent-python
+python -m pytest -q
+python -m evals.runner --suite all --offline --fail-on-regression --report evals/reports/final-offline.json
 
-## Verify
-
-```powershell
-cd apps/api-java
+cd ../api-java
 mvn test
 
-cd ..\web
+cd ../web
+npm test
 npm run build
 
-cd ..\agent-python
-python -m compileall app -q
-python -m pytest tests -q
+cd ../..
+docker compose -f infra/qdrant/compose.yml config
 ```
 
-## Data
+真实 Qdrant 集成测试由 CI 启动带 API key 的 `qdrant/qdrant:v1.19.0`，再设置 `RUN_QDRANT_INTEGRATION=1` 执行。默认本地测试会跳过它。
 
-- Java local DB: `apps/api-java/data/`
-- Python debug file: `apps/agent-python/debug_last_session.md`
-- Web build output: `apps/web/dist/`
-- Java build output: `apps/api-java/target/`
+## 常见问题
 
-All of the above are local artifacts and ignored by Git.
+| 现象 | 排查 |
+|---|---|
+| Java 返回 `agent_unavailable` | 检查 `AGENT_BASE_URL`、Python `:8001` 和 `/agent/health/ready`。 |
+| Python 返回 401 | 确保 Java/Python 的 `AGENT_SERVICE_KEY` 完全一致。 |
+| readiness 显示 Qdrant 不可用 | 本地演示可用 `QDRANT_MODE=local`；server 模式检查容器、URL 和 API key。 |
+| 稠密通道失败但仍有回答 | 查看 `retrieval_report.degradation`；设计允许降级到 lexical-only，引用门禁仍生效。 |
+| 回答变成 limited/safe failure | 按 `query_id` inspect，定位 Evidence Evaluate 或 Citation Guard 的拒绝原因。 |
+| 发布新知识后仍命中旧向量 | 执行 `reindex`；陈旧 point 会先被后过滤拒绝，不会进入答案。 |
 
-## Troubleshooting
-
-| Symptom | Fix |
-| --- | --- |
-| Web cannot login | Confirm Java API is running on `:8082`; Vite proxies `/api` to Java. |
-| Agent query times out | Confirm Python Agent is running on `:8001`; complex evidence queries can take longer. |
-| `401 unauthorized` | Login again and refresh the token. |
-| H2 console cannot open | Confirm Java API is running and `H2_CONSOLE_ENABLED=true`. |
-| Need a clean H2 database | Stop Java, delete `apps/api-java/data/`, then restart Java. |
-| Python Agent cannot call Java Tool Gateway | Confirm Java API is running on `:8082`, `TOOL_GATEWAY_ENABLED=true`, and the Python `.env` Java gateway URL points to Java. |
-| Java returns `agent_unavailable` | Confirm `PYTHON_AGENT_BASE_URL` points to the running Python Agent and `/agent/health` is healthy. |
-| `/agent/query` returns `405` in browser | Use `POST`; direct browser `GET` is expected to fail. |
-| `open-webSearch did not become healthy` on first start | The first `npx` provisioning run can exceed 45 seconds. The scripts now wait up to 90 seconds; retry `.\scripts\start-agent.ps1` or use `-McpStartupTimeoutSec 120` on a slow network. Confirm `http://127.0.0.1:3210/health` returns `200` before using `-AllowMcpFailure`. |
+本地数据库、Qdrant 数据、`dist/`、`target/`、缓存和调试输出均为 Git 忽略产物。Docker 配置只代表单机作品集，不宣称高可用、备份或灾备能力。

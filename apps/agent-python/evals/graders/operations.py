@@ -36,6 +36,11 @@ class RecoveryMetrics(BaseModel):
     hard_fact_abstention_accuracy: float
 
 
+class ConsistencyMetrics(BaseModel):
+    index_rebuild_consistency: float = Field(ge=0, le=1)
+    replay_consistency: float = Field(ge=0, le=1)
+
+
 def grade_conflicts(cases: list[ConflictCaseResult]) -> ConflictMetrics:
     total = len(cases)
     if not total:
@@ -82,6 +87,7 @@ def grade_recovery(cases: list[RecoveryCaseResult]) -> RecoveryMetrics:
 __all__ = [
     "ConflictCaseResult",
     "ConflictMetrics",
+    "ConsistencyMetrics",
     "RecoveryCaseResult",
     "RecoveryMetrics",
     "grade_conflicts",

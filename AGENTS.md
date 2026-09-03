@@ -22,9 +22,12 @@ See [README.md](README.md) and [RUNBOOK.md](RUNBOOK.md).
 
 ## Development Conventions
 
+- Supported Agent behaviors are attraction fact lookup, suitability, two-attraction comparison, and clarification. Itinerary, nearby, review mining, ticket crawling, crowd estimation, and Neo4j/Graph-RAG runtime capabilities are intentionally removed. `ticket_price` remains a knowledge fact type only.
 - Facts must be backed by `Evidence` objects with source URLs.
+- SQLite/FTS5 is authoritative for knowledge and version state. Qdrant is a rebuildable dense index; every dense hit must pass SQLite version and content-hash validation before delivery.
 - Python runtime entrypoint: `apps/agent-python/app/main.py`.
 - Agent state machine: `apps/agent-python/app/orchestration/state_machine.py`.
+- Production behavior must pass through the explicit state transition table. Every state failure records a typed failure code, bounded recovery, and audit event; hard facts cannot bypass Evidence Evaluate and Citation Guard.
 - Java platform runtime: `apps/api-java/src/main/java/`.
 - Java package standard: `domain`, `application`, `infrastructure`, `web`, plus `dto` under web or integration boundaries.
 - Java platform domains: `user`, `platform`, `agent`, `tool`, with cross-cutting `common` and `infrastructure.security`.
@@ -35,4 +38,6 @@ See [README.md](README.md) and [RUNBOOK.md](RUNBOOK.md).
 - Java-Python contract changes require tests on both sides: Java client/platform tests and Python contract/API tests.
 - API contracts used by the frontend must be tested or covered by a platform flow test before changing UI behavior.
 - Frontend platform runtime: `apps/web/src/`.
+- The release gate is `python -m evals.runner --suite all --offline --fail-on-regression --report evals/reports/final-offline.json` from `apps/agent-python`; do not weaken thresholds to make a change pass.
+- `tests/test_removed_capabilities_gate.py` protects the reduced runtime scope; do not add prohibited imports, registries, configuration flags, or routes.
 - Keep generated caches, debug output, build output, and external vendor clones out of Git.

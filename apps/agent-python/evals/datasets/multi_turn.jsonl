@@ -1,0 +1,2 @@
+{"case_id":"multi-pronoun-hours","previous_place":"故宫博物院","query":"它几点开放","expected_terminal":"fact_query","expected_attraction":"故宫博物院"}
+{"case_id":"multi-pronoun-suitability","previous_place":"颐和园","query":"这个景点适合老人吗","expected_terminal":"suitability","expected_attraction":"颐和园"}

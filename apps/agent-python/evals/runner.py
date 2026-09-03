@@ -36,23 +36,33 @@ from app.evidence.retrieval.report import (
 )
 from app.evidence.retrieval.fusion import reciprocal_rank_fusion
 from app.integrations.qdrant.vector_index import QdrantVectorIndex
+from app.orchestration.agent_core_store import SQLiteRunStore
+from app.orchestration.replay import ReplayService
 from app.orchestration.state_contracts import AgentState, StateContext
 from app.orchestration.states.context_loading import ContextLoadingHandler
 from app.orchestration.states.ingress import IngressHandler
 from app.orchestration.states.llm_understanding import UnderstandingHandler
+from app.orchestration.states.retrieval_planning import RetrievalPlanningHandler
 from app.orchestration.states.routing import RouteHandler
 from app.orchestration.states.evidence_evaluation import EvidenceEvaluationHandler
 from app.orchestration.states.hybrid_retrieval import HybridRetrievalHandler
 from app.orchestration.states.live_gap_fill import LiveGapFillHandler
 from app.orchestration.transition_table import is_allowed_transition
 from evals.graders.retrieval import RetrievalCaseResult, grade_retrieval
-from evals.graders.state_path import StatePathCaseResult, grade_state_paths
+from evals.graders.state_path import (
+    ConversationCaseResult,
+    StatePathCaseResult,
+    grade_conversations,
+    grade_state_paths,
+)
 from evals.graders.operations import (
+    ConsistencyMetrics,
     ConflictCaseResult,
     RecoveryCaseResult,
     grade_conflicts,
     grade_recovery,
 )
+from evals.graders.evidence import grade_release_gates
 from evals.graders.citation import CitationCaseResult, grade_citations
 from evals.graders.versioning import VersionCaseResult, grade_versioning
 
@@ -65,6 +75,8 @@ STATE_ROUTING_DATASET = ROOT / "datasets" / "state_routing.jsonl"
 EVIDENCE_CONFLICT_DATASET = ROOT / "datasets" / "evidence_conflict.jsonl"
 FAILURE_RECOVERY_DATASET = ROOT / "datasets" / "failure_recovery.jsonl"
 CITATION_DATASET = ROOT / "datasets" / "citation.jsonl"
+MULTI_TURN_DATASET = ROOT / "datasets" / "multi_turn.jsonl"
+COMPARISON_DATASET = ROOT / "datasets" / "comparison.jsonl"
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -78,6 +90,8 @@ def _parser() -> argparse.ArgumentParser:
             "evidence_conflict",
             "failure_recovery",
             "citation",
+            "conversation",
+            "all",
         ),
         required=True,
     )
@@ -85,6 +99,7 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--offline", action="store_true")
     parser.add_argument("--profile", choices=("offline", "real-embedding"), default="offline")
     parser.add_argument("--report", required=True, type=Path)
+    parser.add_argument("--fail-on-regression", action="store_true")
     return parser
 
 
@@ -169,7 +184,7 @@ def _seed(repository: KnowledgeRepository) -> dict:
 
 
 def _environment(*, profile: str):
-    temp_dir = tempfile.TemporaryDirectory(prefix="rag-eval-")
+    temp_dir = tempfile.TemporaryDirectory(prefix="rag-eval-", ignore_cleanup_errors=True)
     repository = KnowledgeRepository(Path(temp_dir.name) / "knowledge.sqlite3")
     corpus = _seed(repository)
     dimension = 256 if profile == "offline" else 512
@@ -217,6 +232,36 @@ def _retrieval_suite(mode: str, environment) -> dict:
             ranked = [hit.chunk_id for hit in report.final_hits]
             hits = report.final_hits
             reports.append(report.model_dump(mode="json"))
+        elif mode == "hybrid_no_rerank":
+            lexical_hits = lexical.retrieve(plan, limit=20)
+            dense_hits = dense.retrieve(plan, limit=20)
+            fused = reciprocal_rank_fusion(
+                lexical=lexical_hits,
+                dense=dense_hits,
+            )
+            # Keep all production safety filters, but undo the authority/freshness
+            # ordering so this arm isolates RRF fusion from deterministic reranking.
+            filter_plan = plan.model_copy(update={"top_k": len(fused) or 1})
+            filtered, rejections = filter_and_rerank(
+                repository,
+                plan=filter_plan,
+                candidates=fused,
+                corpus_version=generation.corpus_version,
+            )
+            hits = sorted(filtered, key=lambda item: (-item.rrf_score, item.chunk_id))[
+                : plan.top_k
+            ]
+            ranked = [hit.chunk_id for hit in hits]
+            reports.append(
+                {
+                    "case_id": row["case_id"],
+                    "ranked_chunk_ids": ranked,
+                    "ordering": "rrf_without_authority_freshness_rerank",
+                    "post_filter_rejections": [
+                        item.model_dump() for item in rejections
+                    ],
+                }
+            )
         else:
             channel_hits = (lexical if mode == "lexical" else dense).retrieve(plan, limit=20)
             fused = reciprocal_rank_fusion(
@@ -630,11 +675,310 @@ def _citation_suite() -> dict:
     }
 
 
+async def _understand_and_route(
+    row: dict,
+    repository: KnowledgeRepository,
+    *,
+    user_context: dict | None = None,
+) -> tuple[StateContext, AgentState]:
+    context = StateContext(
+        run_id=f"conversation-{row['case_id']}",
+        session_id="conversation-session",
+        query_id=row["case_id"],
+        raw_query=row["query"],
+        user_context=user_context or {},
+    )
+    context_result = await ContextLoadingHandler().run(context)
+    context.artifacts[AgentState.CONTEXT.value] = context_result.output
+    understanding = await UnderstandingHandler(
+        attraction_matcher=repository.find_attractions_in_text
+    ).run(context)
+    context.artifacts[AgentState.UNDERSTAND.value] = understanding.output
+    if understanding.next_state is not AgentState.ROUTE:
+        return context, understanding.next_state
+    route = await RouteHandler().run(context)
+    context.artifacts[AgentState.ROUTE.value] = route.output
+    return context, route.next_state
+
+
+def _conversation_suite(repository: KnowledgeRepository) -> dict:
+    results: list[ConversationCaseResult] = []
+    for row in _load_jsonl(MULTI_TURN_DATASET):
+        context, terminal = asyncio.run(
+            _understand_and_route(
+                row,
+                repository,
+                user_context={
+                    "conversation_context": {"last_places": [row["previous_place"]]}
+                },
+            )
+        )
+        actual_names = context.artifacts.get(AgentState.ROUTE.value, {}).get(
+            "attraction_names", []
+        )
+        results.append(
+            ConversationCaseResult(
+                case_id=row["case_id"],
+                expected_terminal=row["expected_terminal"],
+                actual_terminal=terminal.value,
+                expected_attractions=[row["expected_attraction"]],
+                actual_attractions=actual_names,
+            )
+        )
+
+    for row in _load_jsonl(COMPARISON_DATASET):
+        context, terminal = asyncio.run(_understand_and_route(row, repository))
+        route = context.artifacts.get(AgentState.ROUTE.value, {})
+        plan_result = asyncio.run(
+            RetrievalPlanningHandler(
+                attraction_resolver=lambda name: (
+                    matches[0].attraction_id
+                    if (matches := repository.find_attractions_in_text(name, limit=1))
+                    else None
+                )
+            ).run(context)
+        )
+        plans = [
+            RetrievalPlan.model_validate(item)
+            for item in plan_result.output.get("retrieval_plans", [])
+        ]
+        actual_ids = [plan.attraction_ids[0] for plan in plans]
+        fact_sets = [[item.value for item in plan.fact_types] for plan in plans]
+        results.append(
+            ConversationCaseResult(
+                case_id=row["case_id"],
+                expected_terminal="comparison",
+                actual_terminal=terminal.value,
+                expected_attractions=row["expected_attractions"],
+                actual_attractions=actual_ids,
+                plan_isolation_ok=(
+                    route.get("task_type") == "comparison"
+                    and len(plans) == 2
+                    and len({plan.subtask_id for plan in plans}) == 2
+                    and all(items == row["expected_fact_types"] for items in fact_sets)
+                ),
+            )
+        )
+    return {
+        "metrics": grade_conversations(results).model_dump(),
+        "cases": [item.model_dump() for item in results],
+    }
+
+
+async def _replay_is_consistent(store: SQLiteRunStore) -> bool:
+    plan = _operation_plan()
+    hit = _operation_chunk(
+        chunk_id="replay-hours",
+        fact_type="opening_hours",
+        content="故宫八点三十分开放",
+        authority=1.0,
+    )
+    report = _operation_report(plan, hits=[hit])
+    store.start_run(
+        run_id="eval-original-run",
+        query_id="eval-replay-query",
+        session_id="eval-replay-session",
+        query="故宫开放时间",
+    )
+    store.append_phase_event(
+        run_id="eval-original-run",
+        state=AgentState.RETRIEVAL_PLAN.value,
+        status="succeeded",
+        attempt=1,
+        output={"retrieval_plans": [plan.model_dump(mode="json")]},
+    )
+    store.append_phase_event(
+        run_id="eval-original-run",
+        state=AgentState.HYBRID_RETRIEVE.value,
+        status="succeeded",
+        attempt=1,
+        output={"retrieval_reports": [report.model_dump(mode="json")]},
+    )
+    replay = await ReplayService(store).replay(query_id="eval-replay-query")
+    return bool(
+        replay.run.replay_of_run_id == "eval-original-run"
+        and replay.response.answer_claims
+        and replay.response.answer_claims[0]["evidence_ids"] == ["replay-hours"]
+    )
+
+
+def _consistency_suite(environment) -> dict:
+    temp_dir, _, repository, corpus, embedder, vector_index, generation, *_ = environment
+    reused = IndexSynchronizer(
+        repository,
+        vector_index=vector_index,
+        embedder=embedder,
+    ).rebuild(corpus_version=corpus["fixture"]["corpus_version"])
+    active_count = len(repository.list_active_chunks(datetime.now(UTC)))
+    index_ok = bool(
+        reused.reused
+        and reused.generation_id == generation.generation_id
+        and reused.indexed_chunk_count == active_count
+    )
+    store = SQLiteRunStore(Path(temp_dir.name) / "eval-runs.sqlite3")
+    replay_ok = asyncio.run(_replay_is_consistent(store))
+    return ConsistencyMetrics(
+        index_rebuild_consistency=float(index_ok),
+        replay_consistency=float(replay_ok),
+    ).model_dump()
+
+
+def _corpus_summary(corpus: dict, generation) -> dict:
+    return {
+        "corpus_version": generation.corpus_version,
+        "embedding_model": generation.embedding_model,
+        "attraction_count": corpus["attraction_count"],
+        "active_chunk_count": corpus["active_chunk_count"],
+        "superseded_or_expired_count": sum(
+            status in {"superseded", "expired"}
+            for status in corpus["status_by_chunk"].values()
+        ),
+        "pending_or_rejected_count": sum(
+            status in {"pending", "rejected"}
+            for status in corpus["status_by_chunk"].values()
+        ),
+        "conflict_group_count": corpus["conflict_group_count"],
+    }
+
+
+def _write_report(path: Path, payload: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    if payload.get("suite") != "all":
+        return
+    lines = [
+        "# Final offline evaluation",
+        "",
+        f"- Result: **{'PASS' if payload['gates']['passed'] else 'FAIL'}**",
+        f"- Cases: {payload['case_count']}",
+        f"- Corpus: `{payload['corpus']['corpus_version']}`",
+        "- Limitation: deterministic feature hashing validates control flow and ranking mechanics, not real semantic embedding quality.",
+        "",
+        "## Release gates",
+        "",
+        "| Metric | Actual | Gate | Result |",
+        "|---|---:|---:|---|",
+    ]
+    lines.extend(
+        f"| {item['metric']} | {item['actual']:.4f} | {item['operator']} {item['threshold']:.2f} | {'PASS' if item['passed'] else 'FAIL'} |"
+        for item in payload["gates"]["checks"]
+    )
+    lines.extend(
+        [
+            "",
+            "## Retrieval ablations",
+            "",
+            "| Mode | Recall@3 | MRR | nDCG@5 | Metadata | Provenance |",
+            "|---|---:|---:|---:|---:|---:|",
+        ]
+    )
+    for name, result in payload["ablations"].items():
+        metrics = result["metrics"]
+        lines.append(
+            f"| {name} | {metrics['recall_at_3']:.4f} | {metrics['mrr']:.4f} | "
+            f"{metrics['ndcg_at_5']:.4f} | {metrics['metadata_filter_accuracy']:.4f} | "
+            f"{metrics['provenance_completeness']:.4f} |"
+        )
+    lines.extend(
+        [
+            "",
+            "`hybrid` applies RRF plus mandatory version/hash filters; "
+            "`hybrid+rerank` additionally orders by authority and freshness. "
+            "Equal scores on this controlled corpus are not evidence of semantic lift.",
+        ]
+    )
+    lines.extend(["", "## Bad cases", ""])
+    lines.append("None in this deterministic regression set." if not payload["bad_cases"] else "\n".join(f"- {item}" for item in payload["bad_cases"]))
+    path.with_suffix(".md").write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def _all_suite(environment) -> dict:
+    _, _, repository, corpus, _, _, generation, *_ = environment
+    ablations = {
+        "lexical-only": _retrieval_suite("lexical", environment),
+        "dense-only": _retrieval_suite("dense", environment),
+        "hybrid": _retrieval_suite("hybrid_no_rerank", environment),
+        "hybrid+rerank": _retrieval_suite("hybrid", environment),
+    }
+    suites = {
+        "versioning": _versioning_suite(environment),
+        "state_routing": _state_routing_suite(),
+        "evidence_conflict": _evidence_conflict_suite(),
+        "failure_recovery": _failure_recovery_suite(),
+        "citation": _citation_suite(),
+        "conversation": _conversation_suite(repository),
+    }
+    consistency = _consistency_suite(environment)
+    retrieval = ablations["hybrid+rerank"]["metrics"]
+    versioning = suites["versioning"]["metrics"]
+    routing = suites["state_routing"]["metrics"]
+    citation = suites["citation"]["metrics"]
+    gate_metrics = {
+        "recall_at_3": retrieval["recall_at_3"],
+        "mrr": retrieval["mrr"],
+        "ndcg_at_5": retrieval["ndcg_at_5"],
+        "metadata_filter_accuracy": retrieval["metadata_filter_accuracy"],
+        "non_active_leakage_rate": versioning["non_active_leakage_rate"],
+        "state_path_accuracy": routing["path_accuracy"],
+        "illegal_transitions": routing["illegal_transitions"],
+        "stale_vector_rejection": versioning["stale_vector_rejection"],
+        "index_rebuild_consistency": consistency["index_rebuild_consistency"],
+        "unsupported_hard_facts": citation["unsupported_hard_facts"],
+        "citation_precision": citation["citation_precision"],
+        "abstention_precision": citation["abstention_precision"],
+        "replay_consistency": consistency["replay_consistency"],
+    }
+    gates = grade_release_gates(gate_metrics).model_dump()
+    case_count = (
+        len(_load_jsonl(RETRIEVAL_DATASET))
+        + sum(len(value["cases"]) for value in suites.values())
+    )
+    return {
+        "suite": "all",
+        "profile": "offline",
+        "case_count": case_count,
+        "offline_embedding_limitation": (
+            "Deterministic feature hashing validates orchestration, filters, fusion and version controls; "
+            "it is not evidence of real semantic embedding quality."
+        ),
+        "corpus": _corpus_summary(corpus, generation),
+        "ablations": ablations,
+        "suites": suites,
+        "consistency": consistency,
+        "gate_metrics": gate_metrics,
+        "gates": gates,
+        "bad_cases": gates["failures"],
+    }
+
+
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     if args.offline and args.profile == "real-embedding":
         raise SystemExit("--offline cannot be combined with --profile real-embedding")
     profile = "offline" if args.offline else args.profile
+    if args.suite in {"all", "conversation"}:
+        environment = _environment(profile=profile)
+        temp_dir, client, repository, corpus, _, _, generation, *_ = environment
+        try:
+            if args.suite == "all":
+                payload = _all_suite(environment)
+            else:
+                payload = {
+                    "suite": "conversation",
+                    "mode": "deterministic",
+                    "profile": profile,
+                    "corpus": _corpus_summary(corpus, generation),
+                    **_conversation_suite(repository),
+                }
+            _write_report(args.report, payload)
+            metrics = payload.get("gate_metrics") or payload.get("metrics") or {}
+            print(json.dumps(metrics, ensure_ascii=False, indent=2))
+            if args.fail_on_regression and not payload.get("gates", {}).get("passed", True):
+                return 1
+            return 0
+        finally:
+            client.close()
+            temp_dir.cleanup()
     if args.suite in {
         "state_routing",
         "evidence_conflict",
@@ -660,10 +1004,7 @@ def main(argv: list[str] | None = None) -> int:
             "profile": "offline",
             **suite_result,
         }
-        args.report.parent.mkdir(parents=True, exist_ok=True)
-        args.report.write_text(
-            json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8"
-        )
+        _write_report(args.report, payload)
         print(json.dumps(payload["metrics"], ensure_ascii=False, indent=2))
         return 0
     environment = _environment(profile=profile)
@@ -684,28 +1025,10 @@ def main(argv: list[str] | None = None) -> int:
                 if profile == "offline"
                 else None
             ),
-            "corpus": {
-                "corpus_version": generation.corpus_version,
-                "embedding_model": generation.embedding_model,
-                "attraction_count": corpus["attraction_count"],
-                "active_chunk_count": corpus["active_chunk_count"],
-                "superseded_or_expired_count": sum(
-                    status in {"superseded", "expired"}
-                    for status in corpus["status_by_chunk"].values()
-                ),
-                "pending_or_rejected_count": sum(
-                    status in {"pending", "rejected"}
-                    for status in corpus["status_by_chunk"].values()
-                ),
-                "conflict_group_count": corpus["conflict_group_count"],
-            },
+            "corpus": _corpus_summary(corpus, generation),
             **suite_result,
         }
-        args.report.parent.mkdir(parents=True, exist_ok=True)
-        args.report.write_text(
-            json.dumps(payload, ensure_ascii=False, indent=2),
-            encoding="utf-8",
-        )
+        _write_report(args.report, payload)
         print(json.dumps(payload["metrics"], ensure_ascii=False, indent=2))
     finally:
         client.close()

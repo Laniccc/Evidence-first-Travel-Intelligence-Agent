@@ -9,7 +9,13 @@ from pathlib import Path
 
 from qdrant_client import QdrantClient
 
-from app.evidence.knowledge.models import KnowledgeDocument
+from app.evidence.knowledge.models import (
+    Attraction,
+    FactChunkDraft,
+    FactType,
+    KnowledgeDocument,
+    SourceType,
+)
 from app.evidence.knowledge.repository import KnowledgeRepository
 from app.evidence.knowledge.service import KnowledgeLifecycleService
 from app.evidence.retrieval.embedding import DeterministicHashEmbedding, FastEmbedEmbedding
@@ -55,8 +61,51 @@ def _parser() -> argparse.ArgumentParser:
 
 def _load_documents(path: Path) -> list[KnowledgeDocument]:
     payload = json.loads(path.read_text(encoding="utf-8"))
-    rows = payload.get("documents", payload) if isinstance(payload, dict) else payload
-    return [KnowledgeDocument.model_validate(row) for row in rows]
+    if isinstance(payload, dict) and "documents" in payload:
+        rows = payload["documents"]
+    elif isinstance(payload, dict) and "active_documents" in payload:
+        # The checked-in Eval corpus is also the smallest runnable demo corpus.
+        # Historical/conflict/rejected rows are seeded only by the Eval runner,
+        # while the maintenance CLI starts a clean runtime from active facts.
+        rows = payload["active_documents"]
+    elif isinstance(payload, list):
+        rows = payload
+    else:
+        rows = [payload]
+    return [_document_from_row(row) for row in rows]
+
+
+def _document_from_row(row: dict) -> KnowledgeDocument:
+    if "attraction" in row and "chunks" in row:
+        return KnowledgeDocument.model_validate(row)
+    facts = row.get("facts")
+    if not isinstance(facts, list):
+        return KnowledgeDocument.model_validate(row)
+    return KnowledgeDocument(
+        source_id=row["source_id"],
+        attraction=Attraction(
+            attraction_id=row["attraction_id"],
+            name=row["name"],
+            aliases=row.get("aliases", []),
+            city=row.get("city"),
+            country=row.get("country"),
+        ),
+        url=row["url"],
+        title=row["title"],
+        source_type=SourceType(row["source_type"]),
+        content="\n".join(fact["content"] for fact in facts),
+        valid_from=row.get("valid_from"),
+        valid_to=row.get("valid_to"),
+        chunks=[
+            FactChunkDraft(
+                chunk_id=fact.get("chunk_id"),
+                fact_type=FactType(fact["fact_type"]),
+                content=fact["content"],
+                locator=fact.get("locator"),
+            )
+            for fact in facts
+        ],
+    )
 
 
 def main(argv: list[str] | None = None) -> int:

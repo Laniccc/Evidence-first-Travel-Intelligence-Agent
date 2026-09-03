@@ -1,0 +1,4337 @@
+{
+  "suite": "all",
+  "profile": "offline",
+  "case_count": 71,
+  "offline_embedding_limitation": "Deterministic feature hashing validates orchestration, filters, fusion and version controls; it is not evidence of real semantic embedding quality.",
+  "corpus": {
+    "corpus_version": "portfolio-2026-09-02",
+    "embedding_model": "deterministic-hash-v1",
+    "attraction_count": 8,
+    "active_chunk_count": 70,
+    "superseded_or_expired_count": 12,
+    "pending_or_rejected_count": 8,
+    "conflict_group_count": 6
+  },
+  "ablations": {
+    "lexical-only": {
+      "metrics": {
+        "case_count": 20,
+        "recall_at_3": 1.0,
+        "mrr": 1.0,
+        "ndcg_at_5": 1.0,
+        "metadata_filter_accuracy": 1.0,
+        "provenance_completeness": 1.0
+      },
+      "cases": [
+        {
+          "case_id": "ret-01",
+          "expected_chunk_ids": [
+            "fc-reservation"
+          ],
+          "ranked_chunk_ids": [
+            "fc-reservation"
+          ],
+          "metadata_filter_ok": true,
+          "provenance_complete": true
+        },
+        {
+          "case_id": "ret-02",
+          "expected_chunk_ids": [
+            "sp-reservation"
+          ],
+          "ranked_chunk_ids": [
+            "sp-reservation"
+          ],
+          "metadata_filter_ok": true,
+          "provenance_complete": true
+        },
+        {
+          "case_id": "ret-03",
+          "expected_chunk_ids": [
+            "th-reservation"
+          ],
+          "ranked_chunk_ids": [
+            "th-reservation",
+            "conflict-th-reservation"
+          ],
+          "metadata_filter_ok": true,
+          "provenance_complete": true
+        },
+        {
+          "case_id": "ret-04",
+          "expected_chunk_ids": [
+            "bd-reservation"
+          ],
+          "ranked_chunk_ids": [
+            "bd-reservation"
+          ],
+          "metadata_filter_ok": true,
+          "provenance_complete": true
+        },
+        {
+          "case_id": "ret-05",
+          "expected_chunk_ids": [
+            "sm-reservation"
+          ],
+          "ranked_chunk_ids": [
+            "sm-reservation"
+          ],
+          "metadata_filter_ok": true,
+          "provenance_complete": true
+        },
+        {
+          "case_id": "ret-06",
+          "expected_chunk_ids": [
+            "wl-reservation"
+          ],
+          "ranked_chunk_ids": [
+            "wl-reservation"
+          ],
+          "metadata_filter_ok": true,
+          "provenance_complete": true
+        },
+        {
+          "case_id": "ret-07",
+          "expected_chunk_ids": [
+            "tc-reservation"
+          ],
+          "ranked_chunk_ids": [
+            "tc-reservation"
+          ],
+          "metadata_filter_ok": true,
+          "provenance_complete": true
+        },
+        {
+          "case_id": "ret-08",
+          "expected_chunk_ids": [
+            "jz-reservation"
+          ],
+          "ranked_chunk_ids": [
+            "jz-reservation"
+          ],
+          "metadata_filter_ok": true,
+          "provenance_complete": true
+        },
+        {
+          "case_id": "ret-09",
+          "expected_chunk_ids": [
+            "fc-transport"
+          ],
+          "ranked_chunk_ids": [
+            "fc-transport"
+          ],
+          "metadata_filter_ok": true,
+          "provenance_complete": true
+        },
+        {
+          "case_id": "ret-10",
+          "expected_chunk_ids": [
+            "sp-transport"
+          ],
+          "ranked_chunk_ids": [
+            "sp-transport"
+          ],
+          "metadata_filter_ok": true,
+          "provenance_complete": true
+        },
+        {
+          "case_id": "ret-11",
+          "expected_chunk_ids": [
+            "bd-transport"
+          ],
+          "ranked_chunk_ids": [
+            "bd-transport",
+            "conflict-bd-transport"
+          ],
+          "metadata_filter_ok": true,
+          "provenance_complete": true
+        },
+        {
+          "case_id": "ret-12",
+          "expected_chunk_ids": [
+            "jz-transport"
+          ],
+          "ranked_chunk_ids": [
+            "jz-transport"
+          ],
+          "metadata_filter_ok": true,
+          "provenance_complete": true
+        },
+        {
+          "case_id": "ret-13",
+          "expected_chunk_ids": [
+            "fc-access"
+          ],
+          "ranked_chunk_ids": [
+            "fc-access"
+          ],
+          "metadata_filter_ok": true,
+          "provenance_complete": true
+        },
+        {
+          "case_id": "ret-14",
+          "expected_chunk_ids": [
+            "sp-access"
+          ],
+          "ranked_chunk_ids": [
+            "sp-access"
+          ],
+          "metadata_filter_ok": true,
+          "provenance_complete": true
+        },
+        {
+          "case_id": "ret-15",
+          "expected_chunk_ids": [
+            "sm-access"
+          ],
+          "ranked_chunk_ids": [
+            "sm-access"
+          ],
+          "metadata_filter_ok": true,
+          "provenance_complete": true
+        },
+        {
+          "case_id": "ret-16",
+          "expected_chunk_ids": [
+            "jz-access"
+          ],
+          "ranked_chunk_ids": [
+            "jz-access"
+          ],
+          "metadata_filter_ok": true,
+          "provenance_complete": true
+        },
+        {
+          "case_id": "ret-17",
+          "expected_chunk_ids": [
+            "fc-description"
+          ],
+          "ranked_chunk_ids": [
+            "fc-description"
+          ],
+          "metadata_filter_ok": true,
+          "provenance_complete": true
+        },
+        {
+          "case_id": "ret-18",
+          "expected_chunk_ids": [
+            "sp-description"
+          ],
+          "ranked_chunk_ids": [
+            "sp-description"
+          ],
+          "metadata_filter_ok": true,
+          "provenance_complete": true
+        },
+        {
+          "case_id": "ret-19",
+          "expected_chunk_ids": [
+            "tc-description"
+          ],
+          "ranked_chunk_ids": [
+            "tc-description"
+          ],
+          "metadata_filter_ok": true,
+          "provenance_complete": true
+        },
+        {
+          "case_id": "ret-20",
+          "expected_chunk_ids": [
+            "jz-description"
+          ],
+          "ranked_chunk_ids": [
+            "jz-description"
+          ],
+          "metadata_filter_ok": true,
+          "provenance_complete": true
+        }
+      ],
+      "retrieval_reports": [
+        {
+          "case_id": "ret-01",
+          "ranked_chunk_ids": [
+            "fc-reservation"
+          ],
+          "post_filter_rejections": []
+        },
+        {
+          "case_id": "ret-02",
+          "ranked_chunk_ids": [
+            "sp-reservation"
+          ],
+          "post_filter_rejections": []
+        },
+        {
+          "case_id": "ret-03",
+          "ranked_chunk_ids": [
+            "th-reservation",
+            "conflict-th-reservation"
+          ],
+          "post_filter_rejections": []
+        },
+        {
+          "case_id": "ret-04",
+          "ranked_chunk_ids": [
+            "bd-reservation"
+          ],
+          "post_filter_rejections": []
+        },
+        {
+          "case_id": "ret-05",
+          "ranked_chunk_ids": [
+            "sm-reservation"
+          ],
+          "post_filter_rejections": []
+        },
+        {
+          "case_id": "ret-06",
+          "ranked_chunk_ids": [
+            "wl-reservation"
+          ],
+          "post_filter_rejections": []
+        },
+        {
+          "case_id": "ret-07",
+          "ranked_chunk_ids": [
+            "tc-reservation"
+          ],
+          "post_filter_rejections": []
+        },
+        {
+          "case_id": "ret-08",
+          "ranked_chunk_ids": [
+            "jz-reservation"
+          ],
+          "post_filter_rejections": []
+        },
+        {
+          "case_id": "ret-09",
+          "ranked_chunk_ids": [
+            "fc-transport"
+          ],
+          "post_filter_rejections": []
+        },
+        {
+          "case_id": "ret-10",
+          "ranked_chunk_ids": [
+            "sp-transport"
+          ],
+          "post_filter_rejections": []
+        },
+        {
+          "case_id": "ret-11",
+          "ranked_chunk_ids": [
+            "bd-transport",
+            "conflict-bd-transport"
+          ],
+          "post_filter_rejections": []
+        },
+        {
+          "case_id": "ret-12",
+          "ranked_chunk_ids": [
+            "jz-transport"
+          ],
+          "post_filter_rejections": []
+        },
+        {
+          "case_id": "ret-13",
+          "ranked_chunk_ids": [
+            "fc-access"
+          ],
+          "post_filter_rejections": []
+        },
+        {
+          "case_id": "ret-14",
+          "ranked_chunk_ids": [
+            "sp-access"
+          ],
+          "post_filter_rejections": []
+        },
+        {
+          "case_id": "ret-15",
+          "ranked_chunk_ids": [
+            "sm-access"
+          ],
+          "post_filter_rejections": []
+        },
+        {
+          "case_id": "ret-16",
+          "ranked_chunk_ids": [
+            "jz-access"
+          ],
+          "post_filter_rejections": []
+        },
+        {
+          "case_id": "ret-17",
+          "ranked_chunk_ids": [
+            "fc-description"
+          ],
+          "post_filter_rejections": []
+        },
+        {
+          "case_id": "ret-18",
+          "ranked_chunk_ids": [
+            "sp-description"
+          ],
+          "post_filter_rejections": []
+        },
+        {
+          "case_id": "ret-19",
+          "ranked_chunk_ids": [
+            "tc-description"
+          ],
+          "post_filter_rejections": []
+        },
+        {
+          "case_id": "ret-20",
+          "ranked_chunk_ids": [
+            "jz-description"
+          ],
+          "post_filter_rejections": []
+        }
+      ]
+    },
+    "dense-only": {
+      "metrics": {
+        "case_count": 20,
+        "recall_at_3": 1.0,
+        "mrr": 1.0,
+        "ndcg_at_5": 1.0,
+        "metadata_filter_accuracy": 1.0,
+        "provenance_completeness": 1.0
+      },
+      "cases": [
+        {
+          "case_id": "ret-01",
+          "expected_chunk_ids": [
+            "fc-reservation"
+          ],
+          "ranked_chunk_ids": [
+            "fc-reservation"
+          ],
+          "metadata_filter_ok": true,
+          "provenance_complete": true
+        },
+        {
+          "case_id": "ret-02",
+          "expected_chunk_ids": [
+            "sp-reservation"
+          ],
+          "ranked_chunk_ids": [
+            "sp-reservation"
+          ],
+          "metadata_filter_ok": true,
+          "provenance_complete": true
+        },
+        {
+          "case_id": "ret-03",
+          "expected_chunk_ids": [
+            "th-reservation"
+          ],
+          "ranked_chunk_ids": [
+            "th-reservation",
+            "conflict-th-reservation"
+          ],
+          "metadata_filter_ok": true,
+          "provenance_complete": true
+        },
+        {
+          "case_id": "ret-04",
+          "expected_chunk_ids": [
+            "bd-reservation"
+          ],
+          "ranked_chunk_ids": [
+            "bd-reservation"
+          ],
+          "metadata_filter_ok": true,
+          "provenance_complete": true
+        },
+        {
+          "case_id": "ret-05",
+          "expected_chunk_ids": [
+            "sm-reservation"
+          ],
+          "ranked_chunk_ids": [
+            "sm-reservation"
+          ],
+          "metadata_filter_ok": true,
+          "provenance_complete": true
+        },
+        {
+          "case_id": "ret-06",
+          "expected_chunk_ids": [
+            "wl-reservation"
+          ],
+          "ranked_chunk_ids": [
+            "wl-reservation"
+          ],
+          "metadata_filter_ok": true,
+          "provenance_complete": true
+        },
+        {
+          "case_id": "ret-07",
+          "expected_chunk_ids": [
+            "tc-reservation"
+          ],
+          "ranked_chunk_ids": [
+            "tc-reservation"
+          ],
+          "metadata_filter_ok": true,
+          "provenance_complete": true
+        },
+        {
+          "case_id": "ret-08",
+          "expected_chunk_ids": [
+            "jz-reservation"
+          ],
+          "ranked_chunk_ids": [
+            "jz-reservation"
+          ],
+          "metadata_filter_ok": true,
+          "provenance_complete": true
+        },
+        {
+          "case_id": "ret-09",
+          "expected_chunk_ids": [
+            "fc-transport"
+          ],
+          "ranked_chunk_ids": [
+            "fc-transport"
+          ],
+          "metadata_filter_ok": true,
+          "provenance_complete": true
+        },
+        {
+          "case_id": "ret-10",
+          "expected_chunk_ids": [
+            "sp-transport"
+          ],
+          "ranked_chunk_ids": [
+            "sp-transport"
+          ],
+          "metadata_filter_ok": true,
+          "provenance_complete": true
+        },
+        {
+          "case_id": "ret-11",
+          "expected_chunk_ids": [
+            "bd-transport"
+          ],
+          "ranked_chunk_ids": [
+            "bd-transport",
+            "conflict-bd-transport"
+          ],
+          "metadata_filter_ok": true,
+          "provenance_complete": true
+        },
+        {
+          "case_id": "ret-12",
+          "expected_chunk_ids": [
+            "jz-transport"
+          ],
+          "ranked_chunk_ids": [
+            "jz-transport"
+          ],
+          "metadata_filter_ok": true,
+          "provenance_complete": true
+        },
+        {
+          "case_id": "ret-13",
+          "expected_chunk_ids": [
+            "fc-access"
+          ],
+          "ranked_chunk_ids": [
+            "fc-access"
+          ],
+          "metadata_filter_ok": true,
+          "provenance_complete": true
+        },
+        {
+          "case_id": "ret-14",
+          "expected_chunk_ids": [
+            "sp-access"
+          ],
+          "ranked_chunk_ids": [
+            "sp-access"
+          ],
+          "metadata_filter_ok": true,
+          "provenance_complete": true
+        },
+        {
+          "case_id": "ret-15",
+          "expected_chunk_ids": [
+            "sm-access"
+          ],
+          "ranked_chunk_ids": [
+            "sm-access"
+          ],
+          "metadata_filter_ok": true,
+          "provenance_complete": true
+        },
+        {
+          "case_id": "ret-16",
+          "expected_chunk_ids": [
+            "jz-access"
+          ],
+          "ranked_chunk_ids": [
+            "jz-access"
+          ],
+          "metadata_filter_ok": true,
+          "provenance_complete": true
+        },
+        {
+          "case_id": "ret-17",
+          "expected_chunk_ids": [
+            "fc-description"
+          ],
+          "ranked_chunk_ids": [
+            "fc-description"
+          ],
+          "metadata_filter_ok": true,
+          "provenance_complete": true
+        },
+        {
+          "case_id": "ret-18",
+          "expected_chunk_ids": [
+            "sp-description"
+          ],
+          "ranked_chunk_ids": [
+            "sp-description"
+          ],
+          "metadata_filter_ok": true,
+          "provenance_complete": true
+        },
+        {
+          "case_id": "ret-19",
+          "expected_chunk_ids": [
+            "tc-description"
+          ],
+          "ranked_chunk_ids": [
+            "tc-description"
+          ],
+          "metadata_filter_ok": true,
+          "provenance_complete": true
+        },
+        {
+          "case_id": "ret-20",
+          "expected_chunk_ids": [
+            "jz-description"
+          ],
+          "ranked_chunk_ids": [
+            "jz-description"
+          ],
+          "metadata_filter_ok": true,
+          "provenance_complete": true
+        }
+      ],
+      "retrieval_reports": [
+        {
+          "case_id": "ret-01",
+          "ranked_chunk_ids": [
+            "fc-reservation"
+          ],
+          "post_filter_rejections": []
+        },
+        {
+          "case_id": "ret-02",
+          "ranked_chunk_ids": [
+            "sp-reservation"
+          ],
+          "post_filter_rejections": []
+        },
+        {
+          "case_id": "ret-03",
+          "ranked_chunk_ids": [
+            "th-reservation",
+            "conflict-th-reservation"
+          ],
+          "post_filter_rejections": []
+        },
+        {
+          "case_id": "ret-04",
+          "ranked_chunk_ids": [
+            "bd-reservation"
+          ],
+          "post_filter_rejections": []
+        },
+        {
+          "case_id": "ret-05",
+          "ranked_chunk_ids": [
+            "sm-reservation"
+          ],
+          "post_filter_rejections": []
+        },
+        {
+          "case_id": "ret-06",
+          "ranked_chunk_ids": [
+            "wl-reservation"
+          ],
+          "post_filter_rejections": []
+        },
+        {
+          "case_id": "ret-07",
+          "ranked_chunk_ids": [
+            "tc-reservation"
+          ],
+          "post_filter_rejections": []
+        },
+        {
+          "case_id": "ret-08",
+          "ranked_chunk_ids": [
+            "jz-reservation"
+          ],
+          "post_filter_rejections": []
+        },
+        {
+          "case_id": "ret-09",
+          "ranked_chunk_ids": [
+            "fc-transport"
+          ],
+          "post_filter_rejections": []
+        },
+        {
+          "case_id": "ret-10",
+          "ranked_chunk_ids": [
+            "sp-transport"
+          ],
+          "post_filter_rejections": []
+        },
+        {
+          "case_id": "ret-11",
+          "ranked_chunk_ids": [
+            "bd-transport",
+            "conflict-bd-transport"
+          ],
+          "post_filter_rejections": []
+        },
+        {
+          "case_id": "ret-12",
+          "ranked_chunk_ids": [
+            "jz-transport"
+          ],
+          "post_filter_rejections": []
+        },
+        {
+          "case_id": "ret-13",
+          "ranked_chunk_ids": [
+            "fc-access"
+          ],
+          "post_filter_rejections": []
+        },
+        {
+          "case_id": "ret-14",
+          "ranked_chunk_ids": [
+            "sp-access"
+          ],
+          "post_filter_rejections": []
+        },
+        {
+          "case_id": "ret-15",
+          "ranked_chunk_ids": [
+            "sm-access"
+          ],
+          "post_filter_rejections": []
+        },
+        {
+          "case_id": "ret-16",
+          "ranked_chunk_ids": [
+            "jz-access"
+          ],
+          "post_filter_rejections": []
+        },
+        {
+          "case_id": "ret-17",
+          "ranked_chunk_ids": [
+            "fc-description"
+          ],
+          "post_filter_rejections": []
+        },
+        {
+          "case_id": "ret-18",
+          "ranked_chunk_ids": [
+            "sp-description"
+          ],
+          "post_filter_rejections": []
+        },
+        {
+          "case_id": "ret-19",
+          "ranked_chunk_ids": [
+            "tc-description"
+          ],
+          "post_filter_rejections": []
+        },
+        {
+          "case_id": "ret-20",
+          "ranked_chunk_ids": [
+            "jz-description"
+          ],
+          "post_filter_rejections": []
+        }
+      ]
+    },
+    "hybrid": {
+      "metrics": {
+        "case_count": 20,
+        "recall_at_3": 1.0,
+        "mrr": 1.0,
+        "ndcg_at_5": 1.0,
+        "metadata_filter_accuracy": 1.0,
+        "provenance_completeness": 1.0
+      },
+      "cases": [
+        {
+          "case_id": "ret-01",
+          "expected_chunk_ids": [
+            "fc-reservation"
+          ],
+          "ranked_chunk_ids": [
+            "fc-reservation"
+          ],
+          "metadata_filter_ok": true,
+          "provenance_complete": true
+        },
+        {
+          "case_id": "ret-02",
+          "expected_chunk_ids": [
+            "sp-reservation"
+          ],
+          "ranked_chunk_ids": [
+            "sp-reservation"
+          ],
+          "metadata_filter_ok": true,
+          "provenance_complete": true
+        },
+        {
+          "case_id": "ret-03",
+          "expected_chunk_ids": [
+            "th-reservation"
+          ],
+          "ranked_chunk_ids": [
+            "th-reservation",
+            "conflict-th-reservation"
+          ],
+          "metadata_filter_ok": true,
+          "provenance_complete": true
+        },
+        {
+          "case_id": "ret-04",
+          "expected_chunk_ids": [
+            "bd-reservation"
+          ],
+          "ranked_chunk_ids": [
+            "bd-reservation"
+          ],
+          "metadata_filter_ok": true,
+          "provenance_complete": true
+        },
+        {
+          "case_id": "ret-05",
+          "expected_chunk_ids": [
+            "sm-reservation"
+          ],
+          "ranked_chunk_ids": [
+            "sm-reservation"
+          ],
+          "metadata_filter_ok": true,
+          "provenance_complete": true
+        },
+        {
+          "case_id": "ret-06",
+          "expected_chunk_ids": [
+            "wl-reservation"
+          ],
+          "ranked_chunk_ids": [
+            "wl-reservation"
+          ],
+          "metadata_filter_ok": true,
+          "provenance_complete": true
+        },
+        {
+          "case_id": "ret-07",
+          "expected_chunk_ids": [
+            "tc-reservation"
+          ],
+          "ranked_chunk_ids": [
+            "tc-reservation"
+          ],
+          "metadata_filter_ok": true,
+          "provenance_complete": true
+        },
+        {
+          "case_id": "ret-08",
+          "expected_chunk_ids": [
+            "jz-reservation"
+          ],
+          "ranked_chunk_ids": [
+            "jz-reservation"
+          ],
+          "metadata_filter_ok": true,
+          "provenance_complete": true
+        },
+        {
+          "case_id": "ret-09",
+          "expected_chunk_ids": [
+            "fc-transport"
+          ],
+          "ranked_chunk_ids": [
+            "fc-transport"
+          ],
+          "metadata_filter_ok": true,
+          "provenance_complete": true
+        },
+        {
+          "case_id": "ret-10",
+          "expected_chunk_ids": [
+            "sp-transport"
+          ],
+          "ranked_chunk_ids": [
+            "sp-transport"
+          ],
+          "metadata_filter_ok": true,
+          "provenance_complete": true
+        },
+        {
+          "case_id": "ret-11",
+          "expected_chunk_ids": [
+            "bd-transport"
+          ],
+          "ranked_chunk_ids": [
+            "bd-transport",
+            "conflict-bd-transport"
+          ],
+          "metadata_filter_ok": true,
+          "provenance_complete": true
+        },
+        {
+          "case_id": "ret-12",
+          "expected_chunk_ids": [
+            "jz-transport"
+          ],
+          "ranked_chunk_ids": [
+            "jz-transport"
+          ],
+          "metadata_filter_ok": true,
+          "provenance_complete": true
+        },
+        {
+          "case_id": "ret-13",
+          "expected_chunk_ids": [
+            "fc-access"
+          ],
+          "ranked_chunk_ids": [
+            "fc-access"
+          ],
+          "metadata_filter_ok": true,
+          "provenance_complete": true
+        },
+        {
+          "case_id": "ret-14",
+          "expected_chunk_ids": [
+            "sp-access"
+          ],
+          "ranked_chunk_ids": [
+            "sp-access"
+          ],
+          "metadata_filter_ok": true,
+          "provenance_complete": true
+        },
+        {
+          "case_id": "ret-15",
+          "expected_chunk_ids": [
+            "sm-access"
+          ],
+          "ranked_chunk_ids": [
+            "sm-access"
+          ],
+          "metadata_filter_ok": true,
+          "provenance_complete": true
+        },
+        {
+          "case_id": "ret-16",
+          "expected_chunk_ids": [
+            "jz-access"
+          ],
+          "ranked_chunk_ids": [
+            "jz-access"
+          ],
+          "metadata_filter_ok": true,
+          "provenance_complete": true
+        },
+        {
+          "case_id": "ret-17",
+          "expected_chunk_ids": [
+            "fc-description"
+          ],
+          "ranked_chunk_ids": [
+            "fc-description"
+          ],
+          "metadata_filter_ok": true,
+          "provenance_complete": true
+        },
+        {
+          "case_id": "ret-18",
+          "expected_chunk_ids": [
+            "sp-description"
+          ],
+          "ranked_chunk_ids": [
+            "sp-description"
+          ],
+          "metadata_filter_ok": true,
+          "provenance_complete": true
+        },
+        {
+          "case_id": "ret-19",
+          "expected_chunk_ids": [
+            "tc-description"
+          ],
+          "ranked_chunk_ids": [
+            "tc-description"
+          ],
+          "metadata_filter_ok": true,
+          "provenance_complete": true
+        },
+        {
+          "case_id": "ret-20",
+          "expected_chunk_ids": [
+            "jz-description"
+          ],
+          "ranked_chunk_ids": [
+            "jz-description"
+          ],
+          "metadata_filter_ok": true,
+          "provenance_complete": true
+        }
+      ],
+      "retrieval_reports": [
+        {
+          "case_id": "ret-01",
+          "ranked_chunk_ids": [
+            "fc-reservation"
+          ],
+          "ordering": "rrf_without_authority_freshness_rerank",
+          "post_filter_rejections": []
+        },
+        {
+          "case_id": "ret-02",
+          "ranked_chunk_ids": [
+            "sp-reservation"
+          ],
+          "ordering": "rrf_without_authority_freshness_rerank",
+          "post_filter_rejections": []
+        },
+        {
+          "case_id": "ret-03",
+          "ranked_chunk_ids": [
+            "th-reservation",
+            "conflict-th-reservation"
+          ],
+          "ordering": "rrf_without_authority_freshness_rerank",
+          "post_filter_rejections": []
+        },
+        {
+          "case_id": "ret-04",
+          "ranked_chunk_ids": [
+            "bd-reservation"
+          ],
+          "ordering": "rrf_without_authority_freshness_rerank",
+          "post_filter_rejections": []
+        },
+        {
+          "case_id": "ret-05",
+          "ranked_chunk_ids": [
+            "sm-reservation"
+          ],
+          "ordering": "rrf_without_authority_freshness_rerank",
+          "post_filter_rejections": []
+        },
+        {
+          "case_id": "ret-06",
+          "ranked_chunk_ids": [
+            "wl-reservation"
+          ],
+          "ordering": "rrf_without_authority_freshness_rerank",
+          "post_filter_rejections": []
+        },
+        {
+          "case_id": "ret-07",
+          "ranked_chunk_ids": [
+            "tc-reservation"
+          ],
+          "ordering": "rrf_without_authority_freshness_rerank",
+          "post_filter_rejections": []
+        },
+        {
+          "case_id": "ret-08",
+          "ranked_chunk_ids": [
+            "jz-reservation"
+          ],
+          "ordering": "rrf_without_authority_freshness_rerank",
+          "post_filter_rejections": []
+        },
+        {
+          "case_id": "ret-09",
+          "ranked_chunk_ids": [
+            "fc-transport"
+          ],
+          "ordering": "rrf_without_authority_freshness_rerank",
+          "post_filter_rejections": []
+        },
+        {
+          "case_id": "ret-10",
+          "ranked_chunk_ids": [
+            "sp-transport"
+          ],
+          "ordering": "rrf_without_authority_freshness_rerank",
+          "post_filter_rejections": []
+        },
+        {
+          "case_id": "ret-11",
+          "ranked_chunk_ids": [
+            "bd-transport",
+            "conflict-bd-transport"
+          ],
+          "ordering": "rrf_without_authority_freshness_rerank",
+          "post_filter_rejections": []
+        },
+        {
+          "case_id": "ret-12",
+          "ranked_chunk_ids": [
+            "jz-transport"
+          ],
+          "ordering": "rrf_without_authority_freshness_rerank",
+          "post_filter_rejections": []
+        },
+        {
+          "case_id": "ret-13",
+          "ranked_chunk_ids": [
+            "fc-access"
+          ],
+          "ordering": "rrf_without_authority_freshness_rerank",
+          "post_filter_rejections": []
+        },
+        {
+          "case_id": "ret-14",
+          "ranked_chunk_ids": [
+            "sp-access"
+          ],
+          "ordering": "rrf_without_authority_freshness_rerank",
+          "post_filter_rejections": []
+        },
+        {
+          "case_id": "ret-15",
+          "ranked_chunk_ids": [
+            "sm-access"
+          ],
+          "ordering": "rrf_without_authority_freshness_rerank",
+          "post_filter_rejections": []
+        },
+        {
+          "case_id": "ret-16",
+          "ranked_chunk_ids": [
+            "jz-access"
+          ],
+          "ordering": "rrf_without_authority_freshness_rerank",
+          "post_filter_rejections": []
+        },
+        {
+          "case_id": "ret-17",
+          "ranked_chunk_ids": [
+            "fc-description"
+          ],
+          "ordering": "rrf_without_authority_freshness_rerank",
+          "post_filter_rejections": []
+        },
+        {
+          "case_id": "ret-18",
+          "ranked_chunk_ids": [
+            "sp-description"
+          ],
+          "ordering": "rrf_without_authority_freshness_rerank",
+          "post_filter_rejections": []
+        },
+        {
+          "case_id": "ret-19",
+          "ranked_chunk_ids": [
+            "tc-description"
+          ],
+          "ordering": "rrf_without_authority_freshness_rerank",
+          "post_filter_rejections": []
+        },
+        {
+          "case_id": "ret-20",
+          "ranked_chunk_ids": [
+            "jz-description"
+          ],
+          "ordering": "rrf_without_authority_freshness_rerank",
+          "post_filter_rejections": []
+        }
+      ]
+    },
+    "hybrid+rerank": {
+      "metrics": {
+        "case_count": 20,
+        "recall_at_3": 1.0,
+        "mrr": 1.0,
+        "ndcg_at_5": 1.0,
+        "metadata_filter_accuracy": 1.0,
+        "provenance_completeness": 1.0
+      },
+      "cases": [
+        {
+          "case_id": "ret-01",
+          "expected_chunk_ids": [
+            "fc-reservation"
+          ],
+          "ranked_chunk_ids": [
+            "fc-reservation"
+          ],
+          "metadata_filter_ok": true,
+          "provenance_complete": true
+        },
+        {
+          "case_id": "ret-02",
+          "expected_chunk_ids": [
+            "sp-reservation"
+          ],
+          "ranked_chunk_ids": [
+            "sp-reservation"
+          ],
+          "metadata_filter_ok": true,
+          "provenance_complete": true
+        },
+        {
+          "case_id": "ret-03",
+          "expected_chunk_ids": [
+            "th-reservation"
+          ],
+          "ranked_chunk_ids": [
+            "th-reservation",
+            "conflict-th-reservation"
+          ],
+          "metadata_filter_ok": true,
+          "provenance_complete": true
+        },
+        {
+          "case_id": "ret-04",
+          "expected_chunk_ids": [
+            "bd-reservation"
+          ],
+          "ranked_chunk_ids": [
+            "bd-reservation"
+          ],
+          "metadata_filter_ok": true,
+          "provenance_complete": true
+        },
+        {
+          "case_id": "ret-05",
+          "expected_chunk_ids": [
+            "sm-reservation"
+          ],
+          "ranked_chunk_ids": [
+            "sm-reservation"
+          ],
+          "metadata_filter_ok": true,
+          "provenance_complete": true
+        },
+        {
+          "case_id": "ret-06",
+          "expected_chunk_ids": [
+            "wl-reservation"
+          ],
+          "ranked_chunk_ids": [
+            "wl-reservation"
+          ],
+          "metadata_filter_ok": true,
+          "provenance_complete": true
+        },
+        {
+          "case_id": "ret-07",
+          "expected_chunk_ids": [
+            "tc-reservation"
+          ],
+          "ranked_chunk_ids": [
+            "tc-reservation"
+          ],
+          "metadata_filter_ok": true,
+          "provenance_complete": true
+        },
+        {
+          "case_id": "ret-08",
+          "expected_chunk_ids": [
+            "jz-reservation"
+          ],
+          "ranked_chunk_ids": [
+            "jz-reservation"
+          ],
+          "metadata_filter_ok": true,
+          "provenance_complete": true
+        },
+        {
+          "case_id": "ret-09",
+          "expected_chunk_ids": [
+            "fc-transport"
+          ],
+          "ranked_chunk_ids": [
+            "fc-transport"
+          ],
+          "metadata_filter_ok": true,
+          "provenance_complete": true
+        },
+        {
+          "case_id": "ret-10",
+          "expected_chunk_ids": [
+            "sp-transport"
+          ],
+          "ranked_chunk_ids": [
+            "sp-transport"
+          ],
+          "metadata_filter_ok": true,
+          "provenance_complete": true
+        },
+        {
+          "case_id": "ret-11",
+          "expected_chunk_ids": [
+            "bd-transport"
+          ],
+          "ranked_chunk_ids": [
+            "bd-transport",
+            "conflict-bd-transport"
+          ],
+          "metadata_filter_ok": true,
+          "provenance_complete": true
+        },
+        {
+          "case_id": "ret-12",
+          "expected_chunk_ids": [
+            "jz-transport"
+          ],
+          "ranked_chunk_ids": [
+            "jz-transport"
+          ],
+          "metadata_filter_ok": true,
+          "provenance_complete": true
+        },
+        {
+          "case_id": "ret-13",
+          "expected_chunk_ids": [
+            "fc-access"
+          ],
+          "ranked_chunk_ids": [
+            "fc-access"
+          ],
+          "metadata_filter_ok": true,
+          "provenance_complete": true
+        },
+        {
+          "case_id": "ret-14",
+          "expected_chunk_ids": [
+            "sp-access"
+          ],
+          "ranked_chunk_ids": [
+            "sp-access"
+          ],
+          "metadata_filter_ok": true,
+          "provenance_complete": true
+        },
+        {
+          "case_id": "ret-15",
+          "expected_chunk_ids": [
+            "sm-access"
+          ],
+          "ranked_chunk_ids": [
+            "sm-access"
+          ],
+          "metadata_filter_ok": true,
+          "provenance_complete": true
+        },
+        {
+          "case_id": "ret-16",
+          "expected_chunk_ids": [
+            "jz-access"
+          ],
+          "ranked_chunk_ids": [
+            "jz-access"
+          ],
+          "metadata_filter_ok": true,
+          "provenance_complete": true
+        },
+        {
+          "case_id": "ret-17",
+          "expected_chunk_ids": [
+            "fc-description"
+          ],
+          "ranked_chunk_ids": [
+            "fc-description"
+          ],
+          "metadata_filter_ok": true,
+          "provenance_complete": true
+        },
+        {
+          "case_id": "ret-18",
+          "expected_chunk_ids": [
+            "sp-description"
+          ],
+          "ranked_chunk_ids": [
+            "sp-description"
+          ],
+          "metadata_filter_ok": true,
+          "provenance_complete": true
+        },
+        {
+          "case_id": "ret-19",
+          "expected_chunk_ids": [
+            "tc-description"
+          ],
+          "ranked_chunk_ids": [
+            "tc-description"
+          ],
+          "metadata_filter_ok": true,
+          "provenance_complete": true
+        },
+        {
+          "case_id": "ret-20",
+          "expected_chunk_ids": [
+            "jz-description"
+          ],
+          "ranked_chunk_ids": [
+            "jz-description"
+          ],
+          "metadata_filter_ok": true,
+          "provenance_complete": true
+        }
+      ],
+      "retrieval_reports": [
+        {
+          "subtask_id": "ret-01",
+          "retrieval_plan": {
+            "task_type": "fact_query",
+            "query_text": "故宫 预约 入馆 需要 提前 实名预约",
+            "attraction_ids": [
+              "forbidden-city"
+            ],
+            "fact_types": [
+              "reservation"
+            ],
+            "as_of": "2026-09-02T00:00:00Z",
+            "top_k": 5,
+            "subtask_id": "ret-01"
+          },
+          "corpus_version": "portfolio-2026-09-02",
+          "index_generation": "idx-60669a70-16bf-4aac-8d0c-beafd1a56e82",
+          "embedding_model": "deterministic-hash-v1",
+          "lexical_attempt": {
+            "channel": "lexical",
+            "status": "success",
+            "result_count": 1,
+            "latency_ms": 1.8023000011453405,
+            "failure_code": null
+          },
+          "dense_attempt": {
+            "channel": "dense",
+            "status": "success",
+            "result_count": 1,
+            "latency_ms": 1.9828999975288752,
+            "failure_code": null
+          },
+          "fusion_candidates": [
+            {
+              "chunk_id": "fc-reservation",
+              "rrf_score": 0.03278688524590164,
+              "channels": [
+                "lexical",
+                "dense"
+              ],
+              "lexical_rank": 1,
+              "dense_rank": 1,
+              "payload_by_channel": {
+                "lexical": {
+                  "chunk_id": "fc-reservation",
+                  "document_version_id": "ver-cc80d8f1-6e30-4f0b-ac2f-bdb19f3d242d",
+                  "content_hash": "54dff32d3a1177f327a1eb72211b46970878e0e8e031bdf268f11b7aa0f75397"
+                },
+                "dense": {
+                  "chunk_id": "fc-reservation",
+                  "attraction_id": "forbidden-city",
+                  "fact_type": "reservation",
+                  "document_version_id": "ver-cc80d8f1-6e30-4f0b-ac2f-bdb19f3d242d",
+                  "content_hash": "54dff32d3a1177f327a1eb72211b46970878e0e8e031bdf268f11b7aa0f75397",
+                  "corpus_version": "portfolio-2026-09-02",
+                  "embedding_model": "deterministic-hash-v1",
+                  "source_id": "main-forbidden-city",
+                  "source_authority": 1.0,
+                  "valid_from": null,
+                  "valid_to": null
+                }
+              }
+            }
+          ],
+          "post_filter_rejections": [],
+          "final_hits": [
+            {
+              "chunk_id": "fc-reservation",
+              "document_version_id": "ver-cc80d8f1-6e30-4f0b-ac2f-bdb19f3d242d",
+              "attraction_id": "forbidden-city",
+              "fact_type": "reservation",
+              "content": "故宫 预约 入馆 需要 提前 实名预约",
+              "source_id": "main-forbidden-city",
+              "source_url": "https://www.dpm.org.cn/visit/hours",
+              "source_title": "故宫参观服务",
+              "source_authority": 1.0,
+              "content_hash": "54dff32d3a1177f327a1eb72211b46970878e0e8e031bdf268f11b7aa0f75397",
+              "locator": "reservation",
+              "valid_from": null,
+              "valid_to": null,
+              "retrieval_channels": [
+                "lexical",
+                "dense"
+              ],
+              "rrf_score": 0.03278688524590164,
+              "final_score": 1.0,
+              "corpus_version": "portfolio-2026-09-02"
+            }
+          ],
+          "coverage_hints": [],
+          "degradation": "none",
+          "latency_breakdown": {
+            "lexical_ms": 1.8023000011453405,
+            "dense_ms": 1.9828999975288752,
+            "fusion_ms": 0.015400000847876072,
+            "post_filter_rerank_ms": 0.6953999982215464,
+            "total_ms": 5.1811000012094155
+          }
+        },
+        {
+          "subtask_id": "ret-02",
+          "retrieval_plan": {
+            "task_type": "fact_query",
+            "query_text": "颐和园 预约 入园 可提前 在线预约",
+            "attraction_ids": [
+              "summer-palace"
+            ],
+            "fact_types": [
+              "reservation"
+            ],
+            "as_of": "2026-09-02T00:00:00Z",
+            "top_k": 5,
+            "subtask_id": "ret-02"
+          },
+          "corpus_version": "portfolio-2026-09-02",
+          "index_generation": "idx-60669a70-16bf-4aac-8d0c-beafd1a56e82",
+          "embedding_model": "deterministic-hash-v1",
+          "lexical_attempt": {
+            "channel": "lexical",
+            "status": "success",
+            "result_count": 1,
+            "latency_ms": 1.1525999980221968,
+            "failure_code": null
+          },
+          "dense_attempt": {
+            "channel": "dense",
+            "status": "success",
+            "result_count": 1,
+            "latency_ms": 1.8324999982723966,
+            "failure_code": null
+          },
+          "fusion_candidates": [
+            {
+              "chunk_id": "sp-reservation",
+              "rrf_score": 0.03278688524590164,
+              "channels": [
+                "lexical",
+                "dense"
+              ],
+              "lexical_rank": 1,
+              "dense_rank": 1,
+              "payload_by_channel": {
+                "lexical": {
+                  "chunk_id": "sp-reservation",
+                  "document_version_id": "ver-ad6ee181-4064-4d21-9f16-acdf93e80f56",
+                  "content_hash": "c6f8fb0fd9ff4eeef3075dd9005045708be23c40886560158702a1f0dee1e63e"
+                },
+                "dense": {
+                  "chunk_id": "sp-reservation",
+                  "attraction_id": "summer-palace",
+                  "fact_type": "reservation",
+                  "document_version_id": "ver-ad6ee181-4064-4d21-9f16-acdf93e80f56",
+                  "content_hash": "c6f8fb0fd9ff4eeef3075dd9005045708be23c40886560158702a1f0dee1e63e",
+                  "corpus_version": "portfolio-2026-09-02",
+                  "embedding_model": "deterministic-hash-v1",
+                  "source_id": "main-summer-palace",
+                  "source_authority": 1.0,
+                  "valid_from": null,
+                  "valid_to": null
+                }
+              }
+            }
+          ],
+          "post_filter_rejections": [],
+          "final_hits": [
+            {
+              "chunk_id": "sp-reservation",
+              "document_version_id": "ver-ad6ee181-4064-4d21-9f16-acdf93e80f56",
+              "attraction_id": "summer-palace",
+              "fact_type": "reservation",
+              "content": "颐和园 预约 入园 可提前 在线预约",
+              "source_id": "main-summer-palace",
+              "source_url": "https://www.summerpalace-china.com/visit",
+              "source_title": "颐和园游览服务",
+              "source_authority": 1.0,
+              "content_hash": "c6f8fb0fd9ff4eeef3075dd9005045708be23c40886560158702a1f0dee1e63e",
+              "locator": "reservation",
+              "valid_from": null,
+              "valid_to": null,
+              "retrieval_channels": [
+                "lexical",
+                "dense"
+              ],
+              "rrf_score": 0.03278688524590164,
+              "final_score": 1.0,
+              "corpus_version": "portfolio-2026-09-02"
+            }
+          ],
+          "coverage_hints": [],
+          "degradation": "none",
+          "latency_breakdown": {
+            "lexical_ms": 1.1525999980221968,
+            "dense_ms": 1.8324999982723966,
+            "fusion_ms": 0.014599998394260183,
+            "post_filter_rerank_ms": 0.6659999999101274,
+            "total_ms": 4.325399997469503
+          }
+        },
+        {
+          "subtask_id": "ret-03",
+          "retrieval_plan": {
+            "task_type": "fact_query",
+            "query_text": "天坛 预约 参观 建议 提前 购票",
+            "attraction_ids": [
+              "temple-of-heaven"
+            ],
+            "fact_types": [
+              "reservation"
+            ],
+            "as_of": "2026-09-02T00:00:00Z",
+            "top_k": 5,
+            "subtask_id": "ret-03"
+          },
+          "corpus_version": "portfolio-2026-09-02",
+          "index_generation": "idx-60669a70-16bf-4aac-8d0c-beafd1a56e82",
+          "embedding_model": "deterministic-hash-v1",
+          "lexical_attempt": {
+            "channel": "lexical",
+            "status": "success",
+            "result_count": 2,
+            "latency_ms": 1.2100999992981087,
+            "failure_code": null
+          },
+          "dense_attempt": {
+            "channel": "dense",
+            "status": "success",
+            "result_count": 2,
+            "latency_ms": 1.808500001061475,
+            "failure_code": null
+          },
+          "fusion_candidates": [
+            {
+              "chunk_id": "th-reservation",
+              "rrf_score": 0.03278688524590164,
+              "channels": [
+                "lexical",
+                "dense"
+              ],
+              "lexical_rank": 1,
+              "dense_rank": 1,
+              "payload_by_channel": {
+                "lexical": {
+                  "chunk_id": "th-reservation",
+                  "document_version_id": "ver-da547793-4f81-4184-897f-03112dd7e376",
+                  "content_hash": "6a7777dfed8f6b99fc592081887c5b0d924d5fdb9887ee39f0dcf391a2b9709f"
+                },
+                "dense": {
+                  "chunk_id": "th-reservation",
+                  "attraction_id": "temple-of-heaven",
+                  "fact_type": "reservation",
+                  "document_version_id": "ver-da547793-4f81-4184-897f-03112dd7e376",
+                  "content_hash": "6a7777dfed8f6b99fc592081887c5b0d924d5fdb9887ee39f0dcf391a2b9709f",
+                  "corpus_version": "portfolio-2026-09-02",
+                  "embedding_model": "deterministic-hash-v1",
+                  "source_id": "main-temple-of-heaven",
+                  "source_authority": 1.0,
+                  "valid_from": null,
+                  "valid_to": null
+                }
+              }
+            },
+            {
+              "chunk_id": "conflict-th-reservation",
+              "rrf_score": 0.03225806451612903,
+              "channels": [
+                "lexical",
+                "dense"
+              ],
+              "lexical_rank": 2,
+              "dense_rank": 2,
+              "payload_by_channel": {
+                "lexical": {
+                  "chunk_id": "conflict-th-reservation",
+                  "document_version_id": "ver-6fa81d30-a4e5-472d-b6d1-93201f7b330b",
+                  "content_hash": "9eed20f31b72f50acf7b739f783aab63940054b09ac5906d790362c4e77bd65a"
+                },
+                "dense": {
+                  "chunk_id": "conflict-th-reservation",
+                  "attraction_id": "temple-of-heaven",
+                  "fact_type": "reservation",
+                  "document_version_id": "ver-6fa81d30-a4e5-472d-b6d1-93201f7b330b",
+                  "content_hash": "9eed20f31b72f50acf7b739f783aab63940054b09ac5906d790362c4e77bd65a",
+                  "corpus_version": "portfolio-2026-09-02",
+                  "embedding_model": "deterministic-hash-v1",
+                  "source_id": "conflict-th-reservation",
+                  "source_authority": 0.85,
+                  "valid_from": null,
+                  "valid_to": null
+                }
+              }
+            }
+          ],
+          "post_filter_rejections": [],
+          "final_hits": [
+            {
+              "chunk_id": "th-reservation",
+              "document_version_id": "ver-da547793-4f81-4184-897f-03112dd7e376",
+              "attraction_id": "temple-of-heaven",
+              "fact_type": "reservation",
+              "content": "天坛 预约 参观 建议 提前 购票",
+              "source_id": "main-temple-of-heaven",
+              "source_url": "https://www.tiantanpark.com/visit",
+              "source_title": "天坛参观服务",
+              "source_authority": 1.0,
+              "content_hash": "6a7777dfed8f6b99fc592081887c5b0d924d5fdb9887ee39f0dcf391a2b9709f",
+              "locator": "reservation",
+              "valid_from": null,
+              "valid_to": null,
+              "retrieval_channels": [
+                "lexical",
+                "dense"
+              ],
+              "rrf_score": 0.03278688524590164,
+              "final_score": 1.0,
+              "corpus_version": "portfolio-2026-09-02"
+            },
+            {
+              "chunk_id": "conflict-th-reservation",
+              "document_version_id": "ver-6fa81d30-a4e5-472d-b6d1-93201f7b330b",
+              "attraction_id": "temple-of-heaven",
+              "fact_type": "reservation",
+              "content": "天坛 预约 数据源 声称 无需预约",
+              "source_id": "conflict-th-reservation",
+              "source_url": "https://data.example.test/th-reservation",
+              "source_title": "天坛结构化预约数据",
+              "source_authority": 0.85,
+              "content_hash": "9eed20f31b72f50acf7b739f783aab63940054b09ac5906d790362c4e77bd65a",
+              "locator": "row-3",
+              "valid_from": null,
+              "valid_to": null,
+              "retrieval_channels": [
+                "lexical",
+                "dense"
+              ],
+              "rrf_score": 0.03225806451612903,
+              "final_score": 0.9603225806451613,
+              "corpus_version": "portfolio-2026-09-02"
+            }
+          ],
+          "coverage_hints": [],
+          "degradation": "none",
+          "latency_breakdown": {
+            "lexical_ms": 1.2100999992981087,
+            "dense_ms": 1.808500001061475,
+            "fusion_ms": 0.019099999917671084,
+            "post_filter_rerank_ms": 1.356699998723343,
+            "total_ms": 5.0616000007721595
+          }
+        },
+        {
+          "subtask_id": "ret-04",
+          "retrieval_plan": {
+            "task_type": "fact_query",
+            "query_text": "八达岭 预约 入园 实行 实名 购票",
+            "attraction_ids": [
+              "badaling"
+            ],
+            "fact_types": [
+              "reservation"
+            ],
+            "as_of": "2026-09-02T00:00:00Z",
+            "top_k": 5,
+            "subtask_id": "ret-04"
+          },
+          "corpus_version": "portfolio-2026-09-02",
+          "index_generation": "idx-60669a70-16bf-4aac-8d0c-beafd1a56e82",
+          "embedding_model": "deterministic-hash-v1",
+          "lexical_attempt": {
+            "channel": "lexical",
+            "status": "success",
+            "result_count": 1,
+            "latency_ms": 2.714000002015382,
+            "failure_code": null
+          },
+          "dense_attempt": {
+            "channel": "dense",
+            "status": "success",
+            "result_count": 1,
+            "latency_ms": 48.40349999722093,
+            "failure_code": null
+          },
+          "fusion_candidates": [
+            {
+              "chunk_id": "bd-reservation",
+              "rrf_score": 0.03278688524590164,
+              "channels": [
+                "lexical",
+                "dense"
+              ],
+              "lexical_rank": 1,
+              "dense_rank": 1,
+              "payload_by_channel": {
+                "lexical": {
+                  "chunk_id": "bd-reservation",
+                  "document_version_id": "ver-9ca27bd7-819d-43a6-a70a-dd13868d2851",
+                  "content_hash": "3922afcd79707188adebf46a218e4878d569e752cc76227c77c4781aacd933f8"
+                },
+                "dense": {
+                  "chunk_id": "bd-reservation",
+                  "attraction_id": "badaling",
+                  "fact_type": "reservation",
+                  "document_version_id": "ver-9ca27bd7-819d-43a6-a70a-dd13868d2851",
+                  "content_hash": "3922afcd79707188adebf46a218e4878d569e752cc76227c77c4781aacd933f8",
+                  "corpus_version": "portfolio-2026-09-02",
+                  "embedding_model": "deterministic-hash-v1",
+                  "source_id": "main-badaling",
+                  "source_authority": 1.0,
+                  "valid_from": null,
+                  "valid_to": null
+                }
+              }
+            }
+          ],
+          "post_filter_rejections": [],
+          "final_hits": [
+            {
+              "chunk_id": "bd-reservation",
+              "document_version_id": "ver-9ca27bd7-819d-43a6-a70a-dd13868d2851",
+              "attraction_id": "badaling",
+              "fact_type": "reservation",
+              "content": "八达岭 预约 入园 实行 实名 购票",
+              "source_id": "main-badaling",
+              "source_url": "https://www.badaling.cn/visit",
+              "source_title": "八达岭游览服务",
+              "source_authority": 1.0,
+              "content_hash": "3922afcd79707188adebf46a218e4878d569e752cc76227c77c4781aacd933f8",
+              "locator": "reservation",
+              "valid_from": null,
+              "valid_to": null,
+              "retrieval_channels": [
+                "lexical",
+                "dense"
+              ],
+              "rrf_score": 0.03278688524590164,
+              "final_score": 1.0,
+              "corpus_version": "portfolio-2026-09-02"
+            }
+          ],
+          "coverage_hints": [],
+          "degradation": "none",
+          "latency_breakdown": {
+            "lexical_ms": 2.714000002015382,
+            "dense_ms": 48.40349999722093,
+            "fusion_ms": 0.019000002794200554,
+            "post_filter_rerank_ms": 1.327100002527004,
+            "total_ms": 53.6668999993708
+          }
+        },
+        {
+          "subtask_id": "ret-05",
+          "retrieval_plan": {
+            "task_type": "fact_query",
+            "query_text": "上海博物馆 预约 入馆 需要 实名预约",
+            "attraction_ids": [
+              "shanghai-museum"
+            ],
+            "fact_types": [
+              "reservation"
+            ],
+            "as_of": "2026-09-02T00:00:00Z",
+            "top_k": 5,
+            "subtask_id": "ret-05"
+          },
+          "corpus_version": "portfolio-2026-09-02",
+          "index_generation": "idx-60669a70-16bf-4aac-8d0c-beafd1a56e82",
+          "embedding_model": "deterministic-hash-v1",
+          "lexical_attempt": {
+            "channel": "lexical",
+            "status": "success",
+            "result_count": 1,
+            "latency_ms": 2.0718000014312565,
+            "failure_code": null
+          },
+          "dense_attempt": {
+            "channel": "dense",
+            "status": "success",
+            "result_count": 1,
+            "latency_ms": 2.159600000595674,
+            "failure_code": null
+          },
+          "fusion_candidates": [
+            {
+              "chunk_id": "sm-reservation",
+              "rrf_score": 0.03278688524590164,
+              "channels": [
+                "lexical",
+                "dense"
+              ],
+              "lexical_rank": 1,
+              "dense_rank": 1,
+              "payload_by_channel": {
+                "lexical": {
+                  "chunk_id": "sm-reservation",
+                  "document_version_id": "ver-9fb5ad22-c85f-4047-aa86-d35ee6e3d4c6",
+                  "content_hash": "55dcefdeb021f97005e9ba316e22a32271c704cf2ab8c5d2f634a30302a61a5c"
+                },
+                "dense": {
+                  "chunk_id": "sm-reservation",
+                  "attraction_id": "shanghai-museum",
+                  "fact_type": "reservation",
+                  "document_version_id": "ver-9fb5ad22-c85f-4047-aa86-d35ee6e3d4c6",
+                  "content_hash": "55dcefdeb021f97005e9ba316e22a32271c704cf2ab8c5d2f634a30302a61a5c",
+                  "corpus_version": "portfolio-2026-09-02",
+                  "embedding_model": "deterministic-hash-v1",
+                  "source_id": "main-shanghai-museum",
+                  "source_authority": 1.0,
+                  "valid_from": null,
+                  "valid_to": null
+                }
+              }
+            }
+          ],
+          "post_filter_rejections": [],
+          "final_hits": [
+            {
+              "chunk_id": "sm-reservation",
+              "document_version_id": "ver-9fb5ad22-c85f-4047-aa86-d35ee6e3d4c6",
+              "attraction_id": "shanghai-museum",
+              "fact_type": "reservation",
+              "content": "上海博物馆 预约 入馆 需要 实名预约",
+              "source_id": "main-shanghai-museum",
+              "source_url": "https://www.shanghaimuseum.net/visit",
+              "source_title": "上海博物馆参观服务",
+              "source_authority": 1.0,
+              "content_hash": "55dcefdeb021f97005e9ba316e22a32271c704cf2ab8c5d2f634a30302a61a5c",
+              "locator": "reservation",
+              "valid_from": null,
+              "valid_to": null,
+              "retrieval_channels": [
+                "lexical",
+                "dense"
+              ],
+              "rrf_score": 0.03278688524590164,
+              "final_score": 1.0,
+              "corpus_version": "portfolio-2026-09-02"
+            }
+          ],
+          "coverage_hints": [],
+          "degradation": "none",
+          "latency_breakdown": {
+            "lexical_ms": 2.0718000014312565,
+            "dense_ms": 2.159600000595674,
+            "fusion_ms": 0.01799999881768599,
+            "post_filter_rerank_ms": 0.7211999982246198,
+            "total_ms": 5.6798000005073845
+          }
+        },
+        {
+          "subtask_id": "ret-06",
+          "retrieval_plan": {
+            "task_type": "fact_query",
+            "query_text": "杭州西湖 公共 区域 无需 预约",
+            "attraction_ids": [
+              "west-lake"
+            ],
+            "fact_types": [
+              "reservation"
+            ],
+            "as_of": "2026-09-02T00:00:00Z",
+            "top_k": 5,
+            "subtask_id": "ret-06"
+          },
+          "corpus_version": "portfolio-2026-09-02",
+          "index_generation": "idx-60669a70-16bf-4aac-8d0c-beafd1a56e82",
+          "embedding_model": "deterministic-hash-v1",
+          "lexical_attempt": {
+            "channel": "lexical",
+            "status": "success",
+            "result_count": 1,
+            "latency_ms": 1.159799998276867,
+            "failure_code": null
+          },
+          "dense_attempt": {
+            "channel": "dense",
+            "status": "success",
+            "result_count": 1,
+            "latency_ms": 1.8357000008109026,
+            "failure_code": null
+          },
+          "fusion_candidates": [
+            {
+              "chunk_id": "wl-reservation",
+              "rrf_score": 0.03278688524590164,
+              "channels": [
+                "lexical",
+                "dense"
+              ],
+              "lexical_rank": 1,
+              "dense_rank": 1,
+              "payload_by_channel": {
+                "lexical": {
+                  "chunk_id": "wl-reservation",
+                  "document_version_id": "ver-923c9b32-8bca-4d47-afd5-6aed3e7218d2",
+                  "content_hash": "b514296ab7305504166996bfaf21ef7a437c325f96e870e11c316a5234943b34"
+                },
+                "dense": {
+                  "chunk_id": "wl-reservation",
+                  "attraction_id": "west-lake",
+                  "fact_type": "reservation",
+                  "document_version_id": "ver-923c9b32-8bca-4d47-afd5-6aed3e7218d2",
+                  "content_hash": "b514296ab7305504166996bfaf21ef7a437c325f96e870e11c316a5234943b34",
+                  "corpus_version": "portfolio-2026-09-02",
+                  "embedding_model": "deterministic-hash-v1",
+                  "source_id": "main-west-lake",
+                  "source_authority": 1.0,
+                  "valid_from": null,
+                  "valid_to": null
+                }
+              }
+            }
+          ],
+          "post_filter_rejections": [],
+          "final_hits": [
+            {
+              "chunk_id": "wl-reservation",
+              "document_version_id": "ver-923c9b32-8bca-4d47-afd5-6aed3e7218d2",
+              "attraction_id": "west-lake",
+              "fact_type": "reservation",
+              "content": "杭州西湖 公共 区域 无需 预约",
+              "source_id": "main-west-lake",
+              "source_url": "https://wgly.hangzhou.gov.cn/westlake",
+              "source_title": "杭州西湖游览服务",
+              "source_authority": 1.0,
+              "content_hash": "b514296ab7305504166996bfaf21ef7a437c325f96e870e11c316a5234943b34",
+              "locator": "reservation",
+              "valid_from": null,
+              "valid_to": null,
+              "retrieval_channels": [
+                "lexical",
+                "dense"
+              ],
+              "rrf_score": 0.03278688524590164,
+              "final_score": 1.0,
+              "corpus_version": "portfolio-2026-09-02"
+            }
+          ],
+          "coverage_hints": [],
+          "degradation": "none",
+          "latency_breakdown": {
+            "lexical_ms": 1.159799998276867,
+            "dense_ms": 1.8357000008109026,
+            "fusion_ms": 0.014400000509340316,
+            "post_filter_rerank_ms": 0.6642000007559545,
+            "total_ms": 4.3227999994996935
+          }
+        },
+        {
+          "subtask_id": "ret-07",
+          "retrieval_plan": {
+            "task_type": "fact_query",
+            "query_text": "兵马俑 预约 入馆 需要 实名 购票",
+            "attraction_ids": [
+              "terracotta-army"
+            ],
+            "fact_types": [
+              "reservation"
+            ],
+            "as_of": "2026-09-02T00:00:00Z",
+            "top_k": 5,
+            "subtask_id": "ret-07"
+          },
+          "corpus_version": "portfolio-2026-09-02",
+          "index_generation": "idx-60669a70-16bf-4aac-8d0c-beafd1a56e82",
+          "embedding_model": "deterministic-hash-v1",
+          "lexical_attempt": {
+            "channel": "lexical",
+            "status": "success",
+            "result_count": 1,
+            "latency_ms": 1.221300000906922,
+            "failure_code": null
+          },
+          "dense_attempt": {
+            "channel": "dense",
+            "status": "success",
+            "result_count": 1,
+            "latency_ms": 1.9595999983721413,
+            "failure_code": null
+          },
+          "fusion_candidates": [
+            {
+              "chunk_id": "tc-reservation",
+              "rrf_score": 0.03278688524590164,
+              "channels": [
+                "lexical",
+                "dense"
+              ],
+              "lexical_rank": 1,
+              "dense_rank": 1,
+              "payload_by_channel": {
+                "lexical": {
+                  "chunk_id": "tc-reservation",
+                  "document_version_id": "ver-89a11e77-6816-4f26-abb2-4d8e1b4b10be",
+                  "content_hash": "fec366b9009ea832467f15ab8943bfa700723f53cbe2b30e5762f154339028da"
+                },
+                "dense": {
+                  "chunk_id": "tc-reservation",
+                  "attraction_id": "terracotta-army",
+                  "fact_type": "reservation",
+                  "document_version_id": "ver-89a11e77-6816-4f26-abb2-4d8e1b4b10be",
+                  "content_hash": "fec366b9009ea832467f15ab8943bfa700723f53cbe2b30e5762f154339028da",
+                  "corpus_version": "portfolio-2026-09-02",
+                  "embedding_model": "deterministic-hash-v1",
+                  "source_id": "main-terracotta-army",
+                  "source_authority": 1.0,
+                  "valid_from": null,
+                  "valid_to": null
+                }
+              }
+            }
+          ],
+          "post_filter_rejections": [],
+          "final_hits": [
+            {
+              "chunk_id": "tc-reservation",
+              "document_version_id": "ver-89a11e77-6816-4f26-abb2-4d8e1b4b10be",
+              "attraction_id": "terracotta-army",
+              "fact_type": "reservation",
+              "content": "兵马俑 预约 入馆 需要 实名 购票",
+              "source_id": "main-terracotta-army",
+              "source_url": "https://www.bmy.com.cn/visit",
+              "source_title": "兵马俑参观服务",
+              "source_authority": 1.0,
+              "content_hash": "fec366b9009ea832467f15ab8943bfa700723f53cbe2b30e5762f154339028da",
+              "locator": "reservation",
+              "valid_from": null,
+              "valid_to": null,
+              "retrieval_channels": [
+                "lexical",
+                "dense"
+              ],
+              "rrf_score": 0.03278688524590164,
+              "final_score": 1.0,
+              "corpus_version": "portfolio-2026-09-02"
+            }
+          ],
+          "coverage_hints": [],
+          "degradation": "none",
+          "latency_breakdown": {
+            "lexical_ms": 1.221300000906922,
+            "dense_ms": 1.9595999983721413,
+            "fusion_ms": 0.014000001101521775,
+            "post_filter_rerank_ms": 1.8321999996260274,
+            "total_ms": 5.8019999996759
+          }
+        },
+        {
+          "subtask_id": "ret-08",
+          "retrieval_plan": {
+            "task_type": "fact_query",
+            "query_text": "九寨沟 预约 入园 需要 提前 实名购票",
+            "attraction_ids": [
+              "jiuzhaigou"
+            ],
+            "fact_types": [
+              "reservation"
+            ],
+            "as_of": "2026-09-02T00:00:00Z",
+            "top_k": 5,
+            "subtask_id": "ret-08"
+          },
+          "corpus_version": "portfolio-2026-09-02",
+          "index_generation": "idx-60669a70-16bf-4aac-8d0c-beafd1a56e82",
+          "embedding_model": "deterministic-hash-v1",
+          "lexical_attempt": {
+            "channel": "lexical",
+            "status": "success",
+            "result_count": 1,
+            "latency_ms": 2.001599998038728,
+            "failure_code": null
+          },
+          "dense_attempt": {
+            "channel": "dense",
+            "status": "success",
+            "result_count": 1,
+            "latency_ms": 2.041399999143323,
+            "failure_code": null
+          },
+          "fusion_candidates": [
+            {
+              "chunk_id": "jz-reservation",
+              "rrf_score": 0.03278688524590164,
+              "channels": [
+                "lexical",
+                "dense"
+              ],
+              "lexical_rank": 1,
+              "dense_rank": 1,
+              "payload_by_channel": {
+                "lexical": {
+                  "chunk_id": "jz-reservation",
+                  "document_version_id": "ver-395ede81-aee6-4c73-9a24-0cc3bb49a695",
+                  "content_hash": "797be48e1e395ab52bf44f1b38b598545c3cfd9df9d7d520a6bd0fee9faa8d0e"
+                },
+                "dense": {
+                  "chunk_id": "jz-reservation",
+                  "attraction_id": "jiuzhaigou",
+                  "fact_type": "reservation",
+                  "document_version_id": "ver-395ede81-aee6-4c73-9a24-0cc3bb49a695",
+                  "content_hash": "797be48e1e395ab52bf44f1b38b598545c3cfd9df9d7d520a6bd0fee9faa8d0e",
+                  "corpus_version": "portfolio-2026-09-02",
+                  "embedding_model": "deterministic-hash-v1",
+                  "source_id": "main-jiuzhaigou",
+                  "source_authority": 1.0,
+                  "valid_from": null,
+                  "valid_to": null
+                }
+              }
+            }
+          ],
+          "post_filter_rejections": [],
+          "final_hits": [
+            {
+              "chunk_id": "jz-reservation",
+              "document_version_id": "ver-395ede81-aee6-4c73-9a24-0cc3bb49a695",
+              "attraction_id": "jiuzhaigou",
+              "fact_type": "reservation",
+              "content": "九寨沟 预约 入园 需要 提前 实名购票",
+              "source_id": "main-jiuzhaigou",
+              "source_url": "https://www.jiuzhai.com/visit",
+              "source_title": "九寨沟游览服务",
+              "source_authority": 1.0,
+              "content_hash": "797be48e1e395ab52bf44f1b38b598545c3cfd9df9d7d520a6bd0fee9faa8d0e",
+              "locator": "reservation",
+              "valid_from": null,
+              "valid_to": null,
+              "retrieval_channels": [
+                "lexical",
+                "dense"
+              ],
+              "rrf_score": 0.03278688524590164,
+              "final_score": 1.0,
+              "corpus_version": "portfolio-2026-09-02"
+            }
+          ],
+          "coverage_hints": [],
+          "degradation": "none",
+          "latency_breakdown": {
+            "lexical_ms": 2.001599998038728,
+            "dense_ms": 2.041399999143323,
+            "fusion_ms": 0.01720000000204891,
+            "post_filter_rerank_ms": 0.6566000010934658,
+            "total_ms": 5.372599996917415
+          }
+        },
+        {
+          "subtask_id": "ret-09",
+          "retrieval_plan": {
+            "task_type": "fact_query",
+            "query_text": "故宫 交通 地铁 一号线 天安门东站",
+            "attraction_ids": [
+              "forbidden-city"
+            ],
+            "fact_types": [
+              "transport"
+            ],
+            "as_of": "2026-09-02T00:00:00Z",
+            "top_k": 5,
+            "subtask_id": "ret-09"
+          },
+          "corpus_version": "portfolio-2026-09-02",
+          "index_generation": "idx-60669a70-16bf-4aac-8d0c-beafd1a56e82",
+          "embedding_model": "deterministic-hash-v1",
+          "lexical_attempt": {
+            "channel": "lexical",
+            "status": "success",
+            "result_count": 1,
+            "latency_ms": 1.1171000005560927,
+            "failure_code": null
+          },
+          "dense_attempt": {
+            "channel": "dense",
+            "status": "success",
+            "result_count": 1,
+            "latency_ms": 1.73960000029183,
+            "failure_code": null
+          },
+          "fusion_candidates": [
+            {
+              "chunk_id": "fc-transport",
+              "rrf_score": 0.03278688524590164,
+              "channels": [
+                "lexical",
+                "dense"
+              ],
+              "lexical_rank": 1,
+              "dense_rank": 1,
+              "payload_by_channel": {
+                "lexical": {
+                  "chunk_id": "fc-transport",
+                  "document_version_id": "ver-cc80d8f1-6e30-4f0b-ac2f-bdb19f3d242d",
+                  "content_hash": "54dff32d3a1177f327a1eb72211b46970878e0e8e031bdf268f11b7aa0f75397"
+                },
+                "dense": {
+                  "chunk_id": "fc-transport",
+                  "attraction_id": "forbidden-city",
+                  "fact_type": "transport",
+                  "document_version_id": "ver-cc80d8f1-6e30-4f0b-ac2f-bdb19f3d242d",
+                  "content_hash": "54dff32d3a1177f327a1eb72211b46970878e0e8e031bdf268f11b7aa0f75397",
+                  "corpus_version": "portfolio-2026-09-02",
+                  "embedding_model": "deterministic-hash-v1",
+                  "source_id": "main-forbidden-city",
+                  "source_authority": 1.0,
+                  "valid_from": null,
+                  "valid_to": null
+                }
+              }
+            }
+          ],
+          "post_filter_rejections": [],
+          "final_hits": [
+            {
+              "chunk_id": "fc-transport",
+              "document_version_id": "ver-cc80d8f1-6e30-4f0b-ac2f-bdb19f3d242d",
+              "attraction_id": "forbidden-city",
+              "fact_type": "transport",
+              "content": "故宫 交通 地铁 一号线 天安门东站 步行到达",
+              "source_id": "main-forbidden-city",
+              "source_url": "https://www.dpm.org.cn/visit/hours",
+              "source_title": "故宫参观服务",
+              "source_authority": 1.0,
+              "content_hash": "54dff32d3a1177f327a1eb72211b46970878e0e8e031bdf268f11b7aa0f75397",
+              "locator": "transport",
+              "valid_from": null,
+              "valid_to": null,
+              "retrieval_channels": [
+                "lexical",
+                "dense"
+              ],
+              "rrf_score": 0.03278688524590164,
+              "final_score": 1.0,
+              "corpus_version": "portfolio-2026-09-02"
+            }
+          ],
+          "coverage_hints": [],
+          "degradation": "none",
+          "latency_breakdown": {
+            "lexical_ms": 1.1171000005560927,
+            "dense_ms": 1.73960000029183,
+            "fusion_ms": 0.013899996702093631,
+            "post_filter_rerank_ms": 0.6098999983805697,
+            "total_ms": 4.066899997269502
+          }
+        },
+        {
+          "subtask_id": "ret-10",
+          "retrieval_plan": {
+            "task_type": "fact_query",
+            "query_text": "颐和园 交通 地铁 四号线 北宫门站",
+            "attraction_ids": [
+              "summer-palace"
+            ],
+            "fact_types": [
+              "transport"
+            ],
+            "as_of": "2026-09-02T00:00:00Z",
+            "top_k": 5,
+            "subtask_id": "ret-10"
+          },
+          "corpus_version": "portfolio-2026-09-02",
+          "index_generation": "idx-60669a70-16bf-4aac-8d0c-beafd1a56e82",
+          "embedding_model": "deterministic-hash-v1",
+          "lexical_attempt": {
+            "channel": "lexical",
+            "status": "success",
+            "result_count": 1,
+            "latency_ms": 1.092499998776475,
+            "failure_code": null
+          },
+          "dense_attempt": {
+            "channel": "dense",
+            "status": "success",
+            "result_count": 1,
+            "latency_ms": 1.6565000005357433,
+            "failure_code": null
+          },
+          "fusion_candidates": [
+            {
+              "chunk_id": "sp-transport",
+              "rrf_score": 0.03278688524590164,
+              "channels": [
+                "lexical",
+                "dense"
+              ],
+              "lexical_rank": 1,
+              "dense_rank": 1,
+              "payload_by_channel": {
+                "lexical": {
+                  "chunk_id": "sp-transport",
+                  "document_version_id": "ver-ad6ee181-4064-4d21-9f16-acdf93e80f56",
+                  "content_hash": "c6f8fb0fd9ff4eeef3075dd9005045708be23c40886560158702a1f0dee1e63e"
+                },
+                "dense": {
+                  "chunk_id": "sp-transport",
+                  "attraction_id": "summer-palace",
+                  "fact_type": "transport",
+                  "document_version_id": "ver-ad6ee181-4064-4d21-9f16-acdf93e80f56",
+                  "content_hash": "c6f8fb0fd9ff4eeef3075dd9005045708be23c40886560158702a1f0dee1e63e",
+                  "corpus_version": "portfolio-2026-09-02",
+                  "embedding_model": "deterministic-hash-v1",
+                  "source_id": "main-summer-palace",
+                  "source_authority": 1.0,
+                  "valid_from": null,
+                  "valid_to": null
+                }
+              }
+            }
+          ],
+          "post_filter_rejections": [],
+          "final_hits": [
+            {
+              "chunk_id": "sp-transport",
+              "document_version_id": "ver-ad6ee181-4064-4d21-9f16-acdf93e80f56",
+              "attraction_id": "summer-palace",
+              "fact_type": "transport",
+              "content": "颐和园 交通 地铁 四号线 北宫门站 到达",
+              "source_id": "main-summer-palace",
+              "source_url": "https://www.summerpalace-china.com/visit",
+              "source_title": "颐和园游览服务",
+              "source_authority": 1.0,
+              "content_hash": "c6f8fb0fd9ff4eeef3075dd9005045708be23c40886560158702a1f0dee1e63e",
+              "locator": "transport",
+              "valid_from": null,
+              "valid_to": null,
+              "retrieval_channels": [
+                "lexical",
+                "dense"
+              ],
+              "rrf_score": 0.03278688524590164,
+              "final_score": 1.0,
+              "corpus_version": "portfolio-2026-09-02"
+            }
+          ],
+          "coverage_hints": [],
+          "degradation": "none",
+          "latency_breakdown": {
+            "lexical_ms": 1.092499998776475,
+            "dense_ms": 1.6565000005357433,
+            "fusion_ms": 0.013599998055724427,
+            "post_filter_rerank_ms": 0.6124999999883585,
+            "total_ms": 3.993599999375874
+          }
+        },
+        {
+          "subtask_id": "ret-11",
+          "retrieval_plan": {
+            "task_type": "fact_query",
+            "query_text": "八达岭 交通 京张高铁 八达岭长城站",
+            "attraction_ids": [
+              "badaling"
+            ],
+            "fact_types": [
+              "transport"
+            ],
+            "as_of": "2026-09-02T00:00:00Z",
+            "top_k": 5,
+            "subtask_id": "ret-11"
+          },
+          "corpus_version": "portfolio-2026-09-02",
+          "index_generation": "idx-60669a70-16bf-4aac-8d0c-beafd1a56e82",
+          "embedding_model": "deterministic-hash-v1",
+          "lexical_attempt": {
+            "channel": "lexical",
+            "status": "success",
+            "result_count": 2,
+            "latency_ms": 1.073699997505173,
+            "failure_code": null
+          },
+          "dense_attempt": {
+            "channel": "dense",
+            "status": "success",
+            "result_count": 2,
+            "latency_ms": 3.8028999988455325,
+            "failure_code": null
+          },
+          "fusion_candidates": [
+            {
+              "chunk_id": "bd-transport",
+              "rrf_score": 0.03278688524590164,
+              "channels": [
+                "lexical",
+                "dense"
+              ],
+              "lexical_rank": 1,
+              "dense_rank": 1,
+              "payload_by_channel": {
+                "lexical": {
+                  "chunk_id": "bd-transport",
+                  "document_version_id": "ver-9ca27bd7-819d-43a6-a70a-dd13868d2851",
+                  "content_hash": "3922afcd79707188adebf46a218e4878d569e752cc76227c77c4781aacd933f8"
+                },
+                "dense": {
+                  "chunk_id": "bd-transport",
+                  "attraction_id": "badaling",
+                  "fact_type": "transport",
+                  "document_version_id": "ver-9ca27bd7-819d-43a6-a70a-dd13868d2851",
+                  "content_hash": "3922afcd79707188adebf46a218e4878d569e752cc76227c77c4781aacd933f8",
+                  "corpus_version": "portfolio-2026-09-02",
+                  "embedding_model": "deterministic-hash-v1",
+                  "source_id": "main-badaling",
+                  "source_authority": 1.0,
+                  "valid_from": null,
+                  "valid_to": null
+                }
+              }
+            },
+            {
+              "chunk_id": "conflict-bd-transport",
+              "rrf_score": 0.03225806451612903,
+              "channels": [
+                "lexical",
+                "dense"
+              ],
+              "lexical_rank": 2,
+              "dense_rank": 2,
+              "payload_by_channel": {
+                "lexical": {
+                  "chunk_id": "conflict-bd-transport",
+                  "document_version_id": "ver-dcefb139-f4d8-4177-a22b-043eff7d72a5",
+                  "content_hash": "e8d30e405197e3b6c5746049214f05bdab3a46e43cd268744106ddc5f9e7608f"
+                },
+                "dense": {
+                  "chunk_id": "conflict-bd-transport",
+                  "attraction_id": "badaling",
+                  "fact_type": "transport",
+                  "document_version_id": "ver-dcefb139-f4d8-4177-a22b-043eff7d72a5",
+                  "content_hash": "e8d30e405197e3b6c5746049214f05bdab3a46e43cd268744106ddc5f9e7608f",
+                  "corpus_version": "portfolio-2026-09-02",
+                  "embedding_model": "deterministic-hash-v1",
+                  "source_id": "conflict-bd-transport",
+                  "source_authority": 0.85,
+                  "valid_from": null,
+                  "valid_to": null
+                }
+              }
+            }
+          ],
+          "post_filter_rejections": [],
+          "final_hits": [
+            {
+              "chunk_id": "bd-transport",
+              "document_version_id": "ver-9ca27bd7-819d-43a6-a70a-dd13868d2851",
+              "attraction_id": "badaling",
+              "fact_type": "transport",
+              "content": "八达岭 交通 可乘 京张高铁 至 八达岭长城站",
+              "source_id": "main-badaling",
+              "source_url": "https://www.badaling.cn/visit",
+              "source_title": "八达岭游览服务",
+              "source_authority": 1.0,
+              "content_hash": "3922afcd79707188adebf46a218e4878d569e752cc76227c77c4781aacd933f8",
+              "locator": "transport",
+              "valid_from": null,
+              "valid_to": null,
+              "retrieval_channels": [
+                "lexical",
+                "dense"
+              ],
+              "rrf_score": 0.03278688524590164,
+              "final_score": 1.0,
+              "corpus_version": "portfolio-2026-09-02"
+            },
+            {
+              "chunk_id": "conflict-bd-transport",
+              "document_version_id": "ver-dcefb139-f4d8-4177-a22b-043eff7d72a5",
+              "attraction_id": "badaling",
+              "fact_type": "transport",
+              "content": "八达岭 交通 数据源 声称 高铁站 停运",
+              "source_id": "conflict-bd-transport",
+              "source_url": "https://data.example.test/bd-transport",
+              "source_title": "八达岭结构化交通数据",
+              "source_authority": 0.85,
+              "content_hash": "e8d30e405197e3b6c5746049214f05bdab3a46e43cd268744106ddc5f9e7608f",
+              "locator": "row-4",
+              "valid_from": null,
+              "valid_to": null,
+              "retrieval_channels": [
+                "lexical",
+                "dense"
+              ],
+              "rrf_score": 0.03225806451612903,
+              "final_score": 0.9603225806451613,
+              "corpus_version": "portfolio-2026-09-02"
+            }
+          ],
+          "coverage_hints": [],
+          "degradation": "none",
+          "latency_breakdown": {
+            "lexical_ms": 1.073699997505173,
+            "dense_ms": 3.8028999988455325,
+            "fusion_ms": 0.02970000059576705,
+            "post_filter_rerank_ms": 1.3270999988890253,
+            "total_ms": 7.20999999975902
+          }
+        },
+        {
+          "subtask_id": "ret-12",
+          "retrieval_plan": {
+            "task_type": "fact_query",
+            "query_text": "九寨沟 交通 成都 长途客运",
+            "attraction_ids": [
+              "jiuzhaigou"
+            ],
+            "fact_types": [
+              "transport"
+            ],
+            "as_of": "2026-09-02T00:00:00Z",
+            "top_k": 5,
+            "subtask_id": "ret-12"
+          },
+          "corpus_version": "portfolio-2026-09-02",
+          "index_generation": "idx-60669a70-16bf-4aac-8d0c-beafd1a56e82",
+          "embedding_model": "deterministic-hash-v1",
+          "lexical_attempt": {
+            "channel": "lexical",
+            "status": "success",
+            "result_count": 1,
+            "latency_ms": 1.1407999991206452,
+            "failure_code": null
+          },
+          "dense_attempt": {
+            "channel": "dense",
+            "status": "success",
+            "result_count": 1,
+            "latency_ms": 1.890399998956127,
+            "failure_code": null
+          },
+          "fusion_candidates": [
+            {
+              "chunk_id": "jz-transport",
+              "rrf_score": 0.03278688524590164,
+              "channels": [
+                "lexical",
+                "dense"
+              ],
+              "lexical_rank": 1,
+              "dense_rank": 1,
+              "payload_by_channel": {
+                "lexical": {
+                  "chunk_id": "jz-transport",
+                  "document_version_id": "ver-395ede81-aee6-4c73-9a24-0cc3bb49a695",
+                  "content_hash": "797be48e1e395ab52bf44f1b38b598545c3cfd9df9d7d520a6bd0fee9faa8d0e"
+                },
+                "dense": {
+                  "chunk_id": "jz-transport",
+                  "attraction_id": "jiuzhaigou",
+                  "fact_type": "transport",
+                  "document_version_id": "ver-395ede81-aee6-4c73-9a24-0cc3bb49a695",
+                  "content_hash": "797be48e1e395ab52bf44f1b38b598545c3cfd9df9d7d520a6bd0fee9faa8d0e",
+                  "corpus_version": "portfolio-2026-09-02",
+                  "embedding_model": "deterministic-hash-v1",
+                  "source_id": "main-jiuzhaigou",
+                  "source_authority": 1.0,
+                  "valid_from": null,
+                  "valid_to": null
+                }
+              }
+            }
+          ],
+          "post_filter_rejections": [],
+          "final_hits": [
+            {
+              "chunk_id": "jz-transport",
+              "document_version_id": "ver-395ede81-aee6-4c73-9a24-0cc3bb49a695",
+              "attraction_id": "jiuzhaigou",
+              "fact_type": "transport",
+              "content": "九寨沟 交通 可从 成都 乘坐 长途客运",
+              "source_id": "main-jiuzhaigou",
+              "source_url": "https://www.jiuzhai.com/visit",
+              "source_title": "九寨沟游览服务",
+              "source_authority": 1.0,
+              "content_hash": "797be48e1e395ab52bf44f1b38b598545c3cfd9df9d7d520a6bd0fee9faa8d0e",
+              "locator": "transport",
+              "valid_from": null,
+              "valid_to": null,
+              "retrieval_channels": [
+                "lexical",
+                "dense"
+              ],
+              "rrf_score": 0.03278688524590164,
+              "final_score": 1.0,
+              "corpus_version": "portfolio-2026-09-02"
+            }
+          ],
+          "coverage_hints": [],
+          "degradation": "none",
+          "latency_breakdown": {
+            "lexical_ms": 1.1407999991206452,
+            "dense_ms": 1.890399998956127,
+            "fusion_ms": 0.01590000101714395,
+            "post_filter_rerank_ms": 0.6510000021080486,
+            "total_ms": 4.336599999078317
+          }
+        },
+        {
+          "subtask_id": "ret-13",
+          "retrieval_plan": {
+            "task_type": "suitability",
+            "query_text": "故宫 无障碍 服务 轮椅 通道",
+            "attraction_ids": [
+              "forbidden-city"
+            ],
+            "fact_types": [
+              "accessibility"
+            ],
+            "as_of": "2026-09-02T00:00:00Z",
+            "top_k": 5,
+            "subtask_id": "ret-13"
+          },
+          "corpus_version": "portfolio-2026-09-02",
+          "index_generation": "idx-60669a70-16bf-4aac-8d0c-beafd1a56e82",
+          "embedding_model": "deterministic-hash-v1",
+          "lexical_attempt": {
+            "channel": "lexical",
+            "status": "success",
+            "result_count": 1,
+            "latency_ms": 1.1267999980191234,
+            "failure_code": null
+          },
+          "dense_attempt": {
+            "channel": "dense",
+            "status": "success",
+            "result_count": 1,
+            "latency_ms": 1.7555000013089739,
+            "failure_code": null
+          },
+          "fusion_candidates": [
+            {
+              "chunk_id": "fc-access",
+              "rrf_score": 0.03278688524590164,
+              "channels": [
+                "lexical",
+                "dense"
+              ],
+              "lexical_rank": 1,
+              "dense_rank": 1,
+              "payload_by_channel": {
+                "lexical": {
+                  "chunk_id": "fc-access",
+                  "document_version_id": "ver-cc80d8f1-6e30-4f0b-ac2f-bdb19f3d242d",
+                  "content_hash": "54dff32d3a1177f327a1eb72211b46970878e0e8e031bdf268f11b7aa0f75397"
+                },
+                "dense": {
+                  "chunk_id": "fc-access",
+                  "attraction_id": "forbidden-city",
+                  "fact_type": "accessibility",
+                  "document_version_id": "ver-cc80d8f1-6e30-4f0b-ac2f-bdb19f3d242d",
+                  "content_hash": "54dff32d3a1177f327a1eb72211b46970878e0e8e031bdf268f11b7aa0f75397",
+                  "corpus_version": "portfolio-2026-09-02",
+                  "embedding_model": "deterministic-hash-v1",
+                  "source_id": "main-forbidden-city",
+                  "source_authority": 1.0,
+                  "valid_from": null,
+                  "valid_to": null
+                }
+              }
+            }
+          ],
+          "post_filter_rejections": [],
+          "final_hits": [
+            {
+              "chunk_id": "fc-access",
+              "document_version_id": "ver-cc80d8f1-6e30-4f0b-ac2f-bdb19f3d242d",
+              "attraction_id": "forbidden-city",
+              "fact_type": "accessibility",
+              "content": "故宫 无障碍 服务 提供 轮椅 通道",
+              "source_id": "main-forbidden-city",
+              "source_url": "https://www.dpm.org.cn/visit/hours",
+              "source_title": "故宫参观服务",
+              "source_authority": 1.0,
+              "content_hash": "54dff32d3a1177f327a1eb72211b46970878e0e8e031bdf268f11b7aa0f75397",
+              "locator": "accessibility",
+              "valid_from": null,
+              "valid_to": null,
+              "retrieval_channels": [
+                "lexical",
+                "dense"
+              ],
+              "rrf_score": 0.03278688524590164,
+              "final_score": 1.0,
+              "corpus_version": "portfolio-2026-09-02"
+            }
+          ],
+          "coverage_hints": [],
+          "degradation": "none",
+          "latency_breakdown": {
+            "lexical_ms": 1.1267999980191234,
+            "dense_ms": 1.7555000013089739,
+            "fusion_ms": 0.013900000340072438,
+            "post_filter_rerank_ms": 0.6197999973664992,
+            "total_ms": 4.186600002867635
+          }
+        },
+        {
+          "subtask_id": "ret-14",
+          "retrieval_plan": {
+            "task_type": "suitability",
+            "query_text": "颐和园 无障碍 服务 东宫门 无障碍通道",
+            "attraction_ids": [
+              "summer-palace"
+            ],
+            "fact_types": [
+              "accessibility"
+            ],
+            "as_of": "2026-09-02T00:00:00Z",
+            "top_k": 5,
+            "subtask_id": "ret-14"
+          },
+          "corpus_version": "portfolio-2026-09-02",
+          "index_generation": "idx-60669a70-16bf-4aac-8d0c-beafd1a56e82",
+          "embedding_model": "deterministic-hash-v1",
+          "lexical_attempt": {
+            "channel": "lexical",
+            "status": "success",
+            "result_count": 1,
+            "latency_ms": 1.1448000004747882,
+            "failure_code": null
+          },
+          "dense_attempt": {
+            "channel": "dense",
+            "status": "success",
+            "result_count": 1,
+            "latency_ms": 3.686500000185333,
+            "failure_code": null
+          },
+          "fusion_candidates": [
+            {
+              "chunk_id": "sp-access",
+              "rrf_score": 0.03278688524590164,
+              "channels": [
+                "lexical",
+                "dense"
+              ],
+              "lexical_rank": 1,
+              "dense_rank": 1,
+              "payload_by_channel": {
+                "lexical": {
+                  "chunk_id": "sp-access",
+                  "document_version_id": "ver-ad6ee181-4064-4d21-9f16-acdf93e80f56",
+                  "content_hash": "c6f8fb0fd9ff4eeef3075dd9005045708be23c40886560158702a1f0dee1e63e"
+                },
+                "dense": {
+                  "chunk_id": "sp-access",
+                  "attraction_id": "summer-palace",
+                  "fact_type": "accessibility",
+                  "document_version_id": "ver-ad6ee181-4064-4d21-9f16-acdf93e80f56",
+                  "content_hash": "c6f8fb0fd9ff4eeef3075dd9005045708be23c40886560158702a1f0dee1e63e",
+                  "corpus_version": "portfolio-2026-09-02",
+                  "embedding_model": "deterministic-hash-v1",
+                  "source_id": "main-summer-palace",
+                  "source_authority": 1.0,
+                  "valid_from": null,
+                  "valid_to": null
+                }
+              }
+            }
+          ],
+          "post_filter_rejections": [],
+          "final_hits": [
+            {
+              "chunk_id": "sp-access",
+              "document_version_id": "ver-ad6ee181-4064-4d21-9f16-acdf93e80f56",
+              "attraction_id": "summer-palace",
+              "fact_type": "accessibility",
+              "content": "颐和园 无障碍 服务 东宫门 提供 无障碍通道",
+              "source_id": "main-summer-palace",
+              "source_url": "https://www.summerpalace-china.com/visit",
+              "source_title": "颐和园游览服务",
+              "source_authority": 1.0,
+              "content_hash": "c6f8fb0fd9ff4eeef3075dd9005045708be23c40886560158702a1f0dee1e63e",
+              "locator": "accessibility",
+              "valid_from": null,
+              "valid_to": null,
+              "retrieval_channels": [
+                "lexical",
+                "dense"
+              ],
+              "rrf_score": 0.03278688524590164,
+              "final_score": 1.0,
+              "corpus_version": "portfolio-2026-09-02"
+            }
+          ],
+          "coverage_hints": [],
+          "degradation": "none",
+          "latency_breakdown": {
+            "lexical_ms": 1.1448000004747882,
+            "dense_ms": 3.686500000185333,
+            "fusion_ms": 0.03979999746661633,
+            "post_filter_rerank_ms": 0.7329000000027008,
+            "total_ms": 6.645900000876281
+          }
+        },
+        {
+          "subtask_id": "ret-15",
+          "retrieval_plan": {
+            "task_type": "suitability",
+            "query_text": "上海博物馆 无障碍 服务 无障碍电梯",
+            "attraction_ids": [
+              "shanghai-museum"
+            ],
+            "fact_types": [
+              "accessibility"
+            ],
+            "as_of": "2026-09-02T00:00:00Z",
+            "top_k": 5,
+            "subtask_id": "ret-15"
+          },
+          "corpus_version": "portfolio-2026-09-02",
+          "index_generation": "idx-60669a70-16bf-4aac-8d0c-beafd1a56e82",
+          "embedding_model": "deterministic-hash-v1",
+          "lexical_attempt": {
+            "channel": "lexical",
+            "status": "success",
+            "result_count": 1,
+            "latency_ms": 1.1531000018294435,
+            "failure_code": null
+          },
+          "dense_attempt": {
+            "channel": "dense",
+            "status": "success",
+            "result_count": 1,
+            "latency_ms": 1.9539000022632536,
+            "failure_code": null
+          },
+          "fusion_candidates": [
+            {
+              "chunk_id": "sm-access",
+              "rrf_score": 0.03278688524590164,
+              "channels": [
+                "lexical",
+                "dense"
+              ],
+              "lexical_rank": 1,
+              "dense_rank": 1,
+              "payload_by_channel": {
+                "lexical": {
+                  "chunk_id": "sm-access",
+                  "document_version_id": "ver-9fb5ad22-c85f-4047-aa86-d35ee6e3d4c6",
+                  "content_hash": "55dcefdeb021f97005e9ba316e22a32271c704cf2ab8c5d2f634a30302a61a5c"
+                },
+                "dense": {
+                  "chunk_id": "sm-access",
+                  "attraction_id": "shanghai-museum",
+                  "fact_type": "accessibility",
+                  "document_version_id": "ver-9fb5ad22-c85f-4047-aa86-d35ee6e3d4c6",
+                  "content_hash": "55dcefdeb021f97005e9ba316e22a32271c704cf2ab8c5d2f634a30302a61a5c",
+                  "corpus_version": "portfolio-2026-09-02",
+                  "embedding_model": "deterministic-hash-v1",
+                  "source_id": "main-shanghai-museum",
+                  "source_authority": 1.0,
+                  "valid_from": null,
+                  "valid_to": null
+                }
+              }
+            }
+          ],
+          "post_filter_rejections": [],
+          "final_hits": [
+            {
+              "chunk_id": "sm-access",
+              "document_version_id": "ver-9fb5ad22-c85f-4047-aa86-d35ee6e3d4c6",
+              "attraction_id": "shanghai-museum",
+              "fact_type": "accessibility",
+              "content": "上海博物馆 无障碍 服务 提供 无障碍电梯",
+              "source_id": "main-shanghai-museum",
+              "source_url": "https://www.shanghaimuseum.net/visit",
+              "source_title": "上海博物馆参观服务",
+              "source_authority": 1.0,
+              "content_hash": "55dcefdeb021f97005e9ba316e22a32271c704cf2ab8c5d2f634a30302a61a5c",
+              "locator": "accessibility",
+              "valid_from": null,
+              "valid_to": null,
+              "retrieval_channels": [
+                "lexical",
+                "dense"
+              ],
+              "rrf_score": 0.03278688524590164,
+              "final_score": 1.0,
+              "corpus_version": "portfolio-2026-09-02"
+            }
+          ],
+          "coverage_hints": [],
+          "degradation": "none",
+          "latency_breakdown": {
+            "lexical_ms": 1.1531000018294435,
+            "dense_ms": 1.9539000022632536,
+            "fusion_ms": 0.017399997886968777,
+            "post_filter_rerank_ms": 0.6753999987267889,
+            "total_ms": 4.48580000011134
+          }
+        },
+        {
+          "subtask_id": "ret-16",
+          "retrieval_plan": {
+            "task_type": "suitability",
+            "query_text": "九寨沟 无障碍 服务 观光车 主要站点",
+            "attraction_ids": [
+              "jiuzhaigou"
+            ],
+            "fact_types": [
+              "accessibility"
+            ],
+            "as_of": "2026-09-02T00:00:00Z",
+            "top_k": 5,
+            "subtask_id": "ret-16"
+          },
+          "corpus_version": "portfolio-2026-09-02",
+          "index_generation": "idx-60669a70-16bf-4aac-8d0c-beafd1a56e82",
+          "embedding_model": "deterministic-hash-v1",
+          "lexical_attempt": {
+            "channel": "lexical",
+            "status": "success",
+            "result_count": 1,
+            "latency_ms": 1.1481999972602352,
+            "failure_code": null
+          },
+          "dense_attempt": {
+            "channel": "dense",
+            "status": "success",
+            "result_count": 1,
+            "latency_ms": 1.9013999990420416,
+            "failure_code": null
+          },
+          "fusion_candidates": [
+            {
+              "chunk_id": "jz-access",
+              "rrf_score": 0.03278688524590164,
+              "channels": [
+                "lexical",
+                "dense"
+              ],
+              "lexical_rank": 1,
+              "dense_rank": 1,
+              "payload_by_channel": {
+                "lexical": {
+                  "chunk_id": "jz-access",
+                  "document_version_id": "ver-395ede81-aee6-4c73-9a24-0cc3bb49a695",
+                  "content_hash": "797be48e1e395ab52bf44f1b38b598545c3cfd9df9d7d520a6bd0fee9faa8d0e"
+                },
+                "dense": {
+                  "chunk_id": "jz-access",
+                  "attraction_id": "jiuzhaigou",
+                  "fact_type": "accessibility",
+                  "document_version_id": "ver-395ede81-aee6-4c73-9a24-0cc3bb49a695",
+                  "content_hash": "797be48e1e395ab52bf44f1b38b598545c3cfd9df9d7d520a6bd0fee9faa8d0e",
+                  "corpus_version": "portfolio-2026-09-02",
+                  "embedding_model": "deterministic-hash-v1",
+                  "source_id": "main-jiuzhaigou",
+                  "source_authority": 1.0,
+                  "valid_from": null,
+                  "valid_to": null
+                }
+              }
+            }
+          ],
+          "post_filter_rejections": [],
+          "final_hits": [
+            {
+              "chunk_id": "jz-access",
+              "document_version_id": "ver-395ede81-aee6-4c73-9a24-0cc3bb49a695",
+              "attraction_id": "jiuzhaigou",
+              "fact_type": "accessibility",
+              "content": "九寨沟 无障碍 服务 观光车 可到达 主要 站点",
+              "source_id": "main-jiuzhaigou",
+              "source_url": "https://www.jiuzhai.com/visit",
+              "source_title": "九寨沟游览服务",
+              "source_authority": 1.0,
+              "content_hash": "797be48e1e395ab52bf44f1b38b598545c3cfd9df9d7d520a6bd0fee9faa8d0e",
+              "locator": "accessibility",
+              "valid_from": null,
+              "valid_to": null,
+              "retrieval_channels": [
+                "lexical",
+                "dense"
+              ],
+              "rrf_score": 0.03278688524590164,
+              "final_score": 1.0,
+              "corpus_version": "portfolio-2026-09-02"
+            }
+          ],
+          "coverage_hints": [],
+          "degradation": "none",
+          "latency_breakdown": {
+            "lexical_ms": 1.1481999972602352,
+            "dense_ms": 1.9013999990420416,
+            "fusion_ms": 0.015699999494245276,
+            "post_filter_rerank_ms": 0.6590999983018264,
+            "total_ms": 4.3810999995912425
+          }
+        },
+        {
+          "subtask_id": "ret-17",
+          "retrieval_plan": {
+            "task_type": "fact_query",
+            "query_text": "故宫 简介 明清 皇家 宫殿 博物院",
+            "attraction_ids": [
+              "forbidden-city"
+            ],
+            "fact_types": [
+              "general_description"
+            ],
+            "as_of": "2026-09-02T00:00:00Z",
+            "top_k": 5,
+            "subtask_id": "ret-17"
+          },
+          "corpus_version": "portfolio-2026-09-02",
+          "index_generation": "idx-60669a70-16bf-4aac-8d0c-beafd1a56e82",
+          "embedding_model": "deterministic-hash-v1",
+          "lexical_attempt": {
+            "channel": "lexical",
+            "status": "success",
+            "result_count": 1,
+            "latency_ms": 1.1363000012352131,
+            "failure_code": null
+          },
+          "dense_attempt": {
+            "channel": "dense",
+            "status": "success",
+            "result_count": 1,
+            "latency_ms": 1.9264000002294779,
+            "failure_code": null
+          },
+          "fusion_candidates": [
+            {
+              "chunk_id": "fc-description",
+              "rrf_score": 0.03278688524590164,
+              "channels": [
+                "lexical",
+                "dense"
+              ],
+              "lexical_rank": 1,
+              "dense_rank": 1,
+              "payload_by_channel": {
+                "lexical": {
+                  "chunk_id": "fc-description",
+                  "document_version_id": "ver-cc80d8f1-6e30-4f0b-ac2f-bdb19f3d242d",
+                  "content_hash": "54dff32d3a1177f327a1eb72211b46970878e0e8e031bdf268f11b7aa0f75397"
+                },
+                "dense": {
+                  "chunk_id": "fc-description",
+                  "attraction_id": "forbidden-city",
+                  "fact_type": "general_description",
+                  "document_version_id": "ver-cc80d8f1-6e30-4f0b-ac2f-bdb19f3d242d",
+                  "content_hash": "54dff32d3a1177f327a1eb72211b46970878e0e8e031bdf268f11b7aa0f75397",
+                  "corpus_version": "portfolio-2026-09-02",
+                  "embedding_model": "deterministic-hash-v1",
+                  "source_id": "main-forbidden-city",
+                  "source_authority": 1.0,
+                  "valid_from": null,
+                  "valid_to": null
+                }
+              }
+            }
+          ],
+          "post_filter_rejections": [],
+          "final_hits": [
+            {
+              "chunk_id": "fc-description",
+              "document_version_id": "ver-cc80d8f1-6e30-4f0b-ac2f-bdb19f3d242d",
+              "attraction_id": "forbidden-city",
+              "fact_type": "general_description",
+              "content": "故宫 简介 是 明清 皇家 宫殿 博物院",
+              "source_id": "main-forbidden-city",
+              "source_url": "https://www.dpm.org.cn/visit/hours",
+              "source_title": "故宫参观服务",
+              "source_authority": 1.0,
+              "content_hash": "54dff32d3a1177f327a1eb72211b46970878e0e8e031bdf268f11b7aa0f75397",
+              "locator": "about",
+              "valid_from": null,
+              "valid_to": null,
+              "retrieval_channels": [
+                "lexical",
+                "dense"
+              ],
+              "rrf_score": 0.03278688524590164,
+              "final_score": 1.0,
+              "corpus_version": "portfolio-2026-09-02"
+            }
+          ],
+          "coverage_hints": [],
+          "degradation": "none",
+          "latency_breakdown": {
+            "lexical_ms": 1.1363000012352131,
+            "dense_ms": 1.9264000002294779,
+            "fusion_ms": 0.01669999983278103,
+            "post_filter_rerank_ms": 1.1905999999726191,
+            "total_ms": 5.108499997731997
+          }
+        },
+        {
+          "subtask_id": "ret-18",
+          "retrieval_plan": {
+            "task_type": "fact_query",
+            "query_text": "颐和园 简介 皇家 园林 世界遗产",
+            "attraction_ids": [
+              "summer-palace"
+            ],
+            "fact_types": [
+              "general_description"
+            ],
+            "as_of": "2026-09-02T00:00:00Z",
+            "top_k": 5,
+            "subtask_id": "ret-18"
+          },
+          "corpus_version": "portfolio-2026-09-02",
+          "index_generation": "idx-60669a70-16bf-4aac-8d0c-beafd1a56e82",
+          "embedding_model": "deterministic-hash-v1",
+          "lexical_attempt": {
+            "channel": "lexical",
+            "status": "success",
+            "result_count": 1,
+            "latency_ms": 1.3017000019317493,
+            "failure_code": null
+          },
+          "dense_attempt": {
+            "channel": "dense",
+            "status": "success",
+            "result_count": 1,
+            "latency_ms": 2.2807999994256534,
+            "failure_code": null
+          },
+          "fusion_candidates": [
+            {
+              "chunk_id": "sp-description",
+              "rrf_score": 0.03278688524590164,
+              "channels": [
+                "lexical",
+                "dense"
+              ],
+              "lexical_rank": 1,
+              "dense_rank": 1,
+              "payload_by_channel": {
+                "lexical": {
+                  "chunk_id": "sp-description",
+                  "document_version_id": "ver-ad6ee181-4064-4d21-9f16-acdf93e80f56",
+                  "content_hash": "c6f8fb0fd9ff4eeef3075dd9005045708be23c40886560158702a1f0dee1e63e"
+                },
+                "dense": {
+                  "chunk_id": "sp-description",
+                  "attraction_id": "summer-palace",
+                  "fact_type": "general_description",
+                  "document_version_id": "ver-ad6ee181-4064-4d21-9f16-acdf93e80f56",
+                  "content_hash": "c6f8fb0fd9ff4eeef3075dd9005045708be23c40886560158702a1f0dee1e63e",
+                  "corpus_version": "portfolio-2026-09-02",
+                  "embedding_model": "deterministic-hash-v1",
+                  "source_id": "main-summer-palace",
+                  "source_authority": 1.0,
+                  "valid_from": null,
+                  "valid_to": null
+                }
+              }
+            }
+          ],
+          "post_filter_rejections": [],
+          "final_hits": [
+            {
+              "chunk_id": "sp-description",
+              "document_version_id": "ver-ad6ee181-4064-4d21-9f16-acdf93e80f56",
+              "attraction_id": "summer-palace",
+              "fact_type": "general_description",
+              "content": "颐和园 简介 是 皇家 园林 世界遗产",
+              "source_id": "main-summer-palace",
+              "source_url": "https://www.summerpalace-china.com/visit",
+              "source_title": "颐和园游览服务",
+              "source_authority": 1.0,
+              "content_hash": "c6f8fb0fd9ff4eeef3075dd9005045708be23c40886560158702a1f0dee1e63e",
+              "locator": "about",
+              "valid_from": null,
+              "valid_to": null,
+              "retrieval_channels": [
+                "lexical",
+                "dense"
+              ],
+              "rrf_score": 0.03278688524590164,
+              "final_score": 1.0,
+              "corpus_version": "portfolio-2026-09-02"
+            }
+          ],
+          "coverage_hints": [],
+          "degradation": "none",
+          "latency_breakdown": {
+            "lexical_ms": 1.3017000019317493,
+            "dense_ms": 2.2807999994256534,
+            "fusion_ms": 0.017700000171316788,
+            "post_filter_rerank_ms": 0.6586000017705373,
+            "total_ms": 4.914299999654759
+          }
+        },
+        {
+          "subtask_id": "ret-19",
+          "retrieval_plan": {
+            "task_type": "fact_query",
+            "query_text": "兵马俑 简介 秦代 陶俑 军阵",
+            "attraction_ids": [
+              "terracotta-army"
+            ],
+            "fact_types": [
+              "general_description"
+            ],
+            "as_of": "2026-09-02T00:00:00Z",
+            "top_k": 5,
+            "subtask_id": "ret-19"
+          },
+          "corpus_version": "portfolio-2026-09-02",
+          "index_generation": "idx-60669a70-16bf-4aac-8d0c-beafd1a56e82",
+          "embedding_model": "deterministic-hash-v1",
+          "lexical_attempt": {
+            "channel": "lexical",
+            "status": "success",
+            "result_count": 1,
+            "latency_ms": 1.2920000008307397,
+            "failure_code": null
+          },
+          "dense_attempt": {
+            "channel": "dense",
+            "status": "success",
+            "result_count": 1,
+            "latency_ms": 1.9685999977809843,
+            "failure_code": null
+          },
+          "fusion_candidates": [
+            {
+              "chunk_id": "tc-description",
+              "rrf_score": 0.03278688524590164,
+              "channels": [
+                "lexical",
+                "dense"
+              ],
+              "lexical_rank": 1,
+              "dense_rank": 1,
+              "payload_by_channel": {
+                "lexical": {
+                  "chunk_id": "tc-description",
+                  "document_version_id": "ver-89a11e77-6816-4f26-abb2-4d8e1b4b10be",
+                  "content_hash": "fec366b9009ea832467f15ab8943bfa700723f53cbe2b30e5762f154339028da"
+                },
+                "dense": {
+                  "chunk_id": "tc-description",
+                  "attraction_id": "terracotta-army",
+                  "fact_type": "general_description",
+                  "document_version_id": "ver-89a11e77-6816-4f26-abb2-4d8e1b4b10be",
+                  "content_hash": "fec366b9009ea832467f15ab8943bfa700723f53cbe2b30e5762f154339028da",
+                  "corpus_version": "portfolio-2026-09-02",
+                  "embedding_model": "deterministic-hash-v1",
+                  "source_id": "main-terracotta-army",
+                  "source_authority": 1.0,
+                  "valid_from": null,
+                  "valid_to": null
+                }
+              }
+            }
+          ],
+          "post_filter_rejections": [],
+          "final_hits": [
+            {
+              "chunk_id": "tc-description",
+              "document_version_id": "ver-89a11e77-6816-4f26-abb2-4d8e1b4b10be",
+              "attraction_id": "terracotta-army",
+              "fact_type": "general_description",
+              "content": "兵马俑 简介 展示 秦代 陶俑 军阵",
+              "source_id": "main-terracotta-army",
+              "source_url": "https://www.bmy.com.cn/visit",
+              "source_title": "兵马俑参观服务",
+              "source_authority": 1.0,
+              "content_hash": "fec366b9009ea832467f15ab8943bfa700723f53cbe2b30e5762f154339028da",
+              "locator": "about",
+              "valid_from": null,
+              "valid_to": null,
+              "retrieval_channels": [
+                "lexical",
+                "dense"
+              ],
+              "rrf_score": 0.03278688524590164,
+              "final_score": 1.0,
+              "corpus_version": "portfolio-2026-09-02"
+            }
+          ],
+          "coverage_hints": [],
+          "degradation": "none",
+          "latency_breakdown": {
+            "lexical_ms": 1.2920000008307397,
+            "dense_ms": 1.9685999977809843,
+            "fusion_ms": 0.01630000042496249,
+            "post_filter_rerank_ms": 0.7731000005151145,
+            "total_ms": 4.765900001075352
+          }
+        },
+        {
+          "subtask_id": "ret-20",
+          "retrieval_plan": {
+            "task_type": "fact_query",
+            "query_text": "九寨沟 简介 高山 湖泊 瀑布",
+            "attraction_ids": [
+              "jiuzhaigou"
+            ],
+            "fact_types": [
+              "general_description"
+            ],
+            "as_of": "2026-09-02T00:00:00Z",
+            "top_k": 5,
+            "subtask_id": "ret-20"
+          },
+          "corpus_version": "portfolio-2026-09-02",
+          "index_generation": "idx-60669a70-16bf-4aac-8d0c-beafd1a56e82",
+          "embedding_model": "deterministic-hash-v1",
+          "lexical_attempt": {
+            "channel": "lexical",
+            "status": "success",
+            "result_count": 1,
+            "latency_ms": 1.1879000012413599,
+            "failure_code": null
+          },
+          "dense_attempt": {
+            "channel": "dense",
+            "status": "success",
+            "result_count": 1,
+            "latency_ms": 1.84850000005099,
+            "failure_code": null
+          },
+          "fusion_candidates": [
+            {
+              "chunk_id": "jz-description",
+              "rrf_score": 0.03278688524590164,
+              "channels": [
+                "lexical",
+                "dense"
+              ],
+              "lexical_rank": 1,
+              "dense_rank": 1,
+              "payload_by_channel": {
+                "lexical": {
+                  "chunk_id": "jz-description",
+                  "document_version_id": "ver-395ede81-aee6-4c73-9a24-0cc3bb49a695",
+                  "content_hash": "797be48e1e395ab52bf44f1b38b598545c3cfd9df9d7d520a6bd0fee9faa8d0e"
+                },
+                "dense": {
+                  "chunk_id": "jz-description",
+                  "attraction_id": "jiuzhaigou",
+                  "fact_type": "general_description",
+                  "document_version_id": "ver-395ede81-aee6-4c73-9a24-0cc3bb49a695",
+                  "content_hash": "797be48e1e395ab52bf44f1b38b598545c3cfd9df9d7d520a6bd0fee9faa8d0e",
+                  "corpus_version": "portfolio-2026-09-02",
+                  "embedding_model": "deterministic-hash-v1",
+                  "source_id": "main-jiuzhaigou",
+                  "source_authority": 1.0,
+                  "valid_from": null,
+                  "valid_to": null
+                }
+              }
+            }
+          ],
+          "post_filter_rejections": [],
+          "final_hits": [
+            {
+              "chunk_id": "jz-description",
+              "document_version_id": "ver-395ede81-aee6-4c73-9a24-0cc3bb49a695",
+              "attraction_id": "jiuzhaigou",
+              "fact_type": "general_description",
+              "content": "九寨沟 简介 以 高山 湖泊 瀑布 著名",
+              "source_id": "main-jiuzhaigou",
+              "source_url": "https://www.jiuzhai.com/visit",
+              "source_title": "九寨沟游览服务",
+              "source_authority": 1.0,
+              "content_hash": "797be48e1e395ab52bf44f1b38b598545c3cfd9df9d7d520a6bd0fee9faa8d0e",
+              "locator": "about",
+              "valid_from": null,
+              "valid_to": null,
+              "retrieval_channels": [
+                "lexical",
+                "dense"
+              ],
+              "rrf_score": 0.03278688524590164,
+              "final_score": 1.0,
+              "corpus_version": "portfolio-2026-09-02"
+            }
+          ],
+          "coverage_hints": [],
+          "degradation": "none",
+          "latency_breakdown": {
+            "lexical_ms": 1.1879000012413599,
+            "dense_ms": 1.84850000005099,
+            "fusion_ms": 0.014500001270789653,
+            "post_filter_rerank_ms": 0.8152000009431504,
+            "total_ms": 4.5776000006299
+          }
+        }
+      ]
+    }
+  },
+  "suites": {
+    "versioning": {
+      "metrics": {
+        "case_count": 20,
+        "expired_leakage_rate": 0.0,
+        "superseded_leakage_rate": 0.0,
+        "non_active_leakage_rate": 0.0,
+        "stale_vector_rejection": 1.0
+      },
+      "cases": [
+        {
+          "case_id": "ver-01",
+          "status": "superseded",
+          "returned": false,
+          "rejected_by_post_filter": true
+        },
+        {
+          "case_id": "ver-02",
+          "status": "superseded",
+          "returned": false,
+          "rejected_by_post_filter": true
+        },
+        {
+          "case_id": "ver-03",
+          "status": "superseded",
+          "returned": false,
+          "rejected_by_post_filter": true
+        },
+        {
+          "case_id": "ver-04",
+          "status": "superseded",
+          "returned": false,
+          "rejected_by_post_filter": true
+        },
+        {
+          "case_id": "ver-05",
+          "status": "superseded",
+          "returned": false,
+          "rejected_by_post_filter": true
+        },
+        {
+          "case_id": "ver-06",
+          "status": "superseded",
+          "returned": false,
+          "rejected_by_post_filter": true
+        },
+        {
+          "case_id": "ver-07",
+          "status": "expired",
+          "returned": false,
+          "rejected_by_post_filter": true
+        },
+        {
+          "case_id": "ver-08",
+          "status": "expired",
+          "returned": false,
+          "rejected_by_post_filter": true
+        },
+        {
+          "case_id": "ver-09",
+          "status": "expired",
+          "returned": false,
+          "rejected_by_post_filter": true
+        },
+        {
+          "case_id": "ver-10",
+          "status": "expired",
+          "returned": false,
+          "rejected_by_post_filter": true
+        },
+        {
+          "case_id": "ver-11",
+          "status": "expired",
+          "returned": false,
+          "rejected_by_post_filter": true
+        },
+        {
+          "case_id": "ver-12",
+          "status": "expired",
+          "returned": false,
+          "rejected_by_post_filter": true
+        },
+        {
+          "case_id": "ver-13",
+          "status": "pending",
+          "returned": false,
+          "rejected_by_post_filter": true
+        },
+        {
+          "case_id": "ver-14",
+          "status": "pending",
+          "returned": false,
+          "rejected_by_post_filter": true
+        },
+        {
+          "case_id": "ver-15",
+          "status": "pending",
+          "returned": false,
+          "rejected_by_post_filter": true
+        },
+        {
+          "case_id": "ver-16",
+          "status": "pending",
+          "returned": false,
+          "rejected_by_post_filter": true
+        },
+        {
+          "case_id": "ver-17",
+          "status": "rejected",
+          "returned": false,
+          "rejected_by_post_filter": true
+        },
+        {
+          "case_id": "ver-18",
+          "status": "rejected",
+          "returned": false,
+          "rejected_by_post_filter": true
+        },
+        {
+          "case_id": "ver-19",
+          "status": "rejected",
+          "returned": false,
+          "rejected_by_post_filter": true
+        },
+        {
+          "case_id": "ver-20",
+          "status": "rejected",
+          "returned": false,
+          "rejected_by_post_filter": true
+        }
+      ],
+      "rejection_audit": [
+        {
+          "case_id": "ver-01",
+          "target_chunk_id": "stale-fc-hours",
+          "rejections": [
+            {
+              "chunk_id": "stale-fc-hours",
+              "reason": "superseded_version",
+              "channel": null
+            }
+          ]
+        },
+        {
+          "case_id": "ver-02",
+          "target_chunk_id": "stale-sp-ticket",
+          "rejections": [
+            {
+              "chunk_id": "stale-sp-ticket",
+              "reason": "superseded_version",
+              "channel": null
+            }
+          ]
+        },
+        {
+          "case_id": "ver-03",
+          "target_chunk_id": "stale-th-reservation",
+          "rejections": [
+            {
+              "chunk_id": "stale-th-reservation",
+              "reason": "superseded_version",
+              "channel": null
+            }
+          ]
+        },
+        {
+          "case_id": "ver-04",
+          "target_chunk_id": "stale-bd-transport",
+          "rejections": [
+            {
+              "chunk_id": "stale-bd-transport",
+              "reason": "superseded_version",
+              "channel": null
+            }
+          ]
+        },
+        {
+          "case_id": "ver-05",
+          "target_chunk_id": "stale-sm-hours",
+          "rejections": [
+            {
+              "chunk_id": "stale-sm-hours",
+              "reason": "superseded_version",
+              "channel": null
+            }
+          ]
+        },
+        {
+          "case_id": "ver-06",
+          "target_chunk_id": "stale-wl-notice",
+          "rejections": [
+            {
+              "chunk_id": "stale-wl-notice",
+              "reason": "superseded_version",
+              "channel": null
+            }
+          ]
+        },
+        {
+          "case_id": "ver-07",
+          "target_chunk_id": "expired-tc-hours",
+          "rejections": [
+            {
+              "chunk_id": "expired-tc-hours",
+              "reason": "expired_version",
+              "channel": null
+            }
+          ]
+        },
+        {
+          "case_id": "ver-08",
+          "target_chunk_id": "expired-jz-ticket",
+          "rejections": [
+            {
+              "chunk_id": "expired-jz-ticket",
+              "reason": "expired_version",
+              "channel": null
+            }
+          ]
+        },
+        {
+          "case_id": "ver-09",
+          "target_chunk_id": "expired-fc-reservation",
+          "rejections": [
+            {
+              "chunk_id": "expired-fc-reservation",
+              "reason": "expired_version",
+              "channel": null
+            }
+          ]
+        },
+        {
+          "case_id": "ver-10",
+          "target_chunk_id": "expired-sp-access",
+          "rejections": [
+            {
+              "chunk_id": "expired-sp-access",
+              "reason": "expired_version",
+              "channel": null
+            }
+          ]
+        },
+        {
+          "case_id": "ver-11",
+          "target_chunk_id": "expired-th-ticket",
+          "rejections": [
+            {
+              "chunk_id": "expired-th-ticket",
+              "reason": "expired_version",
+              "channel": null
+            }
+          ]
+        },
+        {
+          "case_id": "ver-12",
+          "target_chunk_id": "expired-bd-notice",
+          "rejections": [
+            {
+              "chunk_id": "expired-bd-notice",
+              "reason": "expired_version",
+              "channel": null
+            }
+          ]
+        },
+        {
+          "case_id": "ver-13",
+          "target_chunk_id": "pending-fc",
+          "rejections": [
+            {
+              "chunk_id": "pending-fc",
+              "reason": "pending_version",
+              "channel": null
+            }
+          ]
+        },
+        {
+          "case_id": "ver-14",
+          "target_chunk_id": "pending-sp",
+          "rejections": [
+            {
+              "chunk_id": "pending-sp",
+              "reason": "pending_version",
+              "channel": null
+            }
+          ]
+        },
+        {
+          "case_id": "ver-15",
+          "target_chunk_id": "pending-tc",
+          "rejections": [
+            {
+              "chunk_id": "pending-tc",
+              "reason": "pending_version",
+              "channel": null
+            }
+          ]
+        },
+        {
+          "case_id": "ver-16",
+          "target_chunk_id": "pending-jz",
+          "rejections": [
+            {
+              "chunk_id": "pending-jz",
+              "reason": "pending_version",
+              "channel": null
+            }
+          ]
+        },
+        {
+          "case_id": "ver-17",
+          "target_chunk_id": "rejected-fc",
+          "rejections": [
+            {
+              "chunk_id": "rejected-fc",
+              "reason": "pending_version",
+              "channel": null
+            }
+          ]
+        },
+        {
+          "case_id": "ver-18",
+          "target_chunk_id": "rejected-wl",
+          "rejections": [
+            {
+              "chunk_id": "rejected-wl",
+              "reason": "pending_version",
+              "channel": null
+            }
+          ]
+        },
+        {
+          "case_id": "ver-19",
+          "target_chunk_id": "rejected-sm",
+          "rejections": [
+            {
+              "chunk_id": "rejected-sm",
+              "reason": "pending_version",
+              "channel": null
+            }
+          ]
+        },
+        {
+          "case_id": "ver-20",
+          "target_chunk_id": "rejected-bd",
+          "rejections": [
+            {
+              "chunk_id": "rejected-bd",
+              "reason": "pending_version",
+              "channel": null
+            }
+          ]
+        }
+      ]
+    },
+    "state_routing": {
+      "metrics": {
+        "case_count": 8,
+        "path_accuracy": 1.0,
+        "illegal_transitions": 0
+      },
+      "cases": [
+        {
+          "case_id": "route-fact-hours",
+          "expected_terminal": "fact_query",
+          "actual_terminal": "fact_query",
+          "illegal_transition_count": 0
+        },
+        {
+          "case_id": "route-fact-hours-2",
+          "expected_terminal": "fact_query",
+          "actual_terminal": "fact_query",
+          "illegal_transition_count": 0
+        },
+        {
+          "case_id": "route-suitability-elderly",
+          "expected_terminal": "suitability",
+          "actual_terminal": "suitability",
+          "illegal_transition_count": 0
+        },
+        {
+          "case_id": "route-suitability-access",
+          "expected_terminal": "suitability",
+          "actual_terminal": "suitability",
+          "illegal_transition_count": 0
+        },
+        {
+          "case_id": "route-comparison",
+          "expected_terminal": "comparison",
+          "actual_terminal": "comparison",
+          "illegal_transition_count": 0
+        },
+        {
+          "case_id": "route-comparison-2",
+          "expected_terminal": "comparison",
+          "actual_terminal": "comparison",
+          "illegal_transition_count": 0
+        },
+        {
+          "case_id": "route-pruned-itinerary",
+          "expected_terminal": "clarification",
+          "actual_terminal": "clarification",
+          "illegal_transition_count": 0
+        },
+        {
+          "case_id": "route-missing-place",
+          "expected_terminal": "clarification",
+          "actual_terminal": "clarification",
+          "illegal_transition_count": 0
+        }
+      ]
+    },
+    "evidence_conflict": {
+      "metrics": {
+        "case_count": 6,
+        "conflict_detection_accuracy": 1.0,
+        "conflict_source_retention": 1.0,
+        "preferred_authority_accuracy": 1.0
+      },
+      "cases": [
+        {
+          "case_id": "hours-conflict",
+          "expected_conflict": true,
+          "actual_conflict": true,
+          "expected_source_count": 2,
+          "retained_source_count": 2,
+          "preferred_authority_ok": true
+        },
+        {
+          "case_id": "ticket-conflict",
+          "expected_conflict": true,
+          "actual_conflict": true,
+          "expected_source_count": 2,
+          "retained_source_count": 2,
+          "preferred_authority_ok": true
+        },
+        {
+          "case_id": "reservation-conflict",
+          "expected_conflict": true,
+          "actual_conflict": true,
+          "expected_source_count": 2,
+          "retained_source_count": 2,
+          "preferred_authority_ok": true
+        },
+        {
+          "case_id": "transport-consistent",
+          "expected_conflict": false,
+          "actual_conflict": false,
+          "expected_source_count": 2,
+          "retained_source_count": 2,
+          "preferred_authority_ok": true
+        },
+        {
+          "case_id": "access-consistent",
+          "expected_conflict": false,
+          "actual_conflict": false,
+          "expected_source_count": 1,
+          "retained_source_count": 1,
+          "preferred_authority_ok": true
+        },
+        {
+          "case_id": "notice-conflict",
+          "expected_conflict": true,
+          "actual_conflict": true,
+          "expected_source_count": 2,
+          "retained_source_count": 2,
+          "preferred_authority_ok": true
+        }
+      ]
+    },
+    "failure_recovery": {
+      "metrics": {
+        "case_count": 6,
+        "pass_rate": 1.0,
+        "attempt_limit_violations": 0,
+        "logical_task_limit_violations": 0,
+        "hard_fact_abstention_accuracy": 1.0
+      },
+      "cases": [
+        {
+          "case_id": "dense-timeout",
+          "expected_outcome": "evidence_evaluate",
+          "actual_outcome": "evidence_evaluate",
+          "attempt_count": 0,
+          "logical_task_count": 0,
+          "abstention_correct": true
+        },
+        {
+          "case_id": "embedding-error",
+          "expected_outcome": "evidence_evaluate",
+          "actual_outcome": "evidence_evaluate",
+          "attempt_count": 0,
+          "logical_task_count": 0,
+          "abstention_correct": true
+        },
+        {
+          "case_id": "both-empty",
+          "expected_outcome": "live_gap_fill",
+          "actual_outcome": "live_gap_fill",
+          "attempt_count": 0,
+          "logical_task_count": 0,
+          "abstention_correct": true
+        },
+        {
+          "case_id": "all-failed",
+          "expected_outcome": "live_gap_fill",
+          "actual_outcome": "live_gap_fill",
+          "attempt_count": 0,
+          "logical_task_count": 0,
+          "abstention_correct": true
+        },
+        {
+          "case_id": "rate-then-success",
+          "expected_outcome": "evidence_evaluate",
+          "actual_outcome": "evidence_evaluate",
+          "attempt_count": 2,
+          "logical_task_count": 1,
+          "abstention_correct": true
+        },
+        {
+          "case_id": "malformed-twice",
+          "expected_outcome": "evidence_evaluate",
+          "actual_outcome": "evidence_evaluate",
+          "attempt_count": 2,
+          "logical_task_count": 1,
+          "abstention_correct": true
+        }
+      ]
+    },
+    "citation": {
+      "metrics": {
+        "case_count": 7,
+        "citation_precision": 1.0,
+        "unsupported_hard_facts": 0,
+        "abstention_precision": 1.0
+      },
+      "cases": [
+        {
+          "case_id": "active-valid",
+          "expected_supported": true,
+          "actual_supported": true,
+          "expected_abstain": false,
+          "actual_abstain": false
+        },
+        {
+          "case_id": "missing-id",
+          "expected_supported": false,
+          "actual_supported": false,
+          "expected_abstain": true,
+          "actual_abstain": true
+        },
+        {
+          "case_id": "missing-url",
+          "expected_supported": false,
+          "actual_supported": false,
+          "expected_abstain": true,
+          "actual_abstain": true
+        },
+        {
+          "case_id": "expired-version",
+          "expected_supported": false,
+          "actual_supported": false,
+          "expected_abstain": true,
+          "actual_abstain": true
+        },
+        {
+          "case_id": "hash-mismatch",
+          "expected_supported": false,
+          "actual_supported": false,
+          "expected_abstain": true,
+          "actual_abstain": true
+        },
+        {
+          "case_id": "hidden-conflict",
+          "expected_supported": false,
+          "actual_supported": false,
+          "expected_abstain": true,
+          "actual_abstain": true
+        },
+        {
+          "case_id": "disclosed-conflict",
+          "expected_supported": true,
+          "actual_supported": true,
+          "expected_abstain": false,
+          "actual_abstain": false
+        }
+      ],
+      "citation_audit": [
+        {
+          "case_id": "active-valid",
+          "decision": {
+            "claim_id": "active-valid",
+            "status": "supported",
+            "reason": "claim_evidence_chain_valid",
+            "evidence_ids": [
+              "e-1"
+            ]
+          }
+        },
+        {
+          "case_id": "missing-id",
+          "decision": {
+            "claim_id": "missing-id",
+            "status": "unsupported_removed",
+            "reason": "missing_evidence_id",
+            "evidence_ids": [
+              "missing"
+            ]
+          }
+        },
+        {
+          "case_id": "missing-url",
+          "decision": {
+            "claim_id": "missing-url",
+            "status": "unsupported_removed",
+            "reason": "missing_source_url",
+            "evidence_ids": [
+              "e-1"
+            ]
+          }
+        },
+        {
+          "case_id": "expired-version",
+          "decision": {
+            "claim_id": "expired-version",
+            "status": "unsupported_removed",
+            "reason": "invalid_version_status:expired",
+            "evidence_ids": [
+              "e-1"
+            ]
+          }
+        },
+        {
+          "case_id": "hash-mismatch",
+          "decision": {
+            "claim_id": "hash-mismatch",
+            "status": "unsupported_removed",
+            "reason": "hash_mismatch",
+            "evidence_ids": [
+              "e-1"
+            ]
+          }
+        },
+        {
+          "case_id": "hidden-conflict",
+          "decision": {
+            "claim_id": "hidden-conflict",
+            "status": "unsupported_removed",
+            "reason": "unreported_conflict",
+            "evidence_ids": [
+              "e-1",
+              "e-2"
+            ]
+          }
+        },
+        {
+          "case_id": "disclosed-conflict",
+          "decision": {
+            "claim_id": "disclosed-conflict",
+            "status": "supported",
+            "reason": "claim_evidence_chain_valid",
+            "evidence_ids": [
+              "e-1",
+              "e-2"
+            ]
+          }
+        }
+      ]
+    },
+    "conversation": {
+      "metrics": {
+        "case_count": 4,
+        "task_accuracy": 0.75,
+        "entity_accuracy": 0.75,
+        "plan_isolation_accuracy": 1.0
+      },
+      "cases": [
+        {
+          "case_id": "multi-pronoun-hours",
+          "expected_terminal": "fact_query",
+          "actual_terminal": "fact_query",
+          "expected_attractions": [
+            "故宫博物院"
+          ],
+          "actual_attractions": [
+            "故宫博物院"
+          ],
+          "plan_isolation_ok": true
+        },
+        {
+          "case_id": "multi-pronoun-suitability",
+          "expected_terminal": "suitability",
+          "actual_terminal": "clarification",
+          "expected_attractions": [
+            "颐和园"
+          ],
+          "actual_attractions": [],
+          "plan_isolation_ok": true
+        },
+        {
+          "case_id": "compare-accessibility",
+          "expected_terminal": "comparison",
+          "actual_terminal": "comparison",
+          "expected_attractions": [
+            "forbidden-city",
+            "summer-palace"
+          ],
+          "actual_attractions": [
+            "forbidden-city",
+            "summer-palace"
+          ],
+          "plan_isolation_ok": true
+        },
+        {
+          "case_id": "compare-light-visit",
+          "expected_terminal": "comparison",
+          "actual_terminal": "comparison",
+          "expected_attractions": [
+            "temple-of-heaven",
+            "badaling"
+          ],
+          "actual_attractions": [
+            "temple-of-heaven",
+            "badaling"
+          ],
+          "plan_isolation_ok": true
+        }
+      ]
+    }
+  },
+  "consistency": {
+    "index_rebuild_consistency": 1.0,
+    "replay_consistency": 1.0
+  },
+  "gate_metrics": {
+    "recall_at_3": 1.0,
+    "mrr": 1.0,
+    "ndcg_at_5": 1.0,
+    "metadata_filter_accuracy": 1.0,
+    "non_active_leakage_rate": 0.0,
+    "state_path_accuracy": 1.0,
+    "illegal_transitions": 0,
+    "stale_vector_rejection": 1.0,
+    "index_rebuild_consistency": 1.0,
+    "unsupported_hard_facts": 0,
+    "citation_precision": 1.0,
+    "abstention_precision": 1.0,
+    "replay_consistency": 1.0
+  },
+  "gates": {
+    "passed": true,
+    "checks": [
+      {
+        "metric": "recall_at_3",
+        "actual": 1.0,
+        "operator": ">=",
+        "threshold": 0.9,
+        "passed": true
+      },
+      {
+        "metric": "mrr",
+        "actual": 1.0,
+        "operator": ">=",
+        "threshold": 0.85,
+        "passed": true
+      },
+      {
+        "metric": "ndcg_at_5",
+        "actual": 1.0,
+        "operator": ">=",
+        "threshold": 0.9,
+        "passed": true
+      },
+      {
+        "metric": "metadata_filter_accuracy",
+        "actual": 1.0,
+        "operator": "==",
+        "threshold": 1.0,
+        "passed": true
+      },
+      {
+        "metric": "non_active_leakage_rate",
+        "actual": 0.0,
+        "operator": "==",
+        "threshold": 0.0,
+        "passed": true
+      },
+      {
+        "metric": "state_path_accuracy",
+        "actual": 1.0,
+        "operator": ">=",
+        "threshold": 0.95,
+        "passed": true
+      },
+      {
+        "metric": "illegal_transitions",
+        "actual": 0.0,
+        "operator": "==",
+        "threshold": 0.0,
+        "passed": true
+      },
+      {
+        "metric": "stale_vector_rejection",
+        "actual": 1.0,
+        "operator": "==",
+        "threshold": 1.0,
+        "passed": true
+      },
+      {
+        "metric": "index_rebuild_consistency",
+        "actual": 1.0,
+        "operator": "==",
+        "threshold": 1.0,
+        "passed": true
+      },
+      {
+        "metric": "unsupported_hard_facts",
+        "actual": 0.0,
+        "operator": "==",
+        "threshold": 0.0,
+        "passed": true
+      },
+      {
+        "metric": "citation_precision",
+        "actual": 1.0,
+        "operator": ">=",
+        "threshold": 0.95,
+        "passed": true
+      },
+      {
+        "metric": "abstention_precision",
+        "actual": 1.0,
+        "operator": ">=",
+        "threshold": 0.9,
+        "passed": true
+      },
+      {
+        "metric": "replay_consistency",
+        "actual": 1.0,
+        "operator": "==",
+        "threshold": 1.0,
+        "passed": true
+      }
+    ],
+    "failures": []
+  },
+  "bad_cases": []
+}

@@ -1,0 +1,2 @@
+{"case_id":"compare-accessibility","query":"比较故宫和颐和园哪个更适合老人","expected_attractions":["forbidden-city","summer-palace"],"expected_fact_types":["accessibility","visitor_notice","general_description"]}
+{"case_id":"compare-light-visit","query":"天坛和八达岭长城哪个更适合轻松参观","expected_attractions":["temple-of-heaven","badaling"],"expected_fact_types":["accessibility","visitor_notice","general_description"]}
