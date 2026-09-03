@@ -78,8 +78,8 @@ def capture() -> dict:
     common_checkout = _common_checkout_root()
     shared_web = common_checkout / "apps" / "web"
     shared_vite = shared_web / "node_modules" / "vite" / "bin" / "vite.js"
-    local_node_modules = APPS_ROOT / "web" / "node_modules"
-    if local_node_modules.exists() or not shared_vite.exists():
+    local_vite = APPS_ROOT / "web" / "node_modules" / "vite" / "bin" / "vite.js"
+    if local_vite.exists() or not shared_vite.exists():
         web_command = [npm, "run", "build"]
     else:
         web_command = [

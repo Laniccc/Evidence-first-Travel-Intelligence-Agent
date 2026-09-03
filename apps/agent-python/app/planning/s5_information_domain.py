@@ -16,8 +16,6 @@ class InformationDomain(str, Enum):
     OPERATION_STATUS = "operation_status"
     SEASONALITY = "seasonality"
     ROUTE_PLANNING = "route_planning"
-    REVIEW_SIGNAL = "review_signal"
-    NEARBY_RECOMMENDATION = "nearby_recommendation"
     REALTIME_STATUS = "realtime_status"
 
 
@@ -26,7 +24,6 @@ class ProviderGroup(str, Enum):
     OFFICIAL_WEB_PROVIDER = "official_web_provider"
     SEARCH_PROVIDER = "search_provider"
     TICKET_PLATFORM_PROVIDER = "ticket_platform_provider"
-    REVIEW_PLATFORM_PROVIDER = "review_platform_provider"
     WEATHER_PROVIDER = "weather_provider"
     ROUTE_PROVIDER = "route_provider"
     CRAWLER_PROVIDER = "crawler_provider"

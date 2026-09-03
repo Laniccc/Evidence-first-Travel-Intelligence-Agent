@@ -149,83 +149,6 @@ class Settings(BaseSettings):
     agent_core_store_sqlite_path: str = "./data/agent_core_store.sqlite3"
     agent_run_db_path: str = "./data/agent_runs.sqlite3"
 
-    # S5 information domain — platform provider placeholders (framework only)
-    enable_ticket_platform_crawlers: bool = False
-    enable_ticket_platform_providers: bool = False
-    enable_review_platform_crawlers: bool = False
-    enable_travel_note_crawlers: bool = False
-    enable_nearby_platform_crawlers: bool = False
-    enable_itinerary_planner_tools: bool = False
-    enable_crowd_estimation_tools: bool = False
-
-    # TicketLens
-    ticketlens_enabled: bool = False
-    ticketlens_mcp_url: str = "https://mcp.ticketlens.com/"
-    ticketlens_api_base_url: str = "https://api.ticketlens.com/v1"
-    ticketlens_api_key: str | None = None
-    ticketlens_timeout_seconds: float = 10.0
-
-    # Local crawler wrappers
-    enable_ticket_crawler_providers: bool = False
-    enable_ticket_signal_crawler_providers: bool = False
-    enable_review_crawler_providers: bool = False
-
-    # Ctrip
-    ctrip_crawler_enabled: bool = False
-    ctrip_crawler_repo: str = "aglorice/CtripSpider"
-    ctrip_crawler_command: str = ""
-    ctrip_crawler_workdir: str = ""
-    ctrip_crawler_timeout_seconds: float = 30.0
-    ctrip_crawler_max_results: int = 20
-    ctrip_crawler_output_format: str = "json"
-    ctrip_websearch_signal_enabled: bool = False
-
-    # Fliggy — Taobao TOP Open API (open.fliggy.com App Key + App Secret)
-    fliggy_ticket_crawler_enabled: bool = False
-    fliggy_top_api_enabled: bool = False
-    fliggy_app_key: str | None = None
-    fliggy_app_secret: str | None = None
-    fliggy_session: str | None = None
-    fliggy_api_gateway_url: str = "https://gw.api.taobao.com/router/rest"
-    fliggy_api_sign_method: Literal["md5", "hmac"] = "md5"
-    fliggy_api_timeout_seconds: float = 15.0
-    fliggy_ticket_crawler_max_results: int = 20
-    # Canonical Fliggy ticket API env aliases (preferred in ops/docs)
-    fliggy_ticket_api_enabled: bool = False
-    fliggy_ticket_api_endpoint: str = "https://gw.api.taobao.com/router/rest"
-    fliggy_ticket_api_key: str | None = None
-    fliggy_ticket_api_secret: str | None = None
-    fliggy_ticket_api_timeout_seconds: float = 30.0
-    fliggy_ticket_api_max_results: int = 10
-    # Fliggy AI Open Platform (flyai.open.fliggy.com) — sk- API key + flyai-cli
-    fliggy_flyai_enabled: bool = False
-    fliggy_flyai_api_key: str | None = None
-    fliggy_flyai_cli_command: str = "npx --yes @fly-ai/flyai-cli@1.0.16"
-    fliggy_flyai_timeout_seconds: float = 30.0
-    fliggy_ticket_crawler_command: str = ""
-    fliggy_ticket_crawler_workdir: str = ""
-    fliggy_ticket_crawler_timeout_seconds: float = 30.0
-
-    # Dianping
-    dianping_crawler_enabled: bool = False
-    dianping_crawler_repo: str = "crazyboycjr/dianping-crawler"
-    dianping_crawler_command: str = ""
-    dianping_crawler_workdir: str = ""
-    dianping_crawler_timeout_seconds: float = 30.0
-    dianping_crawler_max_results: int = 20
-    dianping_crawler_output_format: str = "json"
-    dianping_websearch_signal_enabled: bool = False
-    dianping_spider_command: str = ""
-    dianping_spider_workdir: str = ""
-    ctrip_spider_root: str = ""
-    dianping_crawler_root: str = ""
-    crawler_proxy_url: str = ""
-    crawler_fetch_timeout_seconds: float = 15.0
-
-    # Ticket snapshot store
-    ticket_snapshot_store_enabled: bool = True
-    ticket_snapshot_db_path: str = "./data/ticket_snapshots.sqlite3"
-
     supported_countries: list[str] = ["Japan", "China", "South Korea"]
     supported_cities: dict[str, list[str]] = {
         "Japan": ["Tokyo", "Kyoto", "Osaka", "Nara", "Sapporo", "Fukuoka", "Okinawa", "Hakone", "Nagoya", "Hiroshima", "Okayama", "Fujikawaguchiko"],
@@ -239,13 +162,6 @@ class Settings(BaseSettings):
         "weather_api_key",
         "places_api_key",
         "baidu_map_ak",
-        "ticketlens_api_key",
-        "fliggy_app_key",
-        "fliggy_app_secret",
-        "fliggy_session",
-        "fliggy_ticket_api_key",
-        "fliggy_ticket_api_secret",
-        "fliggy_flyai_api_key",
         "qdrant_api_key",
         "agent_service_key",
         mode="before",
@@ -255,14 +171,6 @@ class Settings(BaseSettings):
         if value is None or (isinstance(value, str) and not value.strip()):
             return None
         return value
-
-    @model_validator(mode="after")
-    def _merge_provider_switch_aliases(self) -> Self:
-        if self.enable_ticket_platform_providers:
-            self.enable_ticket_platform_crawlers = True
-        if self.enable_ticket_signal_crawler_providers:
-            self.enable_ticket_crawler_providers = True
-        return self
 
     @model_validator(mode="after")
     def _apply_mcp_profile(self) -> Self:

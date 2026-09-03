@@ -8,21 +8,13 @@ from app.planning.s5_task_tool_catalogs.types import AgentToolDefinition
 from app.planning.s5_task_tool_catalogs.live_status import LIVE_STATUS_TOOL_CATALOG
 from app.planning.s5_task_tool_catalogs.minimal_probe import MINIMAL_PROBE_TOOL_CATALOG
 from app.planning.s5_task_tool_catalogs.mixed_advisory import MIXED_ADVISORY_TOOL_CATALOG
-from app.planning.s5_task_tool_catalogs.poi_recommendation import POI_RECOMMENDATION_TOOL_CATALOG
-from app.planning.s5_task_tool_catalogs.review_first import REVIEW_FIRST_TOOL_CATALOG
-from app.planning.s5_task_tool_catalogs.route_first import ROUTE_FIRST_TOOL_CATALOG
 from app.planning.s5_task_tool_catalogs.shared import SHARED_TOOL_CATALOG
 from app.planning.s5_task_tool_catalogs.strict_fact_lookup import STRICT_FACT_LOOKUP_TOOL_CATALOG
-from app.planning.s5_task_tool_catalogs.ticket_price_lookup import TICKET_PRICE_LOOKUP_TOOL_CATALOG
 from typing import Any
 
 TASK_TOOL_CATALOGS: dict[str, dict[str, AgentToolDefinition]] = {
-    "poi_recommendation": POI_RECOMMENDATION_TOOL_CATALOG,
     "strict_fact_lookup": STRICT_FACT_LOOKUP_TOOL_CATALOG,
-    "ticket_price_lookup": TICKET_PRICE_LOOKUP_TOOL_CATALOG,
     "minimal_probe": MINIMAL_PROBE_TOOL_CATALOG,
-    "review_first": REVIEW_FIRST_TOOL_CATALOG,
-    "route_first": ROUTE_FIRST_TOOL_CATALOG,
     "live_status": LIVE_STATUS_TOOL_CATALOG,
     "mixed_advisory": MIXED_ADVISORY_TOOL_CATALOG,
 }
