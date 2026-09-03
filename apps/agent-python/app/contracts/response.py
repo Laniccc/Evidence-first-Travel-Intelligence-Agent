@@ -9,8 +9,10 @@ class AgentHealthResponse(BaseModel):
     status: str
     service: str
     version: str
-    llm_mode: str
-    llm_configured: bool
+    llm_mode: str = "not_required"
+    llm_configured: bool = False
+    ready: bool | None = None
+    checks: dict[str, str] = Field(default_factory=dict)
 
 
 class AgentQueryResponse(BaseModel):

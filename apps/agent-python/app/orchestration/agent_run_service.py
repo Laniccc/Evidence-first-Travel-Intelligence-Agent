@@ -27,12 +27,16 @@ class AgentRunService:
         state_machine: AgentStateMachine,
         debug_writer: Callable[[str, Any], None],
         logger,
+        debug_enabled: bool = True,
     ):
         self._state_machine = state_machine
         self._debug_writer = debug_writer
         self._logger = logger
+        self._debug_enabled = debug_enabled
 
-    async def query(self, payload: AgentQueryRequest) -> AgentQueryResponse:
+    async def query(
+        self, payload: AgentQueryRequest, *, trace_id: str | None = None
+    ) -> AgentQueryResponse:
         session_context = SessionContext.from_java_payload(
             query=payload.query,
             session_id=payload.session_id,
@@ -44,19 +48,42 @@ class AgentRunService:
             session_context.to_agent_user_context(),
             session_context.session_id,
             debug=payload.debug,
-            trace_id=None,
+            trace_id=trace_id,
         )
-        if payload.debug:
+        response = (
+            result
+            if isinstance(result, AgentQueryResponse)
+            else AgentQueryResponse.from_legacy(result, session_id=session_context.session_id)
+        )
+        if payload.debug and self._debug_enabled:
             try:
-                self._debug_writer(session_context.query, result)
+                self._debug_writer(session_context.query, response)
             except Exception as exc:
                 self._logger.warning("debug_session_log_failed", error=str(exc))
-        return AgentQueryResponse.from_legacy(result, session_id=session_context.session_id)
+        summary = response.orchestration_summary or {}
+        info = getattr(self._logger, "info", None)
+        if info is not None:
+            info(
+                "agent_run_completed",
+                query_id=response.query_id,
+                session_id=response.session_id,
+                trace_id=trace_id,
+                terminal_state=summary.get("terminal_state"),
+                run_id=summary.get("run_id"),
+            )
+        return response
 
 
-def create_agent_run_service(debug_writer: Callable[[str, Any], None], logger) -> AgentRunService:
+def create_agent_run_service(
+    debug_writer: Callable[[str, Any], None],
+    logger,
+    *,
+    state_machine: AgentStateMachine | None = None,
+    debug_enabled: bool = True,
+) -> AgentRunService:
     return AgentRunService(
-        state_machine=TravelAgentStateMachine(),
+        state_machine=state_machine or TravelAgentStateMachine(),
         debug_writer=debug_writer,
         logger=logger,
+        debug_enabled=debug_enabled,
     )

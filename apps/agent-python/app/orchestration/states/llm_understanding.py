@@ -166,7 +166,9 @@ class UnderstandingHandler:
                     place_candidates=self._catalog_candidates(context.raw_query),
                 )
             request = NormalizedUserRequest.model_validate(raw_request)
-            request = self._enrich_from_catalog(context.raw_query, request)
+            request = self._enrich_from_catalog(
+                context.raw_query, request, conversation=conversation
+            )
         except Exception:
             return StateResult(
                 status="recovered",
@@ -213,10 +215,23 @@ class UnderstandingHandler:
         self,
         query: str,
         request: NormalizedUserRequest,
+        *,
+        conversation: ConversationContext | None = None,
     ) -> NormalizedUserRequest:
         if self._attraction_matcher is None:
             return request
         matches = self._attraction_matcher(query)
+        if not matches and conversation and re.search(r"(它|这个|那里|该景点)", query):
+            for previous in conversation.last_places:
+                previous_name = (
+                    previous
+                    if isinstance(previous, str)
+                    else getattr(previous, "canonical_name", None)
+                    or getattr(previous, "name", None)
+                    or getattr(previous, "mention", None)
+                )
+                if previous_name:
+                    matches.extend(self._attraction_matcher(str(previous_name)))
         if not matches:
             return request
 

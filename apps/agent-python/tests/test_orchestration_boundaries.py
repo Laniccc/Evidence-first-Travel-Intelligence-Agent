@@ -4,9 +4,9 @@ from pathlib import Path
 from app.orchestration import AgentRun, StateNodePolicy, StateReducer, TravelAgentStateMachine
 from app.orchestration.agent_run_service import AgentRunService
 from app.orchestration.states import (
-    AnswerCompositionState,
-    EvidencePlanningAndToolUseState,
-    LLMUnderstandingState,
+    GroundedCompositionHandler,
+    HybridRetrievalHandler,
+    UnderstandingHandler,
 )
 from app.orchestration.travel_agent_state import TravelAgentState
 
@@ -23,9 +23,9 @@ def test_orchestration_exports_current_runtime_surfaces():
     assert AgentRunService is not None
     assert StateNodePolicy is not None
     assert StateReducer is not None
-    assert LLMUnderstandingState is not None
-    assert EvidencePlanningAndToolUseState is not None
-    assert AnswerCompositionState is not None
+    assert UnderstandingHandler is not None
+    assert HybridRetrievalHandler is not None
+    assert GroundedCompositionHandler is not None
 
 
 def test_agent_run_wraps_one_active_agent_state():

@@ -12,6 +12,8 @@ class Settings(BaseSettings):
     app_version: str = "0.1.0"
     debug: bool = False
     log_level: str = "INFO"
+    agent_service_key: str | None = None
+    readiness_requires_qdrant: bool = False
 
     anthropic_api_key: str | None = None
     anthropic_base_url: str = "https://api.deepseek.com/anthropic"
@@ -135,6 +137,7 @@ class Settings(BaseSettings):
     qdrant_url: str = "http://127.0.0.1:6333"
     qdrant_api_key: str | None = None
     qdrant_collection: str = "attraction-facts"
+    qdrant_local_path: str = "./data/qdrant"
     embedding_mode: Literal["deterministic", "fastembed"] = "deterministic"
     embedding_model: str = "BAAI/bge-small-zh-v1.5"
     embedding_dimension: int = 512
@@ -144,6 +147,7 @@ class Settings(BaseSettings):
     agent_core_store_backend: Literal["memory", "jsonl", "sqlite"] = "memory"
     agent_core_store_jsonl_path: str = "./data/agent_core_store.jsonl"
     agent_core_store_sqlite_path: str = "./data/agent_core_store.sqlite3"
+    agent_run_db_path: str = "./data/agent_runs.sqlite3"
 
     # S5 information domain — platform provider placeholders (framework only)
     enable_ticket_platform_crawlers: bool = False
@@ -243,6 +247,7 @@ class Settings(BaseSettings):
         "fliggy_ticket_api_secret",
         "fliggy_flyai_api_key",
         "qdrant_api_key",
+        "agent_service_key",
         mode="before",
     )
     @classmethod
