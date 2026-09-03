@@ -1,4 +1,5 @@
 import "./styles.css";
+import { buildAgentResultView } from "./presentation/agent-result.js";
 import {
   archiveConversation,
   askTravelAgent,
@@ -282,25 +283,83 @@ function renderAnswer() {
     return;
   }
   const data = state.currentResponse;
-  els.answer.textContent = data.answer || "无回答文本";
-  const confidence = Number(data.confidence || 0);
+  const view = buildAgentResultView(data);
+  els.answer.textContent = view.answer;
   els.answerMeta.innerHTML = `
-    <span class="badge">置信度 ${(confidence * 100).toFixed(0)}%</span>
-    <span class="badge">证据 ${data.evidence_summary?.length || 0}</span>
-    <span class="badge">工具 ${data.tool_traces?.length || 0}</span>
+    <span class="badge">置信度 ${view.confidenceLabel}</span>
+    <span class="badge">证据 ${view.evidence.length}</span>
+    <span class="badge ${view.degraded ? "badge-warn" : "badge-ok"}">${
+      view.retrieval[0]?.badge || "Legacy response"
+    }</span>
   `;
-  els.traceDetail.textContent = JSON.stringify(data.visible_trace || [], null, 2);
-  els.evidenceDetail.textContent = JSON.stringify(
-    {
-      evidence_summary: data.evidence_summary || [],
-      limitations: data.limitations || [],
-      citation_check_result: data.citation_check_result || null,
-    },
-    null,
-    2,
-  );
+  els.traceDetail.innerHTML = renderTimeline(view.timeline);
+  els.evidenceDetail.innerHTML = renderEvidenceAudit(view);
   els.favoriteCurrent.disabled = !state.currentRecord;
   els.favoriteCurrent.textContent = state.currentRecord?.favorite ? "取消收藏" : "收藏回答";
+}
+
+function renderTimeline(timeline) {
+  if (!timeline.length) return `<div class="empty">暂无状态审计记录</div>`;
+  return `<div class="audit-timeline">${timeline
+    .map(
+      (item) => `<div class="audit-row">
+        <span class="audit-state">${escapeHtml(item.state)}</span>
+        <span class="status-${escapeHtml(item.status)}">${escapeHtml(item.status)}</span>
+        <small>attempt ${item.attempt} · ${escapeHtml(item.latency)}</small>
+        ${item.recovery ? `<small>recovery: ${escapeHtml(item.recovery)}</small>` : ""}
+        ${item.failureCode ? `<small class="danger-text">${escapeHtml(item.failureCode)}</small>` : ""}
+      </div>`,
+    )
+    .join("")}</div>`;
+}
+
+function renderEvidenceAudit(view) {
+  const evidence = view.evidence.length
+    ? view.evidence
+        .map((item) => {
+          const href = safeHref(item.sourceUrl);
+          const source = href
+            ? `<a href="${escapeHtml(href)}" target="_blank" rel="noopener">${escapeHtml(item.sourceLabel)}</a>`
+            : escapeHtml(item.sourceLabel);
+          return `<article class="evidence-card">
+            <div><strong>${escapeHtml(item.factType)}</strong><span class="evidence-id">${escapeHtml(item.evidenceId)}</span></div>
+            <p>${escapeHtml(item.content)}</p>
+            <small>${source} · ${escapeHtml(item.versionLabel)}</small>
+          </article>`;
+        })
+        .join("")
+    : `<div class="empty">没有可展示的 Evidence</div>`;
+  const retrieval = view.retrieval
+    .map(
+      (item) => `<article class="retrieval-card">
+        <strong>${escapeHtml(item.badge)}</strong>
+        <small>${escapeHtml(item.subtaskId)} · ${escapeHtml(item.corpusVersion)}</small>
+        <div>${item.channels.map((channel) => `<code>${escapeHtml(channel)}</code>`).join("")}</div>
+      </article>`,
+    )
+    .join("");
+  const citations = view.citations
+    .map(
+      (item) => `<li><strong>${escapeHtml(item.claimId)}</strong> · ${escapeHtml(item.status)}<br><small>${escapeHtml(item.reason)} · ${escapeHtml(item.evidenceIds.join(", "))}</small></li>`,
+    )
+    .join("");
+  const limitations = view.limitations.map((item) => `<li>${escapeHtml(item)}</li>`).join("");
+  return `<div class="evidence-audit">
+    <h4>Evidence</h4>${evidence}
+    ${retrieval ? `<h4>Retrieval</h4>${retrieval}` : ""}
+    <h4>Citation</h4><p class="citation-summary">${escapeHtml(view.citationSummary)}</p>
+    ${citations ? `<ul>${citations}</ul>` : ""}
+    ${limitations ? `<h4>Limitations</h4><ul>${limitations}</ul>` : ""}
+  </div>`;
+}
+
+function safeHref(value) {
+  try {
+    const url = new URL(value);
+    return ["http:", "https:"].includes(url.protocol) ? url.href : "";
+  } catch {
+    return "";
+  }
 }
 
 function renderComposerState() {

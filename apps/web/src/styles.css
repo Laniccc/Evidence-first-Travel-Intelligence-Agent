@@ -199,6 +199,16 @@ h1 {
   color: #334155;
 }
 
+.badge-ok {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.badge-warn {
+  background: #fef3c7;
+  color: #92400e;
+}
+
 .workspace {
   min-height: calc(100vh - 72px);
   display: grid;
@@ -363,6 +373,93 @@ summary {
   color: #e5e7eb;
   padding: 0.75rem;
   font-size: 0.78rem;
+}
+
+.detail-block {
+  overflow: auto;
+  max-height: 420px;
+  margin-top: 0.75rem;
+  font-size: 0.82rem;
+}
+
+.audit-timeline,
+.evidence-audit {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.audit-row,
+.evidence-card,
+.retrieval-card {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-muted);
+  padding: 0.65rem;
+}
+
+.audit-row {
+  display: grid;
+  grid-template-columns: minmax(130px, 1fr) auto;
+  gap: 0.2rem 0.7rem;
+}
+
+.audit-row small,
+.retrieval-card small {
+  color: var(--muted);
+}
+
+.audit-state,
+.evidence-card strong,
+.retrieval-card strong {
+  color: var(--primary-dark);
+}
+
+.status-recovered,
+.status-failed,
+.danger-text {
+  color: var(--danger);
+}
+
+.status-succeeded {
+  color: #166534;
+}
+
+.evidence-card p {
+  margin: 0.45rem 0;
+  line-height: 1.55;
+}
+
+.evidence-card a {
+  color: var(--primary);
+}
+
+.evidence-id {
+  margin-left: 0.5rem;
+  color: var(--muted);
+  font-family: ui-monospace, monospace;
+}
+
+.retrieval-card small {
+  display: block;
+  margin: 0.25rem 0 0.45rem;
+}
+
+.retrieval-card code {
+  display: inline-block;
+  margin: 0 0.35rem 0.25rem 0;
+  padding: 0.2rem 0.35rem;
+  border-radius: 4px;
+  background: #e2e8f0;
+}
+
+.evidence-audit h4 {
+  margin: 0.65rem 0 0;
+}
+
+.evidence-audit ul,
+.citation-summary {
+  margin: 0;
+  padding-left: 1.1rem;
 }
 
 .record-list {
