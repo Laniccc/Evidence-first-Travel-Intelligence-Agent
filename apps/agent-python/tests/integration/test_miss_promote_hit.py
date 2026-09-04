@@ -16,4 +16,3 @@ async def test_miss_promote_durable_sync_then_dense_only_hit_and_effect_free_rep
     assert result["replay_external_calls"] == 0
     assert result["replay_write_side_effects"] == 0
     assert result["replay_consistent"]
-
