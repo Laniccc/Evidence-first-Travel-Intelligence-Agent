@@ -39,5 +39,5 @@ See [README.md](README.md) and [RUNBOOK.md](RUNBOOK.md).
 - API contracts used by the frontend must be tested or covered by a platform flow test before changing UI behavior.
 - Frontend platform runtime: `apps/web/src/`.
 - The release gate is `python -m evals.runner --suite all --offline --fail-on-regression --report evals/reports/final-offline.json` from `apps/agent-python`; do not weaken thresholds to make a change pass.
-- `tests/test_removed_capabilities_gate.py` protects the reduced runtime scope; do not add prohibited imports, registries, configuration flags, or routes.
+- `tests/characterization/test_supported_scope.py` protects the reduced runtime scope; do not add prohibited imports, registries, configuration flags, or routes.
 - Keep generated caches, debug output, build output, and external vendor clones out of Git.
