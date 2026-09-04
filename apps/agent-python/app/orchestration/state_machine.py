@@ -200,7 +200,7 @@ class TravelAgentStateMachine:
 
 
 class _UnavailableRetriever:
-    def retrieve(self, plan):
+    async def aretrieve(self, plan):
         del plan
         raise RuntimeError("retrieval dependency is not configured")
 

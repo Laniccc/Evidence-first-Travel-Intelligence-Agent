@@ -23,6 +23,7 @@ secrets.json
 
 # --- Python ---
 .venv/
+.venv-batch-b/
 apps/agent-python/.venv/
 __pycache__/
 *.py[cod]

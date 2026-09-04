@@ -46,10 +46,14 @@ def create_app(
         fastapi_app.state.readiness_probe = probe
         fastapi_app.version = settings.app_version
         fastapi_app.title = settings.app_name
-        yield
-        resource = resources.get("runtime_resource")
-        if resource is not None and hasattr(resource, "close"):
-            resource.close()
+        try:
+            yield
+        finally:
+            resource = resources.get("runtime_resource")
+            if resource is not None and hasattr(resource, "aclose"):
+                await resource.aclose()
+            elif resource is not None and hasattr(resource, "close"):
+                resource.close()
 
     fastapi_app = FastAPI(
         title="Travel Agent Python", version="0.0.0", lifespan=lifespan

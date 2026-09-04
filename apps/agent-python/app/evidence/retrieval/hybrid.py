@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import re
 from time import perf_counter
 
@@ -51,16 +52,49 @@ class QdrantDenseRetriever:
 class HybridRetriever:
     CHANNEL_LIMIT = 20
 
-    def __init__(self, *, repository: KnowledgeRepository, lexical, dense) -> None:
+    def __init__(self, *, repository: KnowledgeRepository, lexical, dense,
+                 io_runner=None, channel_timeout_seconds: float = 2.0) -> None:
         self.repository = repository
         self.lexical = lexical
         self.dense = dense
+        if channel_timeout_seconds <= 0:
+            raise ValueError("channel timeout must be positive")
+        self._io = io_runner
+        self._timeout = channel_timeout_seconds
+
+    async def aretrieve(self, plan: RetrievalPlan) -> RetrievalReport:
+        if self._io is None:
+            raise RuntimeError("bounded I/O runner is required for async retrieval")
+        started = perf_counter()
+        results = await asyncio.gather(
+            self._aattempt("lexical", self.lexical, plan),
+            self._aattempt("dense", self.dense, plan),
+        )
+        return await self._io("postfilter", self._finish, plan, started, *results)
+
+    async def _aattempt(self, channel, retriever, plan):
+        started = perf_counter()
+        try:
+            async with asyncio.timeout(self._timeout):
+                if hasattr(retriever, "aretrieve"):
+                    hits = await retriever.aretrieve(plan, limit=self.CHANNEL_LIMIT)
+                else:
+                    hits = await self._io(channel, retriever.retrieve, plan, limit=self.CHANNEL_LIMIT)
+        except Exception as exc:
+            return [], RetrievalAttempt(channel=channel, status="failed",
+                latency_ms=_elapsed_ms(started), failure_code=_failure_code(exc))
+        return hits, RetrievalAttempt(channel=channel, status="success" if hits else "empty",
+                                     result_count=len(hits), latency_ms=_elapsed_ms(started))
 
     def retrieve(self, plan: RetrievalPlan) -> RetrievalReport:
         started = perf_counter()
         lexical_hits, lexical_attempt = self._attempt("lexical", self.lexical, plan)
         dense_hits, dense_attempt = self._attempt("dense", self.dense, plan)
+        return self._finish(plan, started, (lexical_hits, lexical_attempt), (dense_hits, dense_attempt))
 
+    def _finish(self, plan, started, lexical_result, dense_result):
+        lexical_hits, lexical_attempt = lexical_result
+        dense_hits, dense_attempt = dense_result
         fusion_started = perf_counter()
         fused = reciprocal_rank_fusion(
             lexical=lexical_hits,

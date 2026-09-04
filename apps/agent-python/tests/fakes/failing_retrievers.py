@@ -106,6 +106,9 @@ class StaticRetriever:
     def retrieve(self, retrieval_plan):
         return self._reports.pop(0)
 
+    async def aretrieve(self, retrieval_plan):
+        return self.retrieve(retrieval_plan)
+
 
 def lexical_success_dense_timeout():
     return StaticRetriever(

@@ -35,7 +35,7 @@ class HybridRetrievalHandler:
         reports = []
         for plan in plans:
             try:
-                report = RetrievalReport.model_validate(self._retriever.retrieve(plan))
+                report = RetrievalReport.model_validate(await self._retriever.aretrieve(plan))
             except Exception as exc:
                 code = _failure_code(exc)
                 report = _failed_report(plan, code)

@@ -525,7 +525,7 @@ class _StaticOperationRetriever:
     def __init__(self, report: RetrievalReport) -> None:
         self.report = report
 
-    def retrieve(self, plan: RetrievalPlan) -> RetrievalReport:
+    async def aretrieve(self, plan: RetrievalPlan) -> RetrievalReport:
         return self.report
 
 

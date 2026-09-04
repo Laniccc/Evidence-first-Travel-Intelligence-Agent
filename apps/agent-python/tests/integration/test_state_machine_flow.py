@@ -40,6 +40,9 @@ def resolver(name: str):
 
 
 class CompleteRetriever:
+    async def aretrieve(self, retrieval_plan):
+        return self.retrieve(retrieval_plan)
+
     def retrieve(self, retrieval_plan):
         hits = [
             chunk(
@@ -67,6 +70,9 @@ class LexicalFallbackRetriever(CompleteRetriever):
 
 
 class EmptyRetriever:
+    async def aretrieve(self, retrieval_plan):
+        return self.retrieve(retrieval_plan)
+
     def retrieve(self, retrieval_plan):
         return report(retrieval_plan, hits=[], degradation="no_results")
 

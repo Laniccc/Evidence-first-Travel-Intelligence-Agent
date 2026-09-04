@@ -14,6 +14,7 @@ from app.evidence.retrieval.embedding import (
 from app.evidence.retrieval.hybrid import HybridRetriever, QdrantDenseRetriever
 from app.evidence.retrieval.lexical import SQLiteLexicalRetriever
 from app.integrations.qdrant.vector_index import QdrantVectorIndex
+from app.execution.bounded_io import BoundedIO
 from app.observability.debug_session import write_agent_debug_session
 from app.observability.logging import get_logger
 from app.orchestration.agent_core_store import SQLiteRunStore
@@ -36,12 +37,14 @@ def build_runtime(settings):
         if settings.embedding_mode == "deterministic"
         else FastEmbedEmbedding(settings.embedding_model, settings.embedding_dimension)
     )
+    workers = BoundedIO()
     retriever = HybridRetriever(
         repository=repository,
         lexical=SQLiteLexicalRetriever(repository),
         dense=QdrantDenseRetriever(
             repository, vector_index=vector_index, embedder=embedder
         ),
+        io_runner=workers.run,
     )
 
     def resolve_attraction(name: str) -> str | None:
@@ -72,7 +75,20 @@ def build_runtime(settings):
         sqlite_probe=sqlite_probe,
         qdrant_probe=vector_index.health,
     )
-    return service, probe, client
+    return service, probe, RetrievalResources(workers, client)
+
+
+class RetrievalResources:
+    def __init__(self, workers, client):
+        self.workers, self.client = workers, client
+
+    async def aclose(self):
+        await self.workers.aclose()
+        self.client.close()
+
+    def close(self):
+        self.workers.close()
+        self.client.close()
 
 
 def _qdrant_client(settings) -> QdrantClient:
