@@ -660,7 +660,8 @@ def _citation_suite() -> dict:
     for row in _load_jsonl(CITATION_DATASET):
         claim = AnswerClaim(
             claim_id=row["case_id"],
-            text="故宫开放时间声明",
+            # Actual fixture fact, not a placeholder label that cannot be grounded.
+            text="八点三十分开放",
             claim_type="opening_hours",
             hard_fact=True,
             evidence_ids=row["evidence_ids"],

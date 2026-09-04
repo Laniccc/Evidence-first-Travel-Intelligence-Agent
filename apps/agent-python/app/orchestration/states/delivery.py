@@ -19,7 +19,7 @@ class DeliveryHandler:
                 ["部分硬事实未通过引用校验。"]
                 if citation_report.get("unsupported_hard_fact_count")
                 else []
-            ),
+            ) + (["存在来源冲突，采用较强来源，仍需核实。"] if any(c.get("conflict_disclosed") for c in guarded.get("supported_claims", [])) else []),
             confidence=float(citation_report.get("citation_precision", 0.0)),
             answer_claims=list(guarded.get("supported_claims", [])),
             citation_report=citation_report,

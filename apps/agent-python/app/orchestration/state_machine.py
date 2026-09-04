@@ -6,8 +6,8 @@ from uuid import uuid4
 
 from app.contracts.response import AgentQueryResponse, TravelQueryResponse
 from app.orchestration.agent_core_store import SQLiteRunStore
-from app.orchestration.state_audit import InMemoryStateAuditStore, SQLiteStateAuditStore
-from app.orchestration.state_contracts import AgentState, StateContext, StatePolicy
+from app.orchestration.state_audit import InMemoryStateAuditStore, SQLiteStateAuditStore, StateAuditEvent
+from app.orchestration.state_contracts import AgentState, StateContext, StatePolicy, StateFailure, FailureClass
 from app.orchestration.state_runtime import StateRuntime
 from app.orchestration.states.answer_composition import GroundedCompositionHandler
 from app.orchestration.states.citation_guard import CitationGuardHandler
@@ -121,17 +121,42 @@ class TravelAgentStateMachine:
                 query=query,
             )
 
-        outcome = await self._runtime.run(context)
-        response = await self._build_response(
-            outcome.terminal_state, context, outcome.failure
-        )
-        self._persist_response(context, response)
-        if self._run_store:
-            status = "failed" if outcome.terminal_state == AgentState.FAILED else "succeeded"
-            self._run_store.finish_run(
-                run_id, status=status, current_state=outcome.terminal_state.value
-            )
+        try:
+            outcome = await self._runtime.run(context)
+        except Exception:
+            return self._fail_terminal(context, "audit_persistence_unavailable", must_raise=True)
+        try:
+            response = await self._build_response(outcome.terminal_state, context, outcome.failure)
+        except Exception:
+            return self._fail_terminal(context, "terminal_projection_failed")
+        try:
+            self._persist_response(context, response)
+            if self._run_store:
+                status = "failed" if outcome.terminal_state == AgentState.FAILED else "succeeded"
+                self._run_store.finish_run(run_id, status=status, current_state=outcome.terminal_state.value)
+        except Exception:
+            return self._fail_terminal(context, "audit_persistence_unavailable", must_raise=True)
         return response
+
+    def _fail_terminal(self, context, code, *, must_raise=False):
+        failure = StateFailure(category=FailureClass.INTERNAL, code=code,
+                               message="The run could not be completed safely.", recoverable=False)
+        audit_failed = False
+        try:
+            self._audit.append(StateAuditEvent.failed(context, AgentState.DELIVER, attempt=1, failure=failure))
+        except Exception:
+            audit_failed = True
+        try:
+            if self._run_store:
+                self._run_store.finish_run(context.run_id, status="failed", current_state="failed")
+        except Exception:
+            audit_failed = True
+        if must_raise or audit_failed:
+            raise RuntimeError("audit_persistence_unavailable") from None
+        return AgentQueryResponse(answer="当前结果无法安全交付，请稍后重试。",
+            session_id=context.session_id, query_id=context.query_id, limitations=[code], confidence=0,
+            orchestration_summary={"run_id": context.run_id, "terminal_state": "failed",
+                "trace_id": context.trace_id, "failure": failure.model_dump(mode="json")})
 
     async def _build_response(self, terminal, context, failure) -> AgentQueryResponse:
         if terminal == AgentState.DELIVER:

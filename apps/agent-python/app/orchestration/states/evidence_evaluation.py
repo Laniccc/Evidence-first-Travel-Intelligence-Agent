@@ -1,6 +1,7 @@
 """State handler for claim-level evidence acceptance, conflict and abstention."""
 
 from __future__ import annotations
+from datetime import UTC, datetime
 
 from app.evidence.claim_decision import TransientEvidence, evaluate_claims
 from app.evidence.retrieval.contracts import RetrievalPlan
@@ -48,6 +49,7 @@ class EvidenceEvaluationHandler:
             transient_evidence=transient,
         )
         output = {
+            "evaluated_at": datetime.now(UTC).isoformat(),
             **evaluation.model_dump(mode="json"),
             "malformed_artifact_count": malformed,
             "abstain": False,

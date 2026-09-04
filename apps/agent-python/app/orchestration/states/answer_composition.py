@@ -1,4 +1,5 @@
 """Claim-grounded answer composition for the bounded RAG state chain."""
+from hashlib import sha256
 
 from app.composition.answer_claim import AnswerClaim
 from app.composition.final_answer_draft import FinalAnswerDraft
@@ -144,6 +145,10 @@ def _build_evidence_index(context: StateContext) -> dict[str, dict]:
                 "fact_type": hit.fact_type,
                 "source_id": hit.source_id,
                 "corpus_version": hit.corpus_version,
+                "subtask_id": report.subtask_id,
+                "valid_from": hit.valid_from,
+                "valid_to": hit.valid_to,
+                "text_hash": sha256(hit.content.encode()).hexdigest(),
             }
     for item in context.artifacts.get(AgentState.LIVE_GAP_FILL.value, {}).get(
         "transient_evidence", []
@@ -152,8 +157,8 @@ def _build_evidence_index(context: StateContext) -> dict[str, dict]:
         index[evidence_id] = {
             **item,
             "version_status": "transient",
-            "content_hash": f"transient:{evidence_id}",
-            "active_content_hash": f"transient:{evidence_id}",
+            "content_hash": item.get("content_hash"),
+            "active_content_hash": item.get("content_hash"),
         }
     return index
 
