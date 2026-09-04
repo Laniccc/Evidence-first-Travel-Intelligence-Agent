@@ -1,0 +1,9 @@
+{
+  "name": "travel-agent-baidu-mcp-runtime",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Pinned provider server; started only by the explicitly enabled online runtime.",
+  "dependencies": {
+    "@baidumap/mcp-server-baidu-map": "1.0.5"
+  }
+}
