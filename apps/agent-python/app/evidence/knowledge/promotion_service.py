@@ -9,11 +9,12 @@ class PromotionService:
         self.repository, self.validator = repository, validator
 
     def promote(self, raw, envelopes, *, name, run_id, query_id, trace_id):
-        decision = self.validator.validate(raw, envelopes)
-        document = None if decision.outcome == "rejected" else self.validator.document(
-            decision, raw, envelopes, name=name)
         with self.repository._connect() as db:
             db.execute("BEGIN IMMEDIATE")
+            # Recheck temporal/policy conditions after waiting for the writer lock.
+            decision = self.validator.validate(raw, envelopes)
+            document = None if decision.outcome == "rejected" else self.validator.document(
+                decision, raw, envelopes, name=name)
             version_id, job_id, status = None, None, "rejected"
             if document:
                 ingested = self.repository._ingest(db, document)

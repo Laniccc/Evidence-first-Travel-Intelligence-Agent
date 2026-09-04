@@ -129,6 +129,9 @@ class QdrantVectorIndex:
 
     def verify_generation(self, chunks, *, corpus_version, embedding_model):
         self._assert_collection_dimension()
+        count = self.client.count(self.collection, count_filter=self._generation_filter(corpus_version, embedding_model), exact=True).count
+        if count != len(chunks):
+            return False
         for start in range(0, len(chunks), 128):
             batch = chunks[start:start + 128]
             ids = [self.point_id(f"{corpus_version}:{embedding_model}:{c.chunk_id}") for c in batch]
@@ -143,6 +146,27 @@ class QdrantVectorIndex:
                 if any(payload.get(key) != value for key, value in expected.items()):
                     return False
         return True
+
+    @staticmethod
+    def _generation_filter(corpus_version, embedding_model):
+        return models.Filter(must=[
+            models.FieldCondition(key="corpus_version", match=models.MatchValue(value=corpus_version)),
+            models.FieldCondition(key="embedding_model", match=models.MatchValue(value=embedding_model))])
+
+    def prune_generation(self, chunks, *, corpus_version, embedding_model):
+        """Remove only orphan derived points in the rebuilt namespace, never other generations."""
+        expected = {self.point_id(f"{corpus_version}:{embedding_model}:{c.chunk_id}") for c in chunks}
+        offset, extras = None, []
+        while True:
+            points, offset = self.client.scroll(self.collection,
+                scroll_filter=self._generation_filter(corpus_version, embedding_model),
+                limit=128, offset=offset, with_payload=False, with_vectors=False)
+            extras.extend(p.id for p in points if str(p.id) not in expected)
+            if offset is None:
+                break
+        for start in range(0, len(extras), 128):
+            self.client.delete(self.collection,
+                points_selector=models.PointIdsList(points=extras[start:start + 128]), wait=True)
 
     def _assert_collection_dimension(self) -> None:
         if not self.client.collection_exists(self.collection):

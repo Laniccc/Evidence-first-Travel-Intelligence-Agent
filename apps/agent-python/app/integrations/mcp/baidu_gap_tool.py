@@ -45,6 +45,8 @@ class BaiduGapTool:
         self._tool_timeout = tool_timeout_seconds
 
     async def fetch_gap(self, task, *, before_call):
+        if self.session.catalog is None or not getattr(self.session, "running", True):
+            return {"attempts": [], "failure_code": "mcp_not_ready", "session_restarts": 0}
         attempts, restarts = [], 0
 
         async def call(name, arguments):

@@ -1,9 +1,10 @@
 """Idempotent, transactional migration retaining old hashes, IDs and FTS rows."""
 import sqlite3
+from contextlib import closing
 
 
 def migrate(path):
-    with sqlite3.connect(path) as db:
+    with closing(sqlite3.connect(path)) as db, db:
         # SQLite's documented table rebuild preserves foreign key target names.
         db.execute("PRAGMA foreign_keys = OFF")
         db.execute("BEGIN IMMEDIATE")

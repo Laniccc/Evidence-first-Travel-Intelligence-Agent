@@ -14,10 +14,16 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     agent_service_key: str | None = None
     readiness_requires_qdrant: bool = False
-    # Composition-root wiring is deliberately deferred until the full chain is ready.
+    # New bounded runtime switches never enable the retired broad tool registry.
     agent_runtime_profile: Literal["offline", "online"] = "offline"
     understanding_timeout_seconds: float = Field(default=8.0, gt=0, le=60)
     understanding_max_tokens: int = Field(default=1536, ge=128, le=4096)
+    bounded_baidu_enabled: bool = False
+    bounded_baidu_node: str = "node"
+    bounded_baidu_server_entrypoint: str | None = None
+    knowledge_promotion_enabled: bool = False
+    baidu_storage_permitted: bool = False
+    index_job_poll_seconds: float = Field(default=5.0, ge=0.05, le=60)
 
     anthropic_api_key: str | None = None
     anthropic_base_url: str = "https://api.deepseek.com/anthropic"

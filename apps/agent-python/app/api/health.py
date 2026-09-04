@@ -6,14 +6,16 @@ from app.contracts.response import AgentHealthResponse
 
 
 class ReadinessProbe:
-    def __init__(self, *, sqlite_probe, qdrant_probe) -> None:
+    def __init__(self, *, sqlite_probe, qdrant_probe, runtime_checks=None) -> None:
         self._sqlite_probe = sqlite_probe
         self._qdrant_probe = qdrant_probe
+        self._runtime_checks = runtime_checks
 
     def checks(self) -> dict[str, str]:
         return {
             "sqlite": _check(self._sqlite_probe),
             "qdrant": _check(self._qdrant_probe),
+            **(self._runtime_checks() if self._runtime_checks else {}),
         }
 
 
@@ -33,7 +35,8 @@ def build_ready_response(settings, probe: ReadinessProbe | None) -> AgentHealthR
     qdrant_ready = checks["qdrant"] == "ok"
     requires_qdrant = bool(settings and settings.readiness_requires_qdrant)
     ready = sqlite_ready and (qdrant_ready or not requires_qdrant)
-    degraded = ready and not qdrant_ready
+    degraded = ready and (not qdrant_ready or any(value in {"credentials_missing", "unavailable", "configuration_missing"}
+                         for value in checks.values()))
     return AgentHealthResponse(
         status="degraded" if degraded else ("ok" if ready else "not_ready"),
         service="agent-python",

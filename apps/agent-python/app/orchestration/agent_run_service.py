@@ -1,6 +1,7 @@
 """Thin facade over the current Agent state machine."""
 
 from typing import Any, Callable, Protocol
+from uuid import uuid4
 
 from app.context.session_context import SessionContext
 from app.contracts.request import AgentQueryRequest
@@ -37,6 +38,7 @@ class AgentRunService:
     async def query(
         self, payload: AgentQueryRequest, *, trace_id: str | None = None
     ) -> AgentQueryResponse:
+        trace_id = trace_id or str(uuid4())
         session_context = SessionContext.from_java_payload(
             query=payload.query,
             session_id=payload.session_id,

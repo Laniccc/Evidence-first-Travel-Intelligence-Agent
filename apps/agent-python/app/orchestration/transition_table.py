@@ -69,6 +69,7 @@ ALLOWED_TRANSITIONS: dict[AgentState, frozenset[AgentState]] = {
     ),
     AgentState.EVIDENCE_EVALUATE: frozenset(
         {
+            AgentState.KNOWLEDGE_PROMOTE,
             AgentState.LIVE_GAP_FILL,
             AgentState.COMPOSE,
             AgentState.LIMITED_ANSWER,
@@ -83,6 +84,9 @@ ALLOWED_TRANSITIONS: dict[AgentState, frozenset[AgentState]] = {
             AgentState.SAFE_FAILURE,
             AgentState.FAILED,
         }
+    ),
+    AgentState.KNOWLEDGE_PROMOTE: frozenset(
+        {AgentState.COMPOSE, AgentState.SAFE_FAILURE, AgentState.LIMITED_ANSWER, AgentState.FAILED}
     ),
     AgentState.CITATION_GUARD: frozenset(
         {

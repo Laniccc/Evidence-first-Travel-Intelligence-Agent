@@ -93,13 +93,16 @@ async def test_agent_run_service_delegates_to_state_machine_without_debug_log_by
     )
     response = await service.query(payload)
 
+    from uuid import UUID
+    generated_trace_id = state_machine.calls[0][-1]
+    assert str(UUID(generated_trace_id)) == generated_trace_id
     assert state_machine.calls == [
         (
             "Plan a Java internship trip",
             {"user_id": "user-1", "session_id": "session-2"},
             "session-2",
             False,
-            None,
+            generated_trace_id,
         )
     ]
     assert debug_calls == []

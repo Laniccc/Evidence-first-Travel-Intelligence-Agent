@@ -9,6 +9,16 @@ from app.orchestration.state_contracts import AgentState, StateContext, StateRes
 
 
 class EvidenceEvaluationHandler:
+    def __init__(self, *, promotion_enabled=False):
+        self.promotion_enabled = promotion_enabled
+
+    def _exit(self, context, output, destination):
+        gap = context.artifacts.get(AgentState.LIVE_GAP_FILL.value, {})
+        if self.promotion_enabled and gap.get("mcp_envelopes") and AgentState.KNOWLEDGE_PROMOTE.value not in context.artifacts:
+            output["promotion_resume_state"] = destination.value
+            return StateResult.succeeded(next_state=AgentState.KNOWLEDGE_PROMOTE, output=output)
+        return StateResult.succeeded(next_state=destination, output=output)
+
     async def run(self, context: StateContext) -> StateResult:
         raw_plans = context.artifacts.get(AgentState.RETRIEVAL_PLAN.value, {}).get(
             "retrieval_plans", []
@@ -43,13 +53,13 @@ class EvidenceEvaluationHandler:
             "abstain": False,
         }
         if evaluation.coverage_report.all_required_covered:
-            return StateResult.succeeded(next_state=AgentState.COMPOSE, output=output)
+            return self._exit(context, output, AgentState.COMPOSE)
         if gap_artifact is None and context.budget.used_tool_calls < context.budget.max_tool_calls:
             return StateResult.succeeded(next_state=AgentState.LIVE_GAP_FILL, output=output)
 
         output["abstain"] = True
         output["failure_code"] = "required_evidence_missing"
-        return StateResult.succeeded(next_state=AgentState.SAFE_FAILURE, output=output)
+        return self._exit(context, output, AgentState.SAFE_FAILURE)
 
 
 __all__ = ["EvidenceEvaluationHandler"]

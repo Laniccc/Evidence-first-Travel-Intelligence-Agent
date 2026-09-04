@@ -28,9 +28,8 @@ class GapFillAttempt(BaseModel):
 class LiveGapFillHandler:
     MAX_ATTEMPTS = 2
 
-    def __init__(self, *, tool: GapFillTool, pending_writer=None) -> None:
+    def __init__(self, *, tool: GapFillTool) -> None:
         self._tool = tool
-        self._pending_writer = pending_writer
 
     async def run(self, context: StateContext) -> StateResult:
         if AgentState.LIVE_GAP_FILL.value in context.artifacts:
@@ -97,6 +96,7 @@ class LiveGapFillHandler:
                 except ValueError:
                     code = "malformed_payload"
             output = {"logical_gap_task_count": 1, "gap_task": task,
+                        "run_id": context.run_id, "query_id": context.query_id, "trace_id": context.trace_id,
                         "attempts": payload.get("attempts", []),
                         "tool_call_attempt_count": len(payload.get("attempts", [])),
                         "session_restarts": payload.get("session_restarts", 0),
@@ -141,8 +141,6 @@ class LiveGapFillHandler:
                 continue
             evidence.append(item)
             attempts.append(GapFillAttempt(attempt=attempt_number, status="success"))
-            if self._pending_writer is not None:
-                self._pending_writer.write_pending(item.model_dump(mode="json"))
             break
 
         return StateResult.succeeded(

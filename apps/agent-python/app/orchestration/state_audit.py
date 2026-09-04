@@ -191,6 +191,7 @@ class SQLiteStateAuditStore(InMemoryStateAuditStore):
 
     def append(self, event: StateAuditEvent) -> None:
         super().append(event)
+        failure_code = event.failure.code if event.failure else event.output.get("failure_code")
         if self._logger is not None:
             self._logger.info(
                 "agent_state_audit",
@@ -202,7 +203,7 @@ class SQLiteStateAuditStore(InMemoryStateAuditStore):
                 attempt=event.attempt,
                 duration_ms=event.duration_ms,
                 recovery=(event.recovery.strategy if event.recovery else None),
-                failure_code=(event.failure.code if event.failure else None),
+                failure_code=failure_code,
                 versions=event.versions,
             )
         if event.event_type not in {
@@ -211,7 +212,6 @@ class SQLiteStateAuditStore(InMemoryStateAuditStore):
             "phase_failed",
         }:
             return
-        failure_code = event.failure.code if event.failure else None
         recovery_strategy = event.recovery.strategy if event.recovery else None
         self._run_store.record_execution_attempt(
             run_id=event.run_id,

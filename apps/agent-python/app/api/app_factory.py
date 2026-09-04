@@ -47,6 +47,9 @@ def create_app(
         fastapi_app.version = settings.app_version
         fastapi_app.title = settings.app_name
         try:
+            resource = resources.get("runtime_resource")
+            if resource is not None and hasattr(resource, "start"):
+                await resource.start()
             yield
         finally:
             resource = resources.get("runtime_resource")

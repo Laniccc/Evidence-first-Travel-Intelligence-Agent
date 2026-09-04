@@ -24,6 +24,7 @@ class AgentState(StrEnum):
     HYBRID_RETRIEVE = "hybrid_retrieve"
     LIVE_GAP_FILL = "live_gap_fill"
     EVIDENCE_EVALUATE = "evidence_evaluate"
+    KNOWLEDGE_PROMOTE = "knowledge_promote"
     COMPOSE = "compose"
     CITATION_GUARD = "citation_guard"
     LIMITED_ANSWER = "limited_answer"

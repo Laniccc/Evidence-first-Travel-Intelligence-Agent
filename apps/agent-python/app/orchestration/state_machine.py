@@ -38,6 +38,8 @@ class TravelAgentStateMachine:
         attraction_resolver=None,
         attraction_matcher=None,
         primary_understanding=None,
+        understanding_timeout_seconds=8.0,
+        promotion_handler=None,
         retrieval_top_k: int = 3,
         history_loader=None,
         gap_tool=None,
@@ -59,6 +61,7 @@ class TravelAgentStateMachine:
             AgentState.CONTEXT: ContextLoadingHandler(history_loader=history_loader),
             AgentState.UNDERSTAND: UnderstandingHandler(
                 primary=primary_understanding,
+                primary_timeout_seconds=understanding_timeout_seconds,
                 attraction_matcher=attraction_matcher,
             ),
             AgentState.ROUTE: RouteHandler(),
@@ -75,13 +78,17 @@ class TravelAgentStateMachine:
             AgentState.LIVE_GAP_FILL: LiveGapFillHandler(
                 tool=gap_tool or UnavailableGapFillTool()
             ),
-            AgentState.EVIDENCE_EVALUATE: EvidenceEvaluationHandler(),
+            AgentState.EVIDENCE_EVALUATE: EvidenceEvaluationHandler(promotion_enabled=promotion_handler is not None),
             AgentState.COMPOSE: GroundedCompositionHandler(),
             AgentState.CITATION_GUARD: CitationGuardHandler(),
         }
+        if promotion_handler is not None:
+            handlers[AgentState.KNOWLEDGE_PROMOTE] = promotion_handler
         self._runtime = StateRuntime(
             handlers=handlers, audit=self._audit,
-            policies={AgentState.LIVE_GAP_FILL: StatePolicy(timeout_seconds=25)},
+            policies={AgentState.LIVE_GAP_FILL: StatePolicy(timeout_seconds=25),
+                      AgentState.UNDERSTAND: StatePolicy(timeout_seconds=understanding_timeout_seconds + 2),
+                      AgentState.KNOWLEDGE_PROMOTE: StatePolicy(timeout_seconds=35)},
         )
 
     async def run(
@@ -104,7 +111,7 @@ class TravelAgentStateMachine:
             raw_query=query,
             user_context=user_context or {},
             idempotency_key=(user_context or {}).get("idempotency_key"),
-            trace_id=trace_id,
+            trace_id=trace_id or str(uuid4()),
         )
         if self._run_store:
             self._run_store.start_run(

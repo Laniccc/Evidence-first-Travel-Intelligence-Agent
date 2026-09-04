@@ -81,6 +81,9 @@ class IndexSynchronizer:
                 for chunk, vector in zip(chunks, vectors, strict=True)
             ]
             self.vector_index.upsert(points)
+            pruner = getattr(self.vector_index, "prune_generation", None)
+            if pruner:
+                pruner(chunks, corpus_version=corpus_version, embedding_model=self.embedder.model_name)
             for chunk in chunks:
                 self.repository.mark_chunk_indexed(
                     generation.generation_id,

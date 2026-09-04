@@ -148,3 +148,19 @@ def test_vector_payload_corruption_not_hidden_by_correct_count(sync):
     repaired = synchronizer.rebuild(corpus_version=corpus)
     assert repaired.generation_id != first.generation_id and not repaired.reused
     assert index.verify_generation([chunk], corpus_version=corpus, embedding_model=synchronizer.embedder.model_name)
+
+
+def test_extra_corrupted_points_recover_without_erasing_other_generations(sync):
+    from app.evidence.retrieval.contracts import VectorPoint
+    repo, index, synchronizer = sync
+    promote(service(repo))
+    corpus = repo.compute_corpus_version()
+    synchronizer.rebuild(corpus_version=corpus)
+    point = VectorPoint(chunk_id="orphan", vector=[1.0] * 32, attraction_id="not-in-corpus",
+        fact_type="general_description", document_version_id="unknown", content_hash="invalid",
+        corpus_version=corpus, embedding_model=synchronizer.embedder.model_name,
+        source_id="unknown", source_authority=0)
+    index.upsert([point, point.model_copy(update={"corpus_version": "other-generation"})])
+    assert index.count() == 3
+    assert not synchronizer.rebuild(corpus_version=corpus).reused
+    assert index.count() == 2  # valid point + untouched other-generation point
