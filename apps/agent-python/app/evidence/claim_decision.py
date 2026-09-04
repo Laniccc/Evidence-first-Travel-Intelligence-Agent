@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from hashlib import sha256
 from typing import Any
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import AwareDatetime, BaseModel, Field, HttpUrl, TypeAdapter, field_validator
 
 from app.evidence.coverage_report import CoverageItem, CoverageReport
 from app.evidence.evidence_decision_report import ClaimDecision
@@ -22,6 +23,28 @@ class TransientEvidence(BaseModel):
     source_url: str = Field(min_length=1)
     retrieved_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     transient: bool = True
+    # Legacy fixtures remain readable; new adapters must use from_verified_payload.
+    subtask_id: str | None = Field(default=None, min_length=1)
+    content_hash: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+    valid_to: AwareDatetime | None = None
+    provenance_ref: str | None = Field(default=None, min_length=1)
+
+    @classmethod
+    def from_verified_payload(cls, **payload: Any) -> "TransientEvidence":
+        evidence = cls(**payload)
+        if not all((evidence.subtask_id, evidence.content_hash,
+                    evidence.valid_to, evidence.provenance_ref)):
+            raise ValueError("new transient evidence requires complete provenance")
+        if evidence.retrieved_at.tzinfo is None or evidence.retrieved_at.utcoffset() is None:
+            raise ValueError("retrieved_at requires timezone")
+        if evidence.valid_to <= evidence.retrieved_at:
+            raise ValueError("evidence validity must follow retrieval")
+        if evidence.content_hash != sha256(evidence.content.encode()).hexdigest():
+            raise ValueError("content hash mismatch")
+        TypeAdapter(HttpUrl).validate_python(evidence.source_url)
+        if not evidence.transient:
+            raise ValueError("transient evidence cannot declare itself persisted")
+        return evidence
 
     @field_validator("source_url")
     @classmethod
