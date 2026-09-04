@@ -4,7 +4,7 @@ from typing import Annotated, Literal, Self
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, model_validator
 
-from app.evidence.knowledge.models import FactType
+from app.contracts.fact_type import FactType
 from app.understanding.normalized_user_request import NormalizedUserRequest
 
 Text = Annotated[str, Field(min_length=1, max_length=500)]

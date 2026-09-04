@@ -1,8 +1,10 @@
+import asyncio
 import re
 from typing import Any, Callable, Protocol
 
 from app.context.conversation_context import ConversationContext
 from app.governance.failure_reason import FailureClass
+from app.integrations.llm.client import ModelTransportError
 from app.orchestration.state_contracts import (
     AgentState,
     RecoveryRecord,
@@ -40,10 +42,14 @@ class UnderstandingHandler:
         primary: PrimaryUnderstanding | None = None,
         rule_fallback: RuleFallback | None = None,
         attraction_matcher: AttractionMatcher | None = None,
+        primary_timeout_seconds: float = 8.0,
     ) -> None:
         self._primary = primary
         self._rule = rule_fallback
         self._attraction_matcher = attraction_matcher
+        if primary_timeout_seconds <= 0:
+            raise ValueError("primary timeout must be positive")
+        self._primary_timeout = primary_timeout_seconds
 
     async def run(self, context: StateContext) -> StateResult:
         snapshot = context.artifacts.get(AgentState.CONTEXT.value, {}).get("snapshot", {})
@@ -51,27 +57,40 @@ class UnderstandingHandler:
             snapshot.get("conversation_context") or {}
         )
         attempts: list[str] = []
+        failures: list[dict[str, Any]] = []
+        category = FailureClass.PARSE_ERROR
 
         if self._primary is not None:
-            attempts.append("model")
             try:
-                request = await self._normalize_primary(context.raw_query, conversation, repair=False)
-                return self._result(request, attempts=attempts)
-            except Exception:
-                attempts.append("repair")
-                try:
-                    request = await self._normalize_primary(context.raw_query, conversation, repair=True)
-                    return self._result(
-                        request,
-                        attempts=attempts,
-                        recovery=RecoveryRecord(
-                            strategy="llm_repair_once",
-                            recovered_from=FailureClass.PARSE_ERROR,
-                            attempt=2,
-                        ),
-                    )
-                except Exception:
-                    pass
+                # One shared deadline for model + repair; no nested transport retries.
+                async with asyncio.timeout(self._primary_timeout):
+                    for repair in (False, True):
+                        attempts.append("repair" if repair else "model")
+                        try:
+                            request = await self._normalize_primary(context.raw_query, conversation, repair=repair)
+                        except ValueError:
+                            failures.append({"attempt": len(attempts), "code": "llm_schema_invalid",
+                                             "category": FailureClass.PARSE_ERROR.value})
+                            continue
+                        return self._result(
+                            request, attempts=attempts, failures=failures,
+                            recovery=RecoveryRecord(strategy="llm_repair_once",
+                                recovered_from=FailureClass.PARSE_ERROR, attempt=2) if repair else None,
+                        )
+            except Exception as exc:
+                if isinstance(exc, ModelTransportError):
+                    code = exc.code.value
+                    category = {
+                        "llm_auth_failed": FailureClass.POLICY_DENIED,
+                        "llm_credentials_missing": FailureClass.POLICY_DENIED,
+                        "llm_rate_limited": FailureClass.RATE_LIMIT,
+                        "llm_timeout": FailureClass.TIMEOUT,
+                    }.get(code, FailureClass.DEPENDENCY_UNAVAILABLE)
+                elif isinstance(exc, TimeoutError):
+                    code, category = "llm_timeout", FailureClass.TIMEOUT
+                else:
+                    code, category = "llm_unavailable", FailureClass.DEPENDENCY_UNAVAILABLE
+                failures.append({"attempt": len(attempts), "code": code, "category": category.value})
 
         attempts.append("rule")
         try:
@@ -87,6 +106,15 @@ class UnderstandingHandler:
             request = self._enrich_from_catalog(
                 context.raw_query, request, conversation=conversation
             )
+            if self._primary is not None and not request.needs_clarification:
+                expected = 2 if request.task_family == "comparison" else 1
+                names = {e.normalized_name or e.text for e in request.entities
+                         if e.entity_type in {"attraction", "landmark", "natural_site"}}
+                if request.task_family not in {"fact_lookup", "suitability", "comparison"} or len(names) != expected:
+                    request = request.model_copy(update={
+                        "needs_clarification": True,
+                        "clarification_question": "请明确景点名称，以及需要查询的事实、适合度或比较条件。",
+                    })
         except Exception:
             return StateResult(
                 status="recovered",
@@ -95,10 +123,13 @@ class UnderstandingHandler:
                     "understanding_attempts": attempts,
                     "reason": "understanding_unavailable",
                     "question": "请明确景点名称，以及你想查询事实、适合度还是进行比较。",
+                    "understanding_path": "clarification",
+                    "understanding_failures": failures,
+                    "understanding_versions": self._versions(),
                 },
                 recovery=RecoveryRecord(
                     strategy="clarification",
-                    recovered_from=FailureClass.PARSE_ERROR,
+                    recovered_from=category,
                     attempt=len(attempts),
                 ),
             )
@@ -107,10 +138,10 @@ class UnderstandingHandler:
         if self._primary is not None:
             recovery = RecoveryRecord(
                 strategy="rule_fallback",
-                recovered_from=FailureClass.PARSE_ERROR,
+                recovered_from=category,
                 attempt=len(attempts),
             )
-        return self._result(request, attempts=attempts, recovery=recovery)
+        return self._result(request, attempts=attempts, recovery=recovery, failures=failures)
 
     def _catalog_candidates(self, query: str) -> list[PlaceCandidate] | None:
         if self._attraction_matcher is None:
@@ -216,18 +247,27 @@ class UnderstandingHandler:
         raw = await self._primary.normalize(query, conversation, repair=repair)
         return NormalizedUserRequest.model_validate(raw)
 
-    @staticmethod
+    def _versions(self) -> dict[str, str]:
+        return dict(getattr(self._primary, "audit_versions", {}))
+
     def _result(
+        self,
         request: NormalizedUserRequest,
         *,
         attempts: list[str],
         recovery: RecoveryRecord | None = None,
+        failures: list[dict[str, Any]] | None = None,
     ) -> StateResult:
         next_state = AgentState.CLARIFICATION if request.needs_clarification else AgentState.ROUTE
         output = {
             "normalized_request": request.model_dump(mode="json"),
             "understanding_attempts": attempts,
+            "understanding_path": "clarification" if request.needs_clarification else attempts[-1],
+            "understanding_failures": failures or [],
+            "understanding_versions": self._versions(),
         }
+        if request.needs_clarification:
+            output["question"] = request.clarification_question or "请明确景点名称和查询条件。"
         if recovery:
             return StateResult(
                 status="recovered",

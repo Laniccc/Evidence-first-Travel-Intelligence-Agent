@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from enum import StrEnum
 from typing import Any
 
-from app.config import get_settings
+from app.config import Settings, get_settings
 
 logger = logging.getLogger(__name__)
 
@@ -12,6 +13,66 @@ _JSON_ONLY_SUFFIX = (
     "\n\nOutput ONLY the requested JSON object. "
     "Do not include markdown fences, explanations, or chain-of-thought."
 )
+
+
+class ModelFailureCode(StrEnum):
+    AUTH_FAILED = "llm_auth_failed"
+    CREDENTIALS_MISSING = "llm_credentials_missing"
+    RATE_LIMITED = "llm_rate_limited"
+    TIMEOUT = "llm_timeout"
+    UNAVAILABLE = "llm_unavailable"
+
+
+class ModelTransportError(RuntimeError):
+    """Safe operational classification; never retain provider response text."""
+
+    def __init__(self, code: ModelFailureCode | str):
+        self.code = ModelFailureCode(code)
+        super().__init__(self.code.value)
+
+
+class SingleAttemptLLMClient:
+    """Native async transport with SDK retries disabled; state owns recovery."""
+
+    def __init__(self, settings: Settings, *, http_client=None) -> None:
+        import anthropic
+
+        if not settings.llm_api_key():
+            raise ModelTransportError("llm_credentials_missing")
+        self.model = settings.llm_model()
+        self._disable_thinking = (
+            "deepseek.com" in settings.anthropic_base_url.lower() and settings.llm_disable_thinking
+        )
+        self._client = anthropic.AsyncAnthropic(
+            api_key=settings.llm_api_key(), base_url=settings.anthropic_base_url,
+            timeout=settings.understanding_timeout_seconds, max_retries=0,
+            http_client=http_client,
+        )
+
+    async def complete(self, *, system: str, user: str, max_tokens: int) -> str:
+        import anthropic
+
+        kwargs: dict[str, Any] = dict(model=self.model, max_tokens=max_tokens,
+                                     system=system, messages=[{"role": "user", "content": user}])
+        if self._disable_thinking:
+            kwargs["thinking"] = {"type": "disabled"}
+        try:
+            message = await self._client.messages.create(**kwargs)
+        except (anthropic.AuthenticationError, anthropic.PermissionDeniedError):
+            raise ModelTransportError("llm_auth_failed") from None
+        except anthropic.RateLimitError:
+            raise ModelTransportError("llm_rate_limited") from None
+        except anthropic.APITimeoutError:
+            raise ModelTransportError("llm_timeout") from None
+        except (anthropic.APIConnectionError, anthropic.APIStatusError):
+            raise ModelTransportError("llm_unavailable") from None
+        text, stop_reason, _ = LLMClient._extract_message_text(message)
+        if not text or stop_reason == "max_tokens":
+            raise ValueError("llm_schema_invalid")
+        return text
+
+    async def aclose(self) -> None:
+        await self._client.close()
 
 
 class LLMClient:

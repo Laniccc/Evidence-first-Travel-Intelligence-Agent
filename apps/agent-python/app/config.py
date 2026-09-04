@@ -1,7 +1,7 @@
 from functools import lru_cache
 from typing import Literal, Self
 
-from pydantic import field_validator, model_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -14,6 +14,10 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     agent_service_key: str | None = None
     readiness_requires_qdrant: bool = False
+    # Composition-root wiring is deliberately deferred until the full chain is ready.
+    agent_runtime_profile: Literal["offline", "online"] = "offline"
+    understanding_timeout_seconds: float = Field(default=8.0, gt=0, le=60)
+    understanding_max_tokens: int = Field(default=1536, ge=128, le=4096)
 
     anthropic_api_key: str | None = None
     anthropic_base_url: str = "https://api.deepseek.com/anthropic"

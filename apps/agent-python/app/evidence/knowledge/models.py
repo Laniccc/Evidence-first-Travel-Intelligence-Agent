@@ -7,6 +7,7 @@ from datetime import UTC, datetime
 from enum import StrEnum
 
 from pydantic import BaseModel, Field, HttpUrl, field_validator
+from app.contracts.fact_type import FactType
 
 
 class VersionStatus(StrEnum):
@@ -30,16 +31,6 @@ class ChunkIndexStatus(StrEnum):
     INDEXED = "indexed"
     FAILED = "failed"
     DELETED = "deleted"
-
-
-class FactType(StrEnum):
-    OPENING_HOURS = "opening_hours"
-    TICKET_PRICE = "ticket_price"
-    RESERVATION = "reservation"
-    TRANSPORT = "transport"
-    ACCESSIBILITY = "accessibility"
-    VISITOR_NOTICE = "visitor_notice"
-    GENERAL_DESCRIPTION = "general_description"
 
 
 class SourceType(StrEnum):
