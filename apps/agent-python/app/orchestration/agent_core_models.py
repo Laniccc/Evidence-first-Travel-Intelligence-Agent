@@ -44,6 +44,8 @@ class RunInspection(BaseModel):
     answer_claims: list[dict[str, Any]] = Field(default_factory=list)
     citation_decisions: list[dict[str, Any]] = Field(default_factory=list)
     metrics: dict[str, float] = Field(default_factory=dict)
+    snapshot_available: bool = False
+    artifact_versions: dict[str, str] = Field(default_factory=dict)
 
 
 __all__ = ["PhaseEventRecord", "RunInspection", "RunRecord", "utc_now_iso"]

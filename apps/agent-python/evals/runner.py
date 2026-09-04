@@ -806,6 +806,19 @@ async def _replay_is_consistent(store: SQLiteRunStore) -> bool:
         attempt=1,
         output={"retrieval_reports": [report.model_dump(mode="json")]},
     )
+    from app.orchestration.states.delivery import DeliveryHandler
+    from app.orchestration.states.answer_composition import GroundedCompositionHandler
+    from app.orchestration.states.citation_guard import CitationGuardHandler
+    context = StateContext(run_id="eval-original-run", query_id="eval-replay-query",
+        session_id="eval-replay-session", raw_query="query",
+        artifacts={e.state: e.output for e in store.phase_events("eval-original-run")})
+    for state, handler in (("evidence_evaluate", EvidenceEvaluationHandler()), ("compose", GroundedCompositionHandler()),
+                           ("citation_guard", CitationGuardHandler())):
+        result = await handler.run(context)
+        context.artifacts[state] = result.output
+    response = await DeliveryHandler().build_response(context)
+    store.save_response_snapshot(context, response)
+    store.finish_run("eval-original-run", status="succeeded", current_state="deliver")
     replay = await ReplayService(store).replay(query_id="eval-replay-query")
     return bool(
         replay.run.replay_of_run_id == "eval-original-run"

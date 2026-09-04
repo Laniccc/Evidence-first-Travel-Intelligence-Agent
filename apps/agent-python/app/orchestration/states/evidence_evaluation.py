@@ -21,6 +21,7 @@ class EvidenceEvaluationHandler:
         return StateResult.succeeded(next_state=destination, output=output)
 
     async def run(self, context: StateContext) -> StateResult:
+        context.versions["evidence_policy"] = "claim-evaluation-v2"
         raw_plans = context.artifacts.get(AgentState.RETRIEVAL_PLAN.value, {}).get(
             "retrieval_plans", []
         )

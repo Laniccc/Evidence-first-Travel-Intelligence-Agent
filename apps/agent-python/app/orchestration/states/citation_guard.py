@@ -9,6 +9,7 @@ from app.orchestration.states.answer_composition import _build_evidence_index
 
 class CitationGuardHandler:
     async def run(self, context: StateContext) -> StateResult:
+        context.versions["citation_policy"] = "exact-approved-v2"
         composition = context.artifacts.get(AgentState.COMPOSE.value, {})
         claims = [
             AnswerClaim.model_validate(item)

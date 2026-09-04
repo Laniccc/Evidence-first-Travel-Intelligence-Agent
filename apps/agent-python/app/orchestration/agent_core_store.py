@@ -264,6 +264,20 @@ class SQLiteRunStore:
             raise KeyError(f"unknown query: {query_id}")
         return RunRecord.model_validate(dict(row))
 
+    def latest_original_run_for_query(self, query_id: str) -> RunRecord:
+        with self._connect() as db:
+            row = db.execute("SELECT * FROM run WHERE query_id=? AND replay_of_run_id IS NULL ORDER BY created_at DESC, rowid DESC LIMIT 1", (query_id,)).fetchone()
+        if row is None:
+            raise KeyError("original_run_missing")
+        return RunRecord.model_validate(dict(row))
+
+    def save_response_snapshot(self, context, response):
+        from app.contracts.mcp_evidence import digest_json
+        snapshot = {"schema_version": "1", "response": response.model_dump(mode="json"),
+            "artifacts": context.artifacts, "versions": context.versions, "config_hashes": context.config_hashes}
+        self.append_phase_event(run_id=context.run_id, state="delivery_snapshot", status="succeeded", attempt=1,
+            output={"snapshot": snapshot, "digest": digest_json(snapshot)})
+
     def phase_events(self, run_id: str) -> list[PhaseEventRecord]:
         with self._connect() as connection:
             rows = connection.execute(
@@ -315,6 +329,7 @@ class SQLiteRunStore:
                     "SELECT name, value FROM run_metric WHERE run_id = ?", (run.run_id,)
                 ).fetchall()
             }
+        snapshots = [event.output for event in self.phase_events(run.run_id) if event.state == "delivery_snapshot"]
         return RunInspection(
             run=run,
             timeline=self.phase_events(run.run_id),
@@ -323,6 +338,8 @@ class SQLiteRunStore:
             answer_claims=claims,
             citation_decisions=citations,
             metrics=metrics,
+            snapshot_available=bool(snapshots),
+            artifact_versions=snapshots[-1].get("snapshot", {}).get("versions", {}) if snapshots else {},
         )
 
     @staticmethod

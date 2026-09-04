@@ -132,6 +132,8 @@ class TravelAgentStateMachine:
         try:
             self._persist_response(context, response)
             if self._run_store:
+                self._run_store.save_response_snapshot(context, response)
+            if self._run_store:
                 status = "failed" if outcome.terminal_state == AgentState.FAILED else "succeeded"
                 self._run_store.finish_run(run_id, status=status, current_state=outcome.terminal_state.value)
         except Exception:

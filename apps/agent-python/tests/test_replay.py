@@ -45,6 +45,22 @@ async def test_replay_from_evidence_evaluate_reuses_artifacts_without_retrieval(
         output={"retrieval_reports": [retrieval_report.model_dump(mode="json")]},
     )
 
+    # Complete an original run before requesting an artifact-only replay.
+    from app.orchestration.state_contracts import StateContext
+    from app.orchestration.states.evidence_evaluation import EvidenceEvaluationHandler
+    from app.orchestration.states.answer_composition import GroundedCompositionHandler
+    from app.orchestration.states.citation_guard import CitationGuardHandler
+    from app.orchestration.states.delivery import DeliveryHandler
+    context = StateContext(run_id="original-run", query_id="query-1", session_id="session-1", raw_query="query",
+        artifacts={e.state: e.output for e in store.phase_events("original-run")})
+    for state, handler in (("evidence_evaluate", EvidenceEvaluationHandler()), ("compose", GroundedCompositionHandler()),
+                           ("citation_guard", CitationGuardHandler())):
+        result = await handler.run(context)
+        context.artifacts[state] = result.output
+    original_response = await DeliveryHandler().build_response(context)
+    store.save_response_snapshot(context, original_response)
+    store.finish_run("original-run", status="succeeded", current_state="deliver")
+
     result = await ReplayService(store).replay(
         query_id="query-1", from_state="evidence_evaluate"
     )
