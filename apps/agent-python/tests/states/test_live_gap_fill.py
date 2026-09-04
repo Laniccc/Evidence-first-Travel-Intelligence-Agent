@@ -58,7 +58,7 @@ async def test_gap_fill_allows_429_then_success_with_two_attempt_cap():
     assert [item["status"] for item in result.output["attempts"]] == ["failed", "success"]
     assert result.output["transient_evidence"][0]["transient"] is True
     assert result.output["logical_gap_task_count"] == 1
-    assert state.budget.used_tool_calls == 1
+    assert state.budget.used_tool_calls == 2
 
 
 class MalformedPayload:

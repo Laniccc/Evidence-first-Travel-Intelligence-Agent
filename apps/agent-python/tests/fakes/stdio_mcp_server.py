@@ -38,6 +38,14 @@ for line in sys.stdin:
             result["tools"][0]["inputSchema"]["properties"]["query"]["minLength"] = 3
     elif method == "tools/call":
         calls += 1
+        if mode == "baidu":
+            poi = {"name": "颐和园", "city": "北京市", "uid": "uid2", "address": "新建宫门路19号",
+                   "detail_info": {"shop_hours": "06:30-18:00",
+                                   "detail_url": "https://api.map.baidu.com/place/detail?uid=uid2&output=html"}}
+            value = {"results": [poi]} if request["params"]["name"] == "map_search_places" else poi
+            send({"jsonrpc": "2.0", "id": request["id"],
+                  "result": {"content": [{"type": "text", "text": json.dumps(value)}], "isError": False}})
+            continue
         if mode == "timeout":
             time.sleep(30)
         if mode == "eof":

@@ -15,16 +15,17 @@
 ## 0. 状态、目录与执行约束
 
 - 日期：2026-09-04；基线：`4e339f16e0ccffce3a0e7588392e75fd1c1b5231`。
-- 状态：**批次 A（Task 0–3）已实施并完成批次验证；B–D 尚未执行。本文不表示简历全部能力已完成。**
+- 状态：**批次 A、B（Task 0–6）已实施并完成批次验证；C、D 尚未执行。本文不表示简历全部能力已完成。**
 - 专用 worktree：`E:/学习文件/研究生/就业/Agent学习/Evidence-first Travel Intelligence Agent/.worktrees/resume-capability-closure`
 - 分支：`codex/resume-capability-closure`。
 - 文中文件路径均相对于上述 worktree 根目录；Python 命令默认在 `apps/agent-python` 执行，Java 命令在 `apps/api-java`，npm Web 命令在 `apps/web`。每次切换位置必须显式确认。
 - 根目录未跟踪的 `项目流程图.png` 属于用户，不移动、不提交、不删除。
-- 批次 A 已获执行批准。代码按本文逐任务红→绿→回归→提交，禁止跳过测试、降低原 13 项门禁或重新引入 itinerary/nearby/crowd/review/ticket crawler。
+- 批次 A、B 已获执行批准。代码按本文逐任务红→绿→回归→提交，禁止跳过测试、降低原 13 项门禁或重新引入 itinerary/nearby/crowd/review/ticket crawler。
 - Task 0 本轮 Python 基线：127 passed / 1 skipped（真实 Qdrant opt-in）；原离线评测 13 项门禁通过。Java/Web 本批未改动，未重跑。
 - 不在本轮引入 Kafka、Celery、Neo4j、开放式工具规划、全网爬虫、多用户知识权限系统。
 - 每批结束运行所有受影响测试并复核生产接线，不能只证明 isolated handler 可调用。
 - 批次 A 验证：188 passed / 1 skipped，原 13 项离线门禁通过；详见 [验证记录](2026-09-04-batch-a-verification.md)。LLM 只完成 adapter 测试，生产装配仍属 Task 10。
+- 批次 B 验证：219 passed / 1 skipped，原 13 项离线门禁通过；详见 [验证记录](2026-09-04-batch-b-verification.md)。并行检索已接生产入口；MCP adapter/临时证据完成离线协议验证，线上装配仍属 Task 10。
 
 ## 1. 简历逐条对照：真实差距
 

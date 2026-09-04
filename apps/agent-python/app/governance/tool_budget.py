@@ -24,9 +24,16 @@ class RunBudget(BaseModel):
     """Small deterministic budget used by the state runtime."""
 
     max_steps: int = Field(default=24, ge=1)
-    max_tool_calls: int = Field(default=1, ge=0)
+    max_tool_calls: int = Field(default=4, ge=0, le=4)
+    max_logical_gap_tasks: int = Field(default=1, ge=0, le=1)
+    used_logical_gap_tasks: int = Field(default=0, ge=0)
     used_steps: int = Field(default=0, ge=0)
     used_tool_calls: int = Field(default=0, ge=0)
+
+    def consume_gap_task(self) -> "RunBudget":
+        if self.used_logical_gap_tasks >= self.max_logical_gap_tasks:
+            raise ValueError("Logical gap budget exceeded")
+        return self.model_copy(update={"used_logical_gap_tasks": self.used_logical_gap_tasks + 1})
 
     def consume_step(self) -> "RunBudget":
         if self.used_steps >= self.max_steps:

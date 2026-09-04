@@ -16,6 +16,24 @@ def session(mode="normal", **kwargs):
         **kwargs)
 
 
+def assert_process_exited(client):
+    pid = int(client.server_info["name"].rsplit("-", 1)[-1])
+    if sys.platform == "win32":
+        import ctypes
+        kernel = ctypes.windll.kernel32
+        kernel.OpenProcess.restype = ctypes.c_void_p
+        handle = kernel.OpenProcess(0x1000, False, pid)
+        if handle:
+            code = ctypes.c_ulong()
+            kernel.GetExitCodeProcess(ctypes.c_void_p(handle), ctypes.byref(code))
+            kernel.CloseHandle(ctypes.c_void_p(handle))
+            assert code.value != 259
+    else:
+        import os
+        with pytest.raises(ProcessLookupError):
+            os.kill(pid, 0)
+
+
 @pytest.mark.asyncio
 async def test_real_subprocess_discovery_notifications_and_shutdown(caplog):
     client = session("notifications")
@@ -28,16 +46,7 @@ async def test_real_subprocess_discovery_notifications_and_shutdown(caplog):
         assert client.running
     assert not client.running
     assert "stderr-secret" not in caplog.text and "notification-secret" not in caplog.text
-    if sys.platform == "win32":
-        import ctypes
-        kernel = ctypes.windll.kernel32
-        kernel.OpenProcess.restype = ctypes.c_void_p
-        handle = kernel.OpenProcess(0x1000, False, value["pid"])
-        if handle:
-            code = ctypes.c_ulong()
-            kernel.GetExitCodeProcess(ctypes.c_void_p(handle), ctypes.byref(code))
-            kernel.CloseHandle(ctypes.c_void_p(handle))
-            assert code.value != 259
+    assert_process_exited(client)
 
 
 @pytest.mark.asyncio
@@ -64,6 +73,7 @@ async def test_discovery_is_bounded_and_cleans_up(mode, code):
         async with client:
             pytest.fail("must fail during discovery")
     assert not client.running
+    assert_process_exited(client)
 
 
 @pytest.mark.asyncio
@@ -77,6 +87,7 @@ async def test_tool_failure_is_typed_and_session_closes(mode, code):
         with pytest.raises(MCPBoundaryError, match=code):
             await client.call_tool("map_place_details", {"uid": "uid1"})
     assert not client.running
+    assert_process_exited(client)
 
 
 @pytest.mark.asyncio
@@ -96,3 +107,4 @@ async def test_cancellation_closes_owner_and_subprocess():
         with pytest.raises(asyncio.CancelledError):
             await call
     assert not client.running
+    assert_process_exited(client)

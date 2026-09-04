@@ -7,7 +7,7 @@ from uuid import uuid4
 from app.contracts.response import AgentQueryResponse, TravelQueryResponse
 from app.orchestration.agent_core_store import SQLiteRunStore
 from app.orchestration.state_audit import InMemoryStateAuditStore, SQLiteStateAuditStore
-from app.orchestration.state_contracts import AgentState, StateContext
+from app.orchestration.state_contracts import AgentState, StateContext, StatePolicy
 from app.orchestration.state_runtime import StateRuntime
 from app.orchestration.states.answer_composition import GroundedCompositionHandler
 from app.orchestration.states.citation_guard import CitationGuardHandler
@@ -79,7 +79,10 @@ class TravelAgentStateMachine:
             AgentState.COMPOSE: GroundedCompositionHandler(),
             AgentState.CITATION_GUARD: CitationGuardHandler(),
         }
-        self._runtime = StateRuntime(handlers=handlers, audit=self._audit)
+        self._runtime = StateRuntime(
+            handlers=handlers, audit=self._audit,
+            policies={AgentState.LIVE_GAP_FILL: StatePolicy(timeout_seconds=25)},
+        )
 
     async def run(
         self,

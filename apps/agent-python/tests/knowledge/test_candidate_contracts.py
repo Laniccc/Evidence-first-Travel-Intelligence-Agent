@@ -5,7 +5,7 @@ from pydantic import ValidationError
 
 from app.evidence.claim_decision import TransientEvidence
 from app.evidence.knowledge.candidate import KnowledgeCandidate
-from app.integrations.mcp.contracts import McpEvidenceEnvelope
+from app.contracts.mcp_evidence import McpEvidenceEnvelope
 
 
 def candidate():

@@ -178,8 +178,11 @@ class BoundedStdioSession:
                                 if not active.done():
                                     active.set_result(value)
                             except Exception as exc:
+                                classified = _boundary_error(exc)
                                 if not active.done():
-                                    active.set_exception(_boundary_error(exc))
+                                    active.set_exception(classified)
+                                if classified.code in {"rate_limit", "tool_error"}:
+                                    continue
                                 # Any failed call invalidates the session; owner closes it.
                                 return
                             finally:

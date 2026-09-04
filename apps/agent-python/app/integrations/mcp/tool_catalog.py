@@ -6,7 +6,7 @@ import json
 from jsonschema import Draft202012Validator
 from jsonschema.exceptions import SchemaError, ValidationError
 
-from app.integrations.mcp.contracts import digest_json
+from app.contracts.mcp_evidence import digest_json
 
 ALLOWED_TOOLS = frozenset({"map_search_places", "map_place_details"})
 

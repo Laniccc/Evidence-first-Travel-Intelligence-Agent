@@ -47,12 +47,20 @@ class McpEvidenceEnvelope(BaseModel):
 
     @classmethod
     def capture(cls, *, server: str, tool: str, tool_schema: dict,
-                payload: dict[str, str], provider_entity_id: str, attraction_id: str,
+                payload: dict[str, Any], provider_entity_id: str, attraction_id: str,
                 source_url: str, retrieved_at: datetime,
                 call_id: str | None = None) -> "McpEvidenceEnvelope":
         # Hash the exact retained payload, not arbitrary full provider responses.
-        fields = tuple(McpField(field_path="/" + key.replace("~", "~0").replace("/", "~1"),
-                                value=value) for key, value in sorted(payload.items()))
+        def flatten(values, prefix="", depth=0):
+            if depth > 3:
+                raise ValueError("retained payload too deep")
+            for key, value in sorted(values.items()):
+                pointer = prefix + "/" + key.replace("~", "~0").replace("/", "~1")
+                if isinstance(value, dict):
+                    yield from flatten(value, pointer, depth + 1)
+                else:
+                    yield McpField(field_path=pointer, value=value)
+        fields = tuple(flatten(payload))
         return cls(server=server, tool=tool, schema_hash=digest_json(tool_schema),
                    call_id=call_id or str(uuid4()), payload_hash=digest_json(payload),
                    retrieved_at=retrieved_at, provider_entity_id=provider_entity_id,
