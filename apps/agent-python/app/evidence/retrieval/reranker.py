@@ -18,6 +18,19 @@ def filter_and_rerank(
     candidates: list[FusionCandidate],
     corpus_version: str,
 ) -> tuple[list[RetrievedChunk], list[PostFilterRejection]]:
+    accepted, rejected = filter_candidates(repository, plan=plan, candidates=candidates,
+                                           corpus_version=corpus_version)
+    accepted.sort(key=lambda item: (-item.final_score, item.chunk_id))
+    return accepted[: plan.top_k], rejected
+
+
+def filter_candidates(
+    repository: KnowledgeRepository,
+    *,
+    plan: RetrievalPlan,
+    candidates: list[FusionCandidate],
+    corpus_version: str,
+) -> tuple[list[RetrievedChunk], list[PostFilterRejection]]:
     accepted = []
     rejected: list[PostFilterRejection] = []
     maximum_rrf = max((candidate.rrf_score for candidate in candidates), default=1.0)
@@ -86,8 +99,8 @@ def filter_and_rerank(
                 corpus_version=corpus_version,
             )
         )
-    accepted.sort(key=lambda item: (-item.final_score, item.chunk_id))
-    return accepted[: plan.top_k], rejected
+    # Safety filtering must not truncate or choose an ablation's ranking policy.
+    return accepted, rejected
 
 
 def _status_rejection(status, valid_from, valid_to, as_of):

@@ -1,0 +1,8 @@
+{"case_id":"mcp-notifications","scenario":"notifications","expected":{"failure_code":null,"closed":true,"tool_calls":1}}
+{"case_id":"mcp-tool_error","scenario":"tool_error","expected":{"failure_code":"tool_error","closed":true,"tool_calls":1}}
+{"case_id":"mcp-large","scenario":"large","expected":{"failure_code":"result_size_exceeded","closed":true,"tool_calls":1}}
+{"case_id":"mcp-eof","scenario":"eof","expected":{"failure_code":"connection_closed","closed":true,"tool_calls":1}}
+{"case_id":"mcp-timeout","scenario":"timeout","expected":{"failure_code":"tool_timeout","closed":true,"tool_calls":1}}
+{"case_id":"mcp-pages","scenario":"pages","expected":{"failure_code":"discovery_budget_exhausted","closed":true,"tool_calls":0}}
+{"case_id":"mcp-drift","scenario":"drift","expected":{"failure_code":"schema_drift","closed":true,"tool_calls":0}}
+{"case_id":"mcp-unsupported","scenario":"unsupported","expected":{"failure_code":"tool_not_allowed","closed":true,"tool_calls":0}}

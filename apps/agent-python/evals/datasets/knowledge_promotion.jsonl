@@ -1,0 +1,16 @@
+{"case_id":"promotion-stable-address","scenario":"stable-address","expected":{"outcome":"auto_publish","failure_code":null}}
+{"case_id":"promotion-official-forgery","scenario":"official-forgery","expected":{"outcome":"rejected","failure_code":"schema_invalid"}}
+{"case_id":"promotion-cross-attraction","scenario":"cross-attraction","expected":{"outcome":"rejected","failure_code":"attraction_mismatch"}}
+{"case_id":"promotion-empty-refs","scenario":"empty-refs","expected":{"outcome":"rejected","failure_code":"schema_invalid"}}
+{"case_id":"promotion-changed-text","scenario":"changed-text","expected":{"outcome":"rejected","failure_code":"grounding_mismatch"}}
+{"case_id":"promotion-ticket","scenario":"ticket","expected":{"outcome":"rejected","failure_code":"fact_not_allowlisted"}}
+{"case_id":"promotion-changed-quote","scenario":"changed-quote","expected":{"outcome":"rejected","failure_code":"grounding_mismatch"}}
+{"case_id":"promotion-future","scenario":"future","expected":{"outcome":"rejected","failure_code":"source_future"}}
+{"case_id":"promotion-expired","scenario":"expired","expected":{"outcome":"rejected","failure_code":"source_expired"}}
+{"case_id":"promotion-payload-hash","scenario":"payload-hash","expected":{"outcome":"rejected","failure_code":"payload_hash_mismatch"}}
+{"case_id":"promotion-uid-binding","scenario":"uid-binding","expected":{"outcome":"rejected","failure_code":"provider_binding_mismatch"}}
+{"case_id":"promotion-provider","scenario":"provider","expected":{"outcome":"rejected","failure_code":"provider_not_allowed"}}
+{"case_id":"promotion-storage-denied","scenario":"storage-denied","expected":{"outcome":"rejected","failure_code":"storage_not_permitted"}}
+{"case_id":"promotion-ttl","scenario":"ttl","expected":{"outcome":"rejected","failure_code":"ttl_exceeds_policy"}}
+{"case_id":"promotion-opening-hours","scenario":"opening-hours","expected":{"outcome":"manual_review","failure_code":null}}
+{"case_id":"promotion-injection","scenario":"injection","expected":{"outcome":"rejected","failure_code":"unsafe_provider_content"}}

@@ -8,6 +8,7 @@ import json
 import tempfile
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from hashlib import sha256
 
 from qdrant_client import QdrantClient
 
@@ -27,7 +28,7 @@ from app.evidence.retrieval.embedding import DeterministicHashEmbedding, FastEmb
 from app.evidence.retrieval.hybrid import HybridRetriever, QdrantDenseRetriever
 from app.evidence.retrieval.index_sync import IndexSynchronizer
 from app.evidence.retrieval.lexical import SQLiteLexicalRetriever
-from app.evidence.retrieval.reranker import filter_and_rerank
+from app.evidence.retrieval.reranker import filter_candidates
 from app.evidence.retrieval.report import (
     LatencyBreakdown,
     RetrievalAttempt,
@@ -65,6 +66,8 @@ from evals.graders.operations import (
 from evals.graders.evidence import grade_release_gates
 from evals.graders.citation import CitationCaseResult, grade_citations
 from evals.graders.versioning import VersionCaseResult, grade_versioning
+from evals.graders.promotion import grade_case_safety
+from evals.closure import closure_suites, closure_metrics
 
 
 ROOT = Path(__file__).resolve().parent
@@ -225,9 +228,11 @@ def _plan(row: dict, *, as_of: str, subtask_id: str | None = None) -> RetrievalP
     )
 
 
-def _retrieval_suite(mode: str, environment) -> dict:
+def _retrieval_suite(mode: str, environment, *, profile="offline") -> dict:
     _, _, repository, corpus, _, _, generation, lexical, dense, hybrid = environment
     rows = _load_jsonl(RETRIEVAL_DATASET)
+    if profile == "real-embedding":
+        rows += _load_jsonl(ROOT / "datasets/retrieval_semantic.jsonl")
     case_results = []
     reports = []
     for row in rows:
@@ -246,10 +251,9 @@ def _retrieval_suite(mode: str, environment) -> dict:
             )
             # Keep all production safety filters, but undo the authority/freshness
             # ordering so this arm isolates RRF fusion from deterministic reranking.
-            filter_plan = plan.model_copy(update={"top_k": len(fused) or 1})
-            filtered, rejections = filter_and_rerank(
+            filtered, rejections = filter_candidates(
                 repository,
-                plan=filter_plan,
+                plan=plan,
                 candidates=fused,
                 corpus_version=generation.corpus_version,
             )
@@ -273,12 +277,13 @@ def _retrieval_suite(mode: str, environment) -> dict:
                 lexical=channel_hits if mode == "lexical" else [],
                 dense=channel_hits if mode == "dense" else [],
             )
-            hits, rejections = filter_and_rerank(
+            filtered, rejections = filter_candidates(
                 repository,
                 plan=plan,
                 candidates=fused,
                 corpus_version=generation.corpus_version,
             )
+            hits = sorted(filtered, key=lambda item: (-item.rrf_score, item.chunk_id))[:plan.top_k]
             ranked = [hit.chunk_id for hit in hits]
             reports.append(
                 {
@@ -872,12 +877,13 @@ def _write_report(path: Path, payload: dict) -> None:
     if payload.get("suite") != "all":
         return
     lines = [
-        "# Final offline evaluation",
+        f"# Evaluation — {payload['profile']}",
         "",
         f"- Result: **{'PASS' if payload['gates']['passed'] else 'FAIL'}**",
         f"- Cases: {payload['case_count']}",
         f"- Corpus: `{payload['corpus']['corpus_version']}`",
-        "- Limitation: deterministic feature hashing validates control flow and ranking mechanics, not real semantic embedding quality.",
+        "- Limitation: " + (payload.get("offline_embedding_limitation") or
+            "Real embedding on a small controlled corpus; not an online accuracy estimate."),
         "",
         "## Release gates",
         "",
@@ -917,13 +923,13 @@ def _write_report(path: Path, payload: dict) -> None:
     path.with_suffix(".md").write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
-def _all_suite(environment) -> dict:
+def _all_suite(environment, *, profile="offline") -> dict:
     _, _, repository, corpus, _, _, generation, *_ = environment
     ablations = {
-        "lexical-only": _retrieval_suite("lexical", environment),
-        "dense-only": _retrieval_suite("dense", environment),
-        "hybrid": _retrieval_suite("hybrid_no_rerank", environment),
-        "hybrid+rerank": _retrieval_suite("hybrid", environment),
+        "lexical-only": _retrieval_suite("lexical", environment, profile=profile),
+        "dense-only": _retrieval_suite("dense", environment, profile=profile),
+        "hybrid": _retrieval_suite("hybrid_no_rerank", environment, profile=profile),
+        "hybrid+rerank": _retrieval_suite("hybrid", environment, profile=profile),
     }
     suites = {
         "versioning": _versioning_suite(environment),
@@ -934,6 +940,7 @@ def _all_suite(environment) -> dict:
         "conversation": _conversation_suite(repository),
     }
     consistency = _consistency_suite(environment)
+    suites.update(closure_suites())
     retrieval = ablations["hybrid+rerank"]["metrics"]
     versioning = suites["versioning"]["metrics"]
     routing = suites["state_routing"]["metrics"]
@@ -953,18 +960,29 @@ def _all_suite(environment) -> dict:
         "abstention_precision": citation["abstention_precision"],
         "replay_consistency": consistency["replay_consistency"],
     }
-    gates = grade_release_gates(gate_metrics).model_dump()
+    gate_metrics.update(closure_metrics(suites))
+    gates = grade_release_gates(gate_metrics, include_closure=True).model_dump()
+    case_gate = grade_case_safety({"retrieval": ablations["hybrid+rerank"], **suites})
+    gates["passed"] = gates["passed"] and case_gate["passed"]
+    gates["failures"] += ["case:" + row["case_id"] for row in case_gate["bad_cases"]]
+    metric_bad_cases = [{"case_id": "gate:" + check["metric"], "expected": {
+        "operator": check["operator"], "threshold": check["threshold"]}, "actual": check["actual"],
+        "state": "release_gate", "failure_code": "metric_regression",
+        "artifact_refs": ["gate_metrics/" + check["metric"]]} for check in gates["checks"] if not check["passed"]]
     case_count = (
-        len(_load_jsonl(RETRIEVAL_DATASET))
+        len(ablations["hybrid+rerank"]["cases"])
         + sum(len(value["cases"]) for value in suites.values())
     )
     return {
         "suite": "all",
-        "profile": "offline",
+        "profile": profile,
+        "closure_transport": "fake_llm_http_and_real_stdio_fixture_process",
+        "dataset_hashes": {path.name: sha256(path.read_bytes()).hexdigest()
+            for path in sorted((ROOT / "datasets").glob("*.jsonl"))},
         "case_count": case_count,
         "offline_embedding_limitation": (
             "Deterministic feature hashing validates orchestration, filters, fusion and version controls; "
-            "it is not evidence of real semantic embedding quality."
+            "it is not evidence of real semantic embedding quality." if profile == "offline" else None
         ),
         "corpus": _corpus_summary(corpus, generation),
         "ablations": ablations,
@@ -972,7 +990,7 @@ def _all_suite(environment) -> dict:
         "consistency": consistency,
         "gate_metrics": gate_metrics,
         "gates": gates,
-        "bad_cases": gates["failures"],
+        "bad_cases": case_gate["bad_cases"] + metric_bad_cases,
     }
 
 
@@ -986,7 +1004,7 @@ def main(argv: list[str] | None = None) -> int:
         temp_dir, client, repository, corpus, _, _, generation, *_ = environment
         try:
             if args.suite == "all":
-                payload = _all_suite(environment)
+                payload = _all_suite(environment, profile=profile)
             else:
                 payload = {
                     "suite": "conversation",
@@ -1036,7 +1054,7 @@ def main(argv: list[str] | None = None) -> int:
     temp_dir, client, _, corpus, _, _, generation, _, _, _ = environment
     try:
         suite_result = (
-            _retrieval_suite(args.mode, environment)
+            _retrieval_suite(args.mode, environment, profile=profile)
             if args.suite == "retrieval"
             else _versioning_suite(environment)
         )

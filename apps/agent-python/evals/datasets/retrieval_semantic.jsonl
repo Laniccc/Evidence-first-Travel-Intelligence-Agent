@@ -1,0 +1,8 @@
+{"case_id":"semantic-hours-natural","task_type":"fact_query","query_text":"故宫几点开门","attraction_ids":["forbidden-city"],"fact_types":["opening_hours"],"expected_chunk_ids":["fc-hours"]}
+{"case_id":"semantic-appointment-paraphrase","task_type":"fact_query","query_text":"进故宫前需要在网上登记吗","attraction_ids":["forbidden-city"],"fact_types":[],"expected_chunk_ids":["fc-reservation"]}
+{"case_id":"semantic-metro-paraphrase","task_type":"fact_query","query_text":"坐地铁去颐和园在哪站下车","attraction_ids":["summer-palace"],"fact_types":[],"expected_chunk_ids":["sp-transport"]}
+{"case_id":"semantic-wheelchair-natural","task_type":"fact_query","query_text":"上海博物馆坐轮椅方便进去吗","attraction_ids":["shanghai-museum"],"fact_types":[],"expected_chunk_ids":["sm-access"]}
+{"case_id":"semantic-palace-hard-negative","task_type":"fact_query","query_text":"颐和园是皇家园林还是皇帝的宫殿","attraction_ids":["summer-palace"],"fact_types":[],"expected_chunk_ids":["sp-description"]}
+{"case_id":"semantic-lake-reservation-negative","task_type":"fact_query","query_text":"西湖公共区域也要先实名预约吗","attraction_ids":["west-lake"],"fact_types":[],"expected_chunk_ids":["wl-reservation"]}
+{"case_id":"semantic-mountain-transport","task_type":"fact_query","query_text":"想去八达岭长城坐高铁到哪里","attraction_ids":["badaling"],"fact_types":[],"expected_chunk_ids":["bd-transport"]}
+{"case_id":"semantic-museum-description","task_type":"fact_query","query_text":"兵马俑展示的是什么时代的军队","attraction_ids":["terracotta-army"],"fact_types":[],"expected_chunk_ids":["tc-description"]}

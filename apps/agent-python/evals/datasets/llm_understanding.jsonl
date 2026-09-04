@@ -1,0 +1,8 @@
+{"case_id":"understanding-valid","scenario":"valid","expected":{"path":"model","calls":1,"intent_preserved":true}}
+{"case_id":"understanding-malformed-repair","scenario":"malformed-repair","expected":{"path":"repair","calls":2,"intent_preserved":true}}
+{"case_id":"understanding-unsupported-task-repair","scenario":"unsupported-task-repair","expected":{"path":"repair","calls":2,"intent_preserved":true}}
+{"case_id":"understanding-invalid-twice","scenario":"invalid-twice","expected":{"path":"rule","calls":2}}
+{"case_id":"understanding-authentication","scenario":"authentication","expected":{"path":"rule","calls":1}}
+{"case_id":"understanding-timeout","scenario":"timeout","expected":{"path":"rule","calls":1}}
+{"case_id":"understanding-insufficient","scenario":"insufficient","expected":{"path":"clarification","calls":2}}
+{"case_id":"understanding-extra-field-repair","scenario":"extra-field-repair","expected":{"path":"repair","calls":2,"intent_preserved":true}}

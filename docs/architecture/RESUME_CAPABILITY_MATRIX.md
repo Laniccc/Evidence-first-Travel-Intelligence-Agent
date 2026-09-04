@@ -13,10 +13,10 @@
 | 百度 MCP | build_runtime online + BOUNDED_BAIDU_ENABLED 装配 BoundedStdioSession / BaiduGapTool | 固定 SDK 1.29.1/百度包 1.0.5；真实应用生命周期 + 独立假 stdio 进程验证调用与退出；缺凭据/启动故障 readiness 分类 | production wired / offline protocol tested；live missing |
 | Transient Evidence | MCP envelope 移至共享 contracts；BaiduGapTool → normalizer → LiveGapFillHandler | 比较第二景点缺口定位；name/city/UID/来源校验；地址或明确开放时间原值及 pointer/hash/TTL；最多 1 logical gap、4 tools/call attempts；当前快照不回答历史/未来 | 离线协议到 Evidence 通过；live missing |
 | Knowledge Promotion | CandidateExtractor + 五层 validator + PromotionService + SQLite outbox；显式 knowledge_promote 接生产链 | stable address 经许可自动发布、开放时间 pending、默认禁留存；写失败回滚、Qdrant 失败恢复；仅精确 extraction，不宣称语义蕴含 | production wired / offline tested；live missing |
-| Citation Guard | 已接主状态链 | 引用存在性/hash/status 已有；内容/景点/事实类型/时间严格支持关系待补 | missing |
-| 显式状态与审计 | state_machine + knowledge_promote；真实 create_app/build_runtime 生命周期 | 一次晋升后仅走评估预定出口；失败保留 transient；run/query/trace 贯穿工具、候选、发布、job；恢复失败码持久化 | 新生产路径离线通过；严格 Citation 与终态审计待 D |
-| Replay | 持久化 retrieval_plan/hybrid_retrieve | transient/MCP/晋升旁支回放 missing | 不宣称在线确定性 |
-| Eval | evals.runner 原 71 个受控案例 | 原 13 门禁通过；hash embedding，不代表真实语义召回；新场景门禁 missing | missing |
+| Citation Guard | 主链以 Evidence Evaluate 的 approved decision 与原检索产物复核 | 内容/景点/子任务/fact/time/version/hash 严格匹配；伪装为建议的硬事实拒绝；抽取式 grounding，不宣称自由文本语义蕴含 | production wired / offline tested |
+| 显式状态与审计 | state_machine + knowledge_promote；真实 create_app/build_runtime 生命周期 | 一次晋升后仅走预定出口；投影失败落 typed terminal failure；审计不可用拒绝伪成功；数据库事务后关闭连接 | 新生产路径离线通过；公共观测 DTO 待 Task 14 |
+| Replay | 带 digest 的完整 delivery snapshot 保存 retrieval/gap/promotion/claims/policy/config | 关闭模型、MCP、发布和索引后重放；版本/job/决策计数不增加；不完整旧 run 拒绝；仅原产物重放，不是新策略重评 | offline tested；不宣称模型再生成确定性 |
+| Eval | evals.runner 保留原 71 + 新增 40 具名案例 + 1 生产闭环，共 112 | 21 数值门禁 + 逐案例阻断；BadCase 具名；首次 MCP 晋升→索引故障恢复→第二次 dense-only hit；hash embedding 不代表语义效果 | offline passed；real embedding / live missing |
 
 ## 本轮可复现基线
 
@@ -44,5 +44,12 @@
 - Task 7–10 完成：256 passed / 1 skipped；原 71-case、13 项 Eval 门禁通过。新增 37 个单元/集成案例尚未并入新增发布门禁。
 - 生产入口已装配模型、stdio MCP、临时证据、受控候选、原子发布与后台索引恢复；测试只用假 HTTP/独立假 stdio 子进程、本地持久 Qdrant，不调用真实服务。
 - 自动发布需要独立留存许可配置，默认关闭；关闭知识入库不等于删除运行审计。真实数据留存/审计许可仍须确认。
-- Task 11–14 的 Citation 深度校验、transient Replay、后续 dense-only Hit 发布级回归、新门禁、Java/Web 观测与真实 smoke 尚待 D。
+- 当时 Task 11–14 尚待 D；当前进度见下方检查点。
 - 详见 ../plans/2026-09-04-batch-c-verification.md。
+
+## 批次 D 安全 / Eval 检查点
+
+- Task 11–13 完成：强化 Citation、失败终态审计、MCP 路径原产物 Replay、112-case 发布门禁。
+- 逐案例门禁检出了旧 multi-pronoun-suitability 失败；修复序列化会话景点到规则解析的类型适配，未更改原案例预期。
+- 真实 embedding 的 8 个无空格中文 / 同义改写 / 硬负例已准备，但尚未运行真实模型；不提供伪造的语义检索分数。
+- Task 14 的 Java/Web 观测、最终 CI/文档和真实服务验收仍未完成；详见 ../plans/2026-09-04-batch-d-safety-verification.md。

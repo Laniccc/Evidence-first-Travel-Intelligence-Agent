@@ -15,7 +15,7 @@
 ## 0. 状态、目录与执行约束
 
 - 日期：2026-09-04；基线：`4e339f16e0ccffce3a0e7588392e75fd1c1b5231`。
-- 状态：**批次 A、B、C（Task 0–10）已实施并完成批次验证；D 尚未执行。本文不表示简历全部能力已完成。**
+- 状态：**Task 0–13 已实施；批次 D 的安全、Replay 与扩展 Eval 已验证，Task 14 跨栈观测和最终验收尚待实施。本文不表示简历全部能力已完成。**
 - 专用 worktree：`E:/学习文件/研究生/就业/Agent学习/Evidence-first Travel Intelligence Agent/.worktrees/resume-capability-closure`
 - 分支：`codex/resume-capability-closure`。
 - 文中文件路径均相对于上述 worktree 根目录；Python 命令默认在 `apps/agent-python` 执行，Java 命令在 `apps/api-java`，npm Web 命令在 `apps/web`。每次切换位置必须显式确认。
@@ -27,6 +27,7 @@
 - 批次 A 验证：188 passed / 1 skipped，原 13 项离线门禁通过；详见 [验证记录](2026-09-04-batch-a-verification.md)。LLM 只完成 adapter 测试，生产装配仍属 Task 10。
 - 批次 B 验证：219 passed / 1 skipped，原 13 项离线门禁通过；详见 [验证记录](2026-09-04-batch-b-verification.md)。并行检索已接生产入口；MCP adapter/临时证据完成离线协议验证，线上装配仍属 Task 10。
 - 批次 C 验证：256 passed / 1 skipped，原 13 项离线门禁通过；详见 [验证记录](2026-09-04-batch-c-verification.md)。LLM/MCP/晋升已接真实 composition root 并完成假 HTTP + 独立 stdio 子进程测试；真实服务验收、强化 Citation/Replay/新增 Eval 门禁仍未完成。
+- 批次 D 安全/Eval 检查点：Task 11–13 已完成，112 个离线案例、21 项数值门禁与逐案例安全门禁通过；详见 [检查点记录](2026-09-04-batch-d-safety-verification.md)。Task 14 的 Java/Web 观测契约、CI、真实 embedding 和在线 smoke 未完成。
 
 ## 1. 简历逐条对照：真实差距
 

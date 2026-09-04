@@ -1,0 +1,8 @@
+{"case_id":"grounding-price-rewrite","scenario":"price-rewrite","expected":{"supported":false,"failure_code":"content_not_supported"}}
+{"case_id":"grounding-cross-attraction","scenario":"cross-attraction","expected":{"supported":false,"failure_code":"attraction_mismatch"}}
+{"case_id":"grounding-cross-fact","scenario":"cross-fact","expected":{"supported":false,"failure_code":"fact_type_mismatch"}}
+{"case_id":"grounding-cross-subtask","scenario":"cross-subtask","expected":{"supported":false,"failure_code":"subtask_mismatch"}}
+{"case_id":"grounding-missing-version","scenario":"missing-version","expected":{"supported":false,"failure_code":"missing_version_id"}}
+{"case_id":"grounding-expired","scenario":"expired","expected":{"supported":false,"failure_code":"evidence_expired"}}
+{"case_id":"grounding-soft-price","scenario":"soft-price","expected":{"supported":false,"failure_code":"unapproved_soft_claim"}}
+{"case_id":"grounding-unapproved","scenario":"unapproved","expected":{"supported":false,"failure_code":"claim_not_approved"}}

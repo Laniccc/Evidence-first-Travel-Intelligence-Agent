@@ -99,12 +99,12 @@ class UnderstandingHandler:
             else:
                 raw_request = RuleBasedToNormalizedRequest.convert(
                     context.raw_query,
-                    conversation,
+                    self._rule_conversation(conversation),
                     place_candidates=self._catalog_candidates(context.raw_query),
                 )
             request = NormalizedUserRequest.model_validate(raw_request)
             request = self._enrich_from_catalog(
-                context.raw_query, request, conversation=conversation
+                context.raw_query, request, conversation=self._rule_conversation(conversation)
             )
             if self._primary is not None and not request.needs_clarification:
                 expected = 2 if request.task_family == "comparison" else 1
@@ -142,6 +142,23 @@ class UnderstandingHandler:
                 attempt=len(attempts),
             )
         return self._result(request, attempts=attempts, recovery=recovery, failures=failures)
+
+    def _rule_conversation(self, conversation: ConversationContext) -> ConversationContext:
+        # Java/session snapshots contain strings or serialized objects. The legacy
+        # rule converter expects typed places; bind names back to the known catalog.
+        if self._attraction_matcher is None:
+            return conversation
+        places = []
+        for previous in conversation.last_places:
+            if isinstance(previous, str):
+                name = previous
+            elif isinstance(previous, dict):
+                name = previous.get("canonical_name") or previous.get("name") or previous.get("mention")
+            else:
+                name = getattr(previous, "canonical_name", None) or getattr(previous, "name", None)
+            if name:
+                places.extend(candidate.to_place_context() for candidate in self._catalog_candidates(name))
+        return conversation.model_copy(update={"last_places": places})
 
     def _catalog_candidates(self, query: str) -> list[PlaceCandidate] | None:
         if self._attraction_matcher is None:

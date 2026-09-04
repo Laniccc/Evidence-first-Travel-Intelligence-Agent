@@ -19,7 +19,7 @@ class ReleaseGateReport(BaseModel):
     failures: list[str] = Field(default_factory=list)
 
 
-def grade_release_gates(metrics: dict[str, float]) -> ReleaseGateReport:
+def grade_release_gates(metrics: dict[str, float], *, include_closure: bool = False) -> ReleaseGateReport:
     requirements = {
         "recall_at_3": (">=", 0.90),
         "mrr": (">=", 0.85),
@@ -35,6 +35,17 @@ def grade_release_gates(metrics: dict[str, float]) -> ReleaseGateReport:
         "abstention_precision": (">=", 0.90),
         "replay_consistency": ("==", 1.0),
     }
+    if include_closure:
+        requirements.update({
+            "unsafe_auto_publish": ("==", 0.0),
+            "provenance_fabrication": ("==", 0.0),
+            "promotion_idempotency": ("==", 1.0),
+            "sync_recovery": ("==", 1.0),
+            "miss_promote_dense_hit": ("==", 1.0),
+            "mcp_budget_violations": ("==", 0.0),
+            "replay_external_calls": ("==", 0.0),
+            "replay_write_side_effects": ("==", 0.0),
+        })
     checks = []
     for metric, (operator, threshold) in requirements.items():
         actual = float(metrics[metric])
