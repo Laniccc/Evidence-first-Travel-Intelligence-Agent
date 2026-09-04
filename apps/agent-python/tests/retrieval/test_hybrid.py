@@ -225,7 +225,7 @@ def test_non_active_dense_points_are_rejected(
         )
     )
     if publish:
-        seeded_repo.publish(result.version_id)
+        KnowledgeRepository(seeded_repo.db_path, clock=lambda: valid_to - timedelta(days=1)).publish(result.version_id)
         seeded_repo.expire_due()
     with seeded_repo._connect() as connection:
         chunk_id = connection.execute(

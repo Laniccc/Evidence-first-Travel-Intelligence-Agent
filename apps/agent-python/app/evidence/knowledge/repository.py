@@ -11,6 +11,8 @@ from pathlib import Path
 from typing import Iterator
 from uuid import uuid4
 
+from app.evidence.knowledge.migrations import migrate
+
 from app.evidence.knowledge.models import (
     Attraction,
     DocumentVersion,
@@ -39,16 +41,18 @@ def _datetime(value: str | None) -> datetime | None:
 
 
 class KnowledgeRepository:
-    def __init__(self, db_path: str | Path) -> None:
+    def __init__(self, db_path: str | Path, *, clock=None) -> None:
+        self._clock = clock or (lambda: datetime.now(UTC))
         self.db_path = Path(db_path)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         schema_path = Path(__file__).with_name("schema.sql")
         with self._connect() as connection:
             connection.executescript(schema_path.read_text(encoding="utf-8"))
+        migrate(self.db_path)
 
     @contextmanager
     def _connect(self) -> Iterator[sqlite3.Connection]:
-        connection = sqlite3.connect(self.db_path)
+        connection = sqlite3.connect(self.db_path, timeout=15)
         connection.row_factory = sqlite3.Row
         connection.execute("PRAGMA foreign_keys = ON")
         try:
@@ -61,113 +65,127 @@ class KnowledgeRepository:
             connection.close()
 
     def ingest(self, document: KnowledgeDocument) -> IngestResult:
-        now = _iso(datetime.now(UTC))
         with self._connect() as connection:
-            connection.execute(
-                """
-                INSERT INTO attraction(
-                    attraction_id, name, aliases_json, city, country, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(attraction_id) DO UPDATE SET
-                    name = excluded.name,
-                    aliases_json = CASE
-                        WHEN excluded.aliases_json = '[]' THEN attraction.aliases_json
-                        ELSE excluded.aliases_json
-                    END,
-                    city = COALESCE(excluded.city, attraction.city),
-                    country = COALESCE(excluded.country, attraction.country),
-                    updated_at = excluded.updated_at
-                """,
-                (
-                    document.attraction.attraction_id,
-                    document.attraction.name,
-                    json.dumps(document.attraction.aliases, ensure_ascii=False),
-                    document.attraction.city,
-                    document.attraction.country,
-                    now,
-                    now,
-                ),
-            )
-            connection.execute(
-                """
-                INSERT INTO source_document(
-                    source_id, attraction_id, url, title, source_type,
-                    authority_score, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(source_id) DO UPDATE SET
-                    url = excluded.url,
-                    title = excluded.title,
-                    source_type = excluded.source_type,
-                    authority_score = excluded.authority_score,
-                    updated_at = excluded.updated_at
-                """,
-                (
-                    document.source_id,
-                    document.attraction.attraction_id,
-                    document.url,
-                    document.title,
-                    document.source_type.value,
-                    SOURCE_AUTHORITY[document.source_type],
-                    now,
-                    now,
-                ),
-            )
-            existing = connection.execute(
-                """
-                SELECT version_id, status FROM document_version
-                WHERE source_id = ? AND content_hash = ?
-                """,
-                (document.source_id, document.content_hash),
-            ).fetchone()
-            if existing:
-                return IngestResult(
-                    source_id=document.source_id,
-                    version_id=existing["version_id"],
-                    content_hash=document.content_hash,
-                    status=VersionStatus(existing["status"]),
-                    created=False,
-                )
+            connection.execute("BEGIN IMMEDIATE")
+            return self._ingest(connection, document)
 
-            version_id = f"ver-{uuid4()}"
-            active = connection.execute(
-                "SELECT version_id FROM document_version WHERE source_id = ? AND status = 'active'",
-                (document.source_id,),
-            ).fetchone()
+    def _ingest(self, connection, document: KnowledgeDocument) -> IngestResult:
+        now = _iso(datetime.now(UTC))
+        source = connection.execute("SELECT attraction_id FROM source_document WHERE source_id=?",
+                                    (document.source_id,)).fetchone()
+        if source and source["attraction_id"] != document.attraction.attraction_id:
+            raise ValueError("source_binding_mismatch")
+        connection.execute(
+            """
+            INSERT INTO attraction(
+                attraction_id, name, aliases_json, city, country, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(attraction_id) DO UPDATE SET
+                name = excluded.name,
+                aliases_json = CASE
+                    WHEN excluded.aliases_json = '[]' THEN attraction.aliases_json
+                    ELSE excluded.aliases_json
+                END,
+                city = COALESCE(excluded.city, attraction.city),
+                country = COALESCE(excluded.country, attraction.country),
+                updated_at = excluded.updated_at
+            """,
+            (
+                document.attraction.attraction_id,
+                document.attraction.name,
+                json.dumps(document.attraction.aliases, ensure_ascii=False),
+                document.attraction.city,
+                document.attraction.country,
+                now,
+                now,
+            ),
+        )
+        connection.execute(
+            """
+            INSERT INTO source_document(
+                source_id, attraction_id, url, title, source_type,
+                authority_score, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(source_id) DO UPDATE SET
+                url = excluded.url,
+                title = excluded.title,
+                source_type = excluded.source_type,
+                authority_score = excluded.authority_score,
+                updated_at = excluded.updated_at
+            """,
+            (
+                document.source_id,
+                document.attraction.attraction_id,
+                document.url,
+                document.title,
+                document.source_type.value,
+                SOURCE_AUTHORITY[document.source_type],
+                now,
+                now,
+            ),
+        )
+        existing = connection.execute(
+            """
+            SELECT version_id, status FROM document_version
+            WHERE source_id = ? AND content_hash = ?
+            """,
+            (document.source_id, document.content_hash),
+        ).fetchone()
+        if existing:
+            return IngestResult(
+                source_id=document.source_id,
+                version_id=existing["version_id"],
+                content_hash=document.content_hash,
+                status=VersionStatus(existing["status"]),
+                created=False,
+            )
+
+        version_id = f"ver-{uuid4()}"
+        active = connection.execute(
+            "SELECT version_id FROM document_version WHERE source_id = ? AND status = 'active'",
+            (document.source_id,),
+        ).fetchone()
+        connection.execute(
+            """
+            INSERT INTO document_version(
+                version_id, source_id, content_hash, content, status, fetched_at,
+                valid_from, valid_to, supersedes_version_id, hash_version, payload_hash,
+                source_url, source_title, source_type, source_authority
+             ) VALUES (?, ?, ?, ?, 'pending', ?, ?, ?, ?, 2, ?, ?, ?, ?, ?)
+            """,
+            (
+                version_id,
+                document.source_id,
+                document.content_hash,
+                document.content,
+                _iso(document.fetched_at),
+                _iso(document.valid_from),
+                _iso(document.valid_to),
+                active["version_id"] if active else None,
+                document.payload_hash, document.url, document.title,
+                document.source_type.value, SOURCE_AUTHORITY[document.source_type],
+            ),
+        )
+        for ordinal, chunk in enumerate(document.chunks):
+            chunk_id = chunk.chunk_id or f"{version_id}:chunk:{ordinal}"
+            if connection.execute("SELECT 1 FROM fact_chunk WHERE chunk_id=?", (chunk_id,)).fetchone():
+                chunk_id = f"{version_id}:chunk:{ordinal}"
             connection.execute(
                 """
-                INSERT INTO document_version(
-                    version_id, source_id, content_hash, content, status, fetched_at,
-                    valid_from, valid_to, supersedes_version_id
-                ) VALUES (?, ?, ?, ?, 'pending', ?, ?, ?, ?)
+                INSERT INTO fact_chunk(
+                    chunk_id, version_id, attraction_id, fact_type, content, locator, language
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
+                    chunk_id,
                     version_id,
-                    document.source_id,
-                    document.content_hash,
-                    document.content,
-                    _iso(document.fetched_at),
-                    _iso(document.valid_from),
-                    _iso(document.valid_to),
-                    active["version_id"] if active else None,
+                    document.attraction.attraction_id,
+                    chunk.fact_type.value,
+                    chunk.content,
+                    chunk.locator,
+                    chunk.language,
                 ),
             )
-            for chunk in document.chunks:
-                connection.execute(
-                    """
-                    INSERT INTO fact_chunk(
-                        chunk_id, version_id, attraction_id, fact_type, content, locator, language
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?)
-                    """,
-                    (
-                        chunk.chunk_id or f"chunk-{uuid4()}",
-                        version_id,
-                        document.attraction.attraction_id,
-                        chunk.fact_type.value,
-                        chunk.content,
-                        chunk.locator,
-                        chunk.language,
-                    ),
-                )
         return IngestResult(
             source_id=document.source_id,
             version_id=version_id,
@@ -178,34 +196,28 @@ class KnowledgeRepository:
 
     def publish(self, version_id: str) -> DocumentVersion:
         with self._connect() as connection:
-            row = connection.execute(
-                "SELECT source_id, status FROM document_version WHERE version_id = ?",
-                (version_id,),
-            ).fetchone()
-            if row is None:
-                raise KeyError(f"Unknown document version: {version_id}")
-            if row["status"] == VersionStatus.REJECTED.value:
-                raise ValueError("A rejected version cannot be published")
-            if row["status"] == VersionStatus.EXPIRED.value:
-                raise ValueError("An expired version cannot be published")
-            if row["status"] != VersionStatus.ACTIVE.value:
-                connection.execute(
-                    """
-                    UPDATE document_version
-                    SET status = 'superseded'
-                    WHERE source_id = ? AND status = 'active' AND version_id <> ?
-                    """,
-                    (row["source_id"], version_id),
-                )
-                connection.execute(
-                    """
-                    UPDATE document_version
-                    SET status = 'active', published_at = ?, rejection_reason = NULL
-                    WHERE version_id = ?
-                    """,
-                    (_iso(datetime.now(UTC)), version_id),
-                )
+            connection.execute("BEGIN IMMEDIATE")
+            self._publish(connection, version_id)
         return self.get_version(version_id)
+
+    def _publish(self, connection, version_id):
+        row = connection.execute("SELECT * FROM document_version WHERE version_id=?", (version_id,)).fetchone()
+        if row is None:
+            raise KeyError(f"Unknown document version: {version_id}")
+        if row["status"] == "active":
+            return
+        if row["status"] != "pending":
+            raise ValueError(f"Only a pending version can be published, got {row['status']}")
+        now = _iso(self._clock())
+        if row["valid_to"] and row["valid_to"] <= now:
+            raise ValueError("An expired version cannot be published")
+        active = connection.execute("SELECT version_id FROM document_version WHERE source_id=? AND status='active'",
+                                    (row["source_id"],)).fetchone()
+        connection.execute("UPDATE document_version SET status='superseded' WHERE source_id=? AND status='active'",
+                           (row["source_id"],))
+        connection.execute("""UPDATE document_version SET status='active', published_at=?,
+                           supersedes_version_id=?, rejection_reason=NULL WHERE version_id=? AND status='pending'""",
+                           (now, active["version_id"] if active else None, version_id))
 
     def reject(self, version_id: str, *, reason: str) -> DocumentVersion:
         with self._connect() as connection:
@@ -213,7 +225,7 @@ class KnowledgeRepository:
                 """
                 UPDATE document_version
                 SET status = 'rejected', rejection_reason = ?
-                WHERE version_id = ? AND status <> 'active'
+                WHERE version_id = ? AND status = 'pending'
                 """,
                 (reason, version_id),
             ).rowcount
@@ -304,10 +316,10 @@ class KnowledgeRepository:
                     version.published_at,
                     version.status AS version_status,
                     source.source_id,
-                    source.url AS source_url,
-                    source.title AS source_title,
-                    source.source_type,
-                    source.authority_score AS source_authority
+                    version.source_url AS source_url,
+                    version.source_title AS source_title,
+                    version.source_type,
+                    version.source_authority AS source_authority
                 FROM fact_chunk AS chunk
                 JOIN document_version AS version ON version.version_id = chunk.version_id
                 JOIN source_document AS source ON source.source_id = version.source_id
@@ -353,10 +365,10 @@ class KnowledgeRepository:
                     version.published_at,
                     version.status AS version_status,
                     source.source_id,
-                    source.url AS source_url,
-                    source.title AS source_title,
-                    source.source_type,
-                    source.authority_score AS source_authority
+                    version.source_url AS source_url,
+                    version.source_title AS source_title,
+                    version.source_type,
+                    version.source_authority AS source_authority
                 FROM fact_chunk AS chunk
                 JOIN document_version AS version ON version.version_id = chunk.version_id
                 JOIN source_document AS source ON source.source_id = version.source_id
@@ -649,6 +661,7 @@ class KnowledgeRepository:
             published_at=_datetime(row["published_at"]),
             supersedes_version_id=row["supersedes_version_id"],
             rejection_reason=row["rejection_reason"],
+            hash_version=row["hash_version"], payload_hash=row["payload_hash"],
         )
 
     @staticmethod

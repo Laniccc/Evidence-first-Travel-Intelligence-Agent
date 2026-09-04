@@ -42,7 +42,8 @@ def add_document(
         )
     )
     if publish:
-        repo.publish(result.version_id)
+        historical_clock = (lambda: valid_to - timedelta(days=1)) if valid_to else None
+        KnowledgeRepository(repo.db_path, clock=historical_clock).publish(result.version_id)
     return result
 
 

@@ -77,7 +77,8 @@ def test_expired_version_is_not_active(repo):
             valid_to=datetime.now(UTC) - timedelta(minutes=1),
         )
     )
-    repo.publish(result.version_id)
+    historical = KnowledgeRepository(repo.db_path, clock=lambda: datetime.now(UTC) - timedelta(days=1))
+    historical.publish(result.version_id)
 
     expired_count = repo.expire_due(datetime.now(UTC))
 

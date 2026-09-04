@@ -131,7 +131,8 @@ class PromotionValidator:
         return KnowledgeDocument(source_id=source_id,
             attraction=Attraction(attraction_id=candidate.attraction_id, name=name),
             url=str(env.source_url), title="百度地图（非景点官方公告）", source_type=SourceType.STRUCTURED,
-            content=candidate.fact_text, fetched_at=env.retrieved_at, valid_from=env.retrieved_at,
+            content=candidate.fact_text, payload_hash=env.payload_hash,
+            fetched_at=env.retrieved_at, valid_from=env.retrieved_at,
             valid_to=env.retrieved_at + timedelta(seconds=self.policy.ttl(candidate.fact_type.value)),
             chunks=[FactChunkDraft(fact_type=candidate.fact_type, content=candidate.fact_text,
                 locator=candidate.references[0].field_path)])

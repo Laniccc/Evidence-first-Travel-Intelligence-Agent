@@ -78,7 +78,7 @@ def test_list_active_chunks_excludes_pending_and_expired_versions(repo):
             valid_to=datetime.now(UTC) - timedelta(minutes=1),
         )
     )
-    repo.publish(expired.version_id)
+    KnowledgeRepository(repo.db_path, clock=lambda: datetime.now(UTC) - timedelta(days=1)).publish(expired.version_id)
     repo.expire_due()
 
     chunks = repo.list_active_chunks(datetime.now(UTC))

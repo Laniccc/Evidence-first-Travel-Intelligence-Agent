@@ -6,7 +6,7 @@ import argparse
 import asyncio
 import json
 import tempfile
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from qdrant_client import QdrantClient
@@ -145,7 +145,12 @@ def _seed(repository: KnowledgeRepository) -> dict:
             result = repository.ingest(_document(row))
             status = row["expected_status"]
             if status in {"superseded", "expired", "active"}:
-                repository.publish(result.version_id)
+                # Seed history at its original valid time; production cannot publish expired facts.
+                cutoff = datetime.fromisoformat((row.get("valid_from") or fixture["as_of"]).replace("Z", "+00:00"))
+                if row.get("valid_to"):
+                    cutoff = min(cutoff, datetime.fromisoformat(row["valid_to"].replace("Z", "+00:00")) - timedelta(seconds=1))
+                seed_clock = lambda: cutoff
+                KnowledgeRepository(repository.db_path, clock=seed_clock).publish(result.version_id)
             elif status == "rejected":
                 repository.reject(result.version_id, reason="eval fixture rejected")
             for fact in row["facts"]:

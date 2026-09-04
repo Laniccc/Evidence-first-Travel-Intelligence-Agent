@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 from datetime import UTC, datetime
 from enum import StrEnum
 
@@ -80,11 +81,20 @@ class KnowledgeDocument(BaseModel):
     valid_from: datetime | None = None
     valid_to: datetime | None = None
     chunks: list[FactChunkDraft] = Field(min_length=1)
+    payload_hash: str | None = None
 
     @property
     def content_hash(self) -> str:
-        normalized = " ".join(self.content.split())
-        return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
+        def utc(value):
+            return value.replace(tzinfo=UTC).isoformat() if value and value.tzinfo is None else value.astimezone(UTC).isoformat() if value else None
+        canonical = {"schema_version": 2, "source_id": self.source_id,
+            "attraction_id": self.attraction.attraction_id, "url": self.url,
+            "title": self.title, "source_type": self.source_type.value,
+            "content": " ".join(self.content.split()),
+            "facts": [c.model_dump(mode="json", exclude={"chunk_id"}) for c in self.chunks],
+            "valid_from": utc(self.valid_from), "valid_to": utc(self.valid_to)}
+        return hashlib.sha256(json.dumps(canonical, ensure_ascii=False, sort_keys=True,
+            separators=(",", ":")).encode()).hexdigest()
 
 
 class IngestResult(BaseModel):
@@ -106,6 +116,8 @@ class DocumentVersion(BaseModel):
     published_at: datetime | None = None
     supersedes_version_id: str | None = None
     rejection_reason: str | None = None
+    hash_version: int = 1
+    payload_hash: str | None = None
 
 
 class SourceDocumentRecord(BaseModel):
