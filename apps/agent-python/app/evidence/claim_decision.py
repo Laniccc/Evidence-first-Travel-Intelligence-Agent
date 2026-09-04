@@ -86,6 +86,8 @@ def evaluate_claims(
                 item
                 for item in live
                 if item.attraction_id in plan.attraction_ids and item.fact_type == fact_type
+                # A live snapshot has no declared historical/future validity interval.
+                and not plan.require_explicit_temporal_coverage
             ]
             evidence_ids = [hit.chunk_id for hit in matching] + [
                 item.evidence_id for item in matching_live

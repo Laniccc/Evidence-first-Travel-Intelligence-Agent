@@ -15,7 +15,7 @@
 ## 0. 状态、目录与执行约束
 
 - 日期：2026-09-04；基线：`4e339f16e0ccffce3a0e7588392e75fd1c1b5231`。
-- 状态：**用户已批准开始批次 A（Task 0–3）；B–D 尚未执行。本文不表示简历能力已完成。**
+- 状态：**批次 A（Task 0–3）已实施并完成批次验证；B–D 尚未执行。本文不表示简历全部能力已完成。**
 - 专用 worktree：`E:/学习文件/研究生/就业/Agent学习/Evidence-first Travel Intelligence Agent/.worktrees/resume-capability-closure`
 - 分支：`codex/resume-capability-closure`。
 - 文中文件路径均相对于上述 worktree 根目录；Python 命令默认在 `apps/agent-python` 执行，Java 命令在 `apps/api-java`，npm Web 命令在 `apps/web`。每次切换位置必须显式确认。
@@ -24,6 +24,7 @@
 - Task 0 本轮 Python 基线：127 passed / 1 skipped（真实 Qdrant opt-in）；原离线评测 13 项门禁通过。Java/Web 本批未改动，未重跑。
 - 不在本轮引入 Kafka、Celery、Neo4j、开放式工具规划、全网爬虫、多用户知识权限系统。
 - 每批结束运行所有受影响测试并复核生产接线，不能只证明 isolated handler 可调用。
+- 批次 A 验证：188 passed / 1 skipped，原 13 项离线门禁通过；详见 [验证记录](2026-09-04-batch-a-verification.md)。LLM 只完成 adapter 测试，生产装配仍属 Task 10。
 
 ## 1. 简历逐条对照：真实差距
 

@@ -1,6 +1,7 @@
 from typing import Literal
 
 from pydantic import BaseModel, Field
+from app.contracts.user_constraints import UserConstraints
 
 from .place_ambiguity import EntityLabel, PlaceAmbiguityCandidate, PlaceAmbiguityInfo
 
@@ -50,12 +51,8 @@ class NormalizedTimeScope(BaseModel):
     months: list[int] = Field(default_factory=list)
 
 
-class NormalizedUserConstraints(BaseModel):
-    party: list[str] = Field(default_factory=list)
-    pace: str | None = None
-    budget: str | None = None
-    preferences: list[str] = Field(default_factory=list)
-    constraints: list[str] = Field(default_factory=list)
+class NormalizedUserConstraints(UserConstraints):
+    pass
 
 
 class InformationNeedDraft(BaseModel):

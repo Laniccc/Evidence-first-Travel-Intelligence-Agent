@@ -134,7 +134,7 @@ class Settings(BaseSettings):
     # Versioned attraction knowledge corpus (SQLite + FTS5)
     knowledge_db_path: str = "./data/knowledge.sqlite3"
     knowledge_default_ttl_days: int = 30
-    knowledge_retrieval_top_k: int = 3
+    knowledge_retrieval_top_k: int = Field(default=3, ge=1)
 
     # Rebuildable dense retrieval index. SQLite remains the authority.
     qdrant_mode: Literal["local", "server"] = "local"

@@ -38,6 +38,7 @@ class TravelAgentStateMachine:
         attraction_resolver=None,
         attraction_matcher=None,
         primary_understanding=None,
+        retrieval_top_k: int = 3,
         history_loader=None,
         gap_tool=None,
         run_store: SQLiteRunStore | None = None,
@@ -65,7 +66,8 @@ class TravelAgentStateMachine:
             AgentState.SUITABILITY: RoutedTaskHandler(AgentState.SUITABILITY),
             AgentState.COMPARISON: RoutedTaskHandler(AgentState.COMPARISON),
             AgentState.RETRIEVAL_PLAN: RetrievalPlanningHandler(
-                attraction_resolver=attraction_resolver or (lambda name: None)
+                attraction_resolver=attraction_resolver or (lambda name: None),
+                top_k=retrieval_top_k,
             ),
             AgentState.HYBRID_RETRIEVE: HybridRetrievalHandler(
                 retriever=retriever or _UnavailableRetriever()

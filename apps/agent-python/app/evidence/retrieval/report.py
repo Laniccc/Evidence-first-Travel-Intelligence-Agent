@@ -26,6 +26,7 @@ class PostFilterRejection(BaseModel):
         "expired_version",
         "hash_mismatch",
         "missing_chunk",
+        "temporal_coverage_missing",
     ]
     channel: str | None = None
 

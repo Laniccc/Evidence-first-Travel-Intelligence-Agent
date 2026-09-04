@@ -52,6 +52,7 @@ def build_runtime(settings):
         retriever=retriever,
         attraction_resolver=resolve_attraction,
         attraction_matcher=repository.find_attractions_in_text,
+        retrieval_top_k=settings.knowledge_retrieval_top_k,
         run_store=SQLiteRunStore(settings.agent_run_db_path),
         logger=_logger,
     )

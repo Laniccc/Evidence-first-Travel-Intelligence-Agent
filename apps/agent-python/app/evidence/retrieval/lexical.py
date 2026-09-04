@@ -18,10 +18,12 @@ class SQLiteLexicalRetriever:
     def retrieve(self, plan: RetrievalPlan, *, limit: int = 20) -> list[ChannelHit]:
         if not 1 <= limit <= self.MAX_LIMIT:
             raise ValueError(f"lexical limit must be between 1 and {self.MAX_LIMIT}")
-        tokens = re.findall(r"[\w\u3400-\u9fff]+", plan.query_text.casefold())
+        tokens = re.findall(r"[\w\u3400-\u9fff]+", (plan.lexical_query or plan.query_text).casefold())[:32]
         if not tokens:
             return []
-        match_query = " OR ".join(f'"{token}"' for token in tokens)
+        # Prefixes support Chinese fact labels without changing the legacy query path.
+        suffix = "*" if plan.lexical_query else ""
+        match_query = " OR ".join(f'"{token}"{suffix}' for token in tokens)
         attraction_marks = ",".join("?" for _ in plan.attraction_ids)
         fact_types = [item.value for item in plan.fact_types]
         fact_clause = ""
@@ -30,6 +32,10 @@ class SQLiteLexicalRetriever:
             fact_marks = ",".join("?" for _ in fact_types)
             fact_clause = f" AND chunk.fact_type IN ({fact_marks})"
             parameters.extend(fact_types)
+        temporal_clause = (
+            " AND version.valid_from IS NOT NULL AND version.valid_to IS NOT NULL"
+            if plan.require_explicit_temporal_coverage else ""
+        )
         cutoff = _iso(plan.as_of)
         parameters.extend((cutoff, cutoff, limit))
         sql = f"""
@@ -44,6 +50,7 @@ class SQLiteLexicalRetriever:
             WHERE fact_chunk_fts MATCH ?
               AND chunk.attraction_id IN ({attraction_marks})
               {fact_clause}
+              {temporal_clause}
               AND version.status = 'active'
               AND (version.valid_from IS NULL OR version.valid_from <= ?)
               AND (version.valid_to IS NULL OR version.valid_to > ?)

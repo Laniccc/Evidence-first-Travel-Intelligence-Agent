@@ -35,6 +35,9 @@ def filter_and_rerank(
         if status_reason:
             rejected.append(PostFilterRejection(chunk_id=candidate.chunk_id, reason=status_reason))
             continue
+        if plan.require_explicit_temporal_coverage and (chunk.valid_from is None or chunk.valid_to is None):
+            rejected.append(PostFilterRejection(chunk_id=candidate.chunk_id, reason="temporal_coverage_missing"))
+            continue
 
         channels = list(candidate.channels)
         dense_payload = candidate.payload_by_channel.get("dense")
