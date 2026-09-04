@@ -340,34 +340,40 @@ def _inject_non_active_points(repository, corpus, embedder, vector_index, genera
 def _versioning_suite(environment) -> dict:
     _, _, repository, corpus, embedder, vector_index, generation, lexical, dense, _ = environment
     _inject_non_active_points(repository, corpus, embedder, vector_index, generation)
-    rows = _load_jsonl(VERSIONING_DATASET)
-    results = []
-    rejection_audit = []
-    for row in rows:
-        plan = _plan(row, as_of=corpus["fixture"]["as_of"])
-        report = HybridRetriever(repository=repository, lexical=lexical, dense=dense).retrieve(plan)
-        ranked = [hit.chunk_id for hit in report.final_hits]
-        rejections = [
-            item.model_dump()
-            for item in report.post_filter_rejections
-            if item.chunk_id == row["chunk_id"]
-        ]
-        results.append(
-            VersionCaseResult(
-                case_id=row["case_id"],
-                status=row["status"],
-                returned=row["chunk_id"] in ranked,
-                rejected_by_post_filter=bool(rejections),
+    try:
+        rows = _load_jsonl(VERSIONING_DATASET)
+        results = []
+        rejection_audit = []
+        for row in rows:
+            plan = _plan(row, as_of=corpus["fixture"]["as_of"])
+            report = HybridRetriever(repository=repository, lexical=lexical, dense=dense).retrieve(plan)
+            ranked = [hit.chunk_id for hit in report.final_hits]
+            rejections = [
+                item.model_dump()
+                for item in report.post_filter_rejections
+                if item.chunk_id == row["chunk_id"]
+            ]
+            results.append(
+                VersionCaseResult(
+                    case_id=row["case_id"],
+                    status=row["status"],
+                    returned=row["chunk_id"] in ranked,
+                    rejected_by_post_filter=bool(rejections),
+                )
             )
-        )
-        rejection_audit.append(
-            {"case_id": row["case_id"], "target_chunk_id": row["chunk_id"], "rejections": rejections}
-        )
-    return {
-        "metrics": grade_versioning(results).model_dump(),
-        "cases": [item.model_dump() for item in results],
-        "rejection_audit": rejection_audit,
-    }
+            rejection_audit.append(
+                {"case_id": row["case_id"], "target_chunk_id": row["chunk_id"], "rejections": rejections}
+            )
+        return {
+            "metrics": grade_versioning(results).model_dump(),
+            "cases": [item.model_dump() for item in results],
+            "rejection_audit": rejection_audit,
+        }
+    finally:
+        # Fault injection belongs to this suite; do not contaminate healthy-index reuse tests.
+        vector_index.delete([key for key, status in corpus["status_by_chunk"].items() if status != "active"],
+                            corpus_version=generation.corpus_version, embedding_model=generation.embedding_model)
+
 
 
 async def _run_routing_case(row: dict, repository: KnowledgeRepository) -> StatePathCaseResult:

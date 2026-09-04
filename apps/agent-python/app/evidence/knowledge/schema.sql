@@ -140,3 +140,35 @@ CREATE TABLE IF NOT EXISTS chunk_index_state (
 
 CREATE INDEX IF NOT EXISTS idx_chunk_index_state_status
 ON chunk_index_state(generation_id, status);
+
+-- Promotion outbox: same database and transaction as authoritative knowledge.
+CREATE TABLE IF NOT EXISTS promotion_decision (
+    decision_id TEXT PRIMARY KEY,
+    candidate_id TEXT NOT NULL,
+    run_id TEXT NOT NULL,
+    query_id TEXT NOT NULL,
+    trace_id TEXT NOT NULL,
+    outcome TEXT NOT NULL,
+    reason_codes TEXT NOT NULL,
+    evidence_refs TEXT NOT NULL,
+    policy_version TEXT NOT NULL,
+    version_id TEXT REFERENCES document_version(version_id),
+    created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS index_sync_job (
+    job_id TEXT PRIMARY KEY,
+    dedupe_key TEXT NOT NULL UNIQUE,
+    version_id TEXT NOT NULL REFERENCES document_version(version_id),
+    status TEXT NOT NULL CHECK(status IN ('pending','running','succeeded','failed')),
+    attempts INTEGER NOT NULL DEFAULT 0,
+    lease_until TEXT,
+    next_attempt_at TEXT,
+    last_failure_code TEXT,
+    generation_id TEXT,
+    run_id TEXT NOT NULL,
+    query_id TEXT NOT NULL,
+    trace_id TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_index_job_due ON index_sync_job(status, next_attempt_at);

@@ -3,6 +3,10 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from threading import RLock
+
+_locks = {}
+_locks_guard = RLock()
 
 from app.evidence.knowledge.models import IndexSyncResult
 from app.evidence.knowledge.repository import KnowledgeRepository
@@ -25,19 +29,33 @@ class IndexSynchronizer:
         self.embedder = embedder
 
     def rebuild(self, *, corpus_version: str) -> IndexSyncResult:
+        with _locks_guard:
+            lock = _locks.setdefault(str(self.repository.db_path.resolve()), RLock())
+        # Same-process rebuilds are serialized; production also uses the dense lane.
+        with lock:
+            return self._rebuild(corpus_version=corpus_version)
+
+    def _rebuild(self, *, corpus_version: str) -> IndexSyncResult:
+        chunks = self.repository.list_active_chunks(datetime.now(UTC))
+        expected_hash = self.repository.corpus_digest(chunks)
         active = self.repository.active_index_generation()
         if (
             active is not None
             and active.corpus_version == corpus_version
             and active.embedding_model == self.embedder.model_name
         ):
-            return IndexSyncResult(**active.model_dump(), reused=True)
+            try:
+                valid = self._generation_valid(chunks, corpus_version)
+            except Exception:
+                valid = False
+            if valid and self.repository.compute_corpus_version() == expected_hash:
+                return IndexSyncResult(**active.model_dump(), reused=True,
+                    cleanup_failure_code=active.failure_code)
 
         generation = self.repository.start_index_generation(
             corpus_version,
             self.embedder.model_name,
         )
-        chunks = self.repository.list_active_chunks(datetime.now(UTC))
         try:
             self._ensure_collection()
             vectors = self.embedder.embed_documents([chunk.content for chunk in chunks])
@@ -72,11 +90,11 @@ class IndexSynchronizer:
                     ),
                     content_hash=chunk.content_hash,
                 )
-            actual_count = self._generation_count(chunks, corpus_version)
-            if actual_count != len(chunks):
-                raise ValueError(
-                    f"Qdrant consistency mismatch: expected {len(chunks)}, got {actual_count}"
-                )
+            if not self._generation_valid(chunks, corpus_version):
+                raise ValueError("Qdrant consistency mismatch")
+            completed = self.repository.complete_index_generation(
+                generation.generation_id, indexed_chunk_count=len(chunks),
+                expected_corpus_hash=expected_hash)
         except Exception as exc:
             failure_code = self._failure_code(exc)
             for chunk in chunks:
@@ -96,14 +114,9 @@ class IndexSynchronizer:
             )
             raise IndexSyncError(generation.generation_id, str(exc)) from exc
 
-        completed = self.repository.complete_index_generation(
-            generation.generation_id,
-            indexed_chunk_count=len(chunks),
-        )
-
         deleted_count = 0
         cleanup_failure_code = None
-        if active is not None:
+        if active is not None and (active.corpus_version, active.embedding_model) != (corpus_version, self.embedder.model_name):
             old_chunk_ids = self.repository.list_generation_chunk_ids(active.generation_id)
             try:
                 self.vector_index.delete(
@@ -146,8 +159,17 @@ class IndexSynchronizer:
             )
         )
 
+    def _generation_valid(self, chunks, corpus_version):
+        if self._generation_count(chunks, corpus_version) != len(chunks):
+            return False
+        # Concrete Qdrant boundary verifies every expected ID, version and hash.
+        verifier = getattr(self.vector_index, "verify_generation", None)
+        return verifier(chunks, corpus_version=corpus_version, embedding_model=self.embedder.model_name) if verifier else True
+
     @staticmethod
     def _failure_code(exc: Exception) -> str:
+        if isinstance(exc, ValueError) and str(exc) == "corpus_drift":
+            return "corpus_drift"
         name = type(exc).__name__.removesuffix("Error")
         words = []
         current = ""

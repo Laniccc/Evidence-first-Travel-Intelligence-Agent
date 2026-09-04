@@ -127,6 +127,23 @@ class QdrantVectorIndex:
         self._assert_collection_dimension()
         return True
 
+    def verify_generation(self, chunks, *, corpus_version, embedding_model):
+        self._assert_collection_dimension()
+        for start in range(0, len(chunks), 128):
+            batch = chunks[start:start + 128]
+            ids = [self.point_id(f"{corpus_version}:{embedding_model}:{c.chunk_id}") for c in batch]
+            points = {str(p.id): p.payload for p in self.client.retrieve(
+                self.collection, ids=ids, with_payload=True, with_vectors=False)}
+            for chunk, point_id in zip(batch, ids, strict=True):
+                payload = points.get(point_id, {})
+                expected = {"chunk_id": chunk.chunk_id, "document_version_id": chunk.document_version_id,
+                    "content_hash": chunk.content_hash, "attraction_id": chunk.attraction_id,
+                    "fact_type": chunk.fact_type.value, "corpus_version": corpus_version,
+                    "embedding_model": embedding_model, "source_id": chunk.source_id}
+                if any(payload.get(key) != value for key, value in expected.items()):
+                    return False
+        return True
+
     def _assert_collection_dimension(self) -> None:
         if not self.client.collection_exists(self.collection):
             raise ValueError(f"Qdrant collection does not exist: {self.collection}")

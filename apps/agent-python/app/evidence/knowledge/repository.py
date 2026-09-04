@@ -298,42 +298,49 @@ class KnowledgeRepository:
         )
 
     def list_active_chunks(self, as_of: datetime) -> list[IndexableChunk]:
-        cutoff = _iso(as_of)
         with self._connect() as connection:
-            rows = connection.execute(
-                """
-                SELECT
-                    chunk.chunk_id,
-                    chunk.version_id AS document_version_id,
-                    chunk.attraction_id,
-                    chunk.fact_type,
-                    chunk.content,
-                    chunk.locator,
-                    chunk.language,
-                    version.content_hash,
-                    version.valid_from,
-                    version.valid_to,
-                    version.published_at,
-                    version.status AS version_status,
-                    source.source_id,
-                    version.source_url AS source_url,
-                    version.source_title AS source_title,
-                    version.source_type,
-                    version.source_authority AS source_authority
-                FROM fact_chunk AS chunk
-                JOIN document_version AS version ON version.version_id = chunk.version_id
-                JOIN source_document AS source ON source.source_id = version.source_id
-                WHERE version.status = 'active'
-                  AND (version.valid_from IS NULL OR version.valid_from <= ?)
-                  AND (version.valid_to IS NULL OR version.valid_to > ?)
-                ORDER BY chunk.chunk_id
-                """,
-                (cutoff, cutoff),
-            ).fetchall()
+            return self._active_chunks(connection, as_of)
+
+    def _active_chunks(self, connection, as_of):
+        cutoff = _iso(as_of)
+        rows = connection.execute(
+            """
+            SELECT
+                chunk.chunk_id,
+                chunk.version_id AS document_version_id,
+                chunk.attraction_id,
+                chunk.fact_type,
+                chunk.content,
+                chunk.locator,
+                chunk.language,
+                version.content_hash,
+                version.valid_from,
+                version.valid_to,
+                version.published_at,
+                version.status AS version_status,
+                source.source_id,
+                version.source_url AS source_url,
+                version.source_title AS source_title,
+                version.source_type,
+                version.source_authority AS source_authority
+            FROM fact_chunk AS chunk
+            JOIN document_version AS version ON version.version_id = chunk.version_id
+            JOIN source_document AS source ON source.source_id = version.source_id
+            WHERE version.status = 'active'
+              AND (version.valid_from IS NULL OR version.valid_from <= ?)
+              AND (version.valid_to IS NULL OR version.valid_to > ?)
+            ORDER BY chunk.chunk_id
+            """,
+            (cutoff, cutoff),
+        ).fetchall()
         return [self._indexable_chunk_from_row(row) for row in rows]
 
     def compute_corpus_version(self, as_of: datetime | None = None) -> str:
         chunks = self.list_active_chunks(as_of or datetime.now(UTC))
+        return self.corpus_digest(chunks)
+
+    @staticmethod
+    def corpus_digest(chunks):
         digest_input = "\n".join(
             ":".join(
                 (
@@ -463,9 +470,13 @@ class KnowledgeRepository:
         indexed_chunk_count: int,
         failed_chunk_count: int = 0,
         deleted_chunk_count: int = 0,
+        expected_corpus_hash: str | None = None,
     ) -> IndexGeneration:
         now = _iso(datetime.now(UTC))
         with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            if expected_corpus_hash is not None and self.corpus_digest(self._active_chunks(connection, datetime.now(UTC))) != expected_corpus_hash:
+                raise ValueError("corpus_drift")
             target = connection.execute(
                 "SELECT status FROM index_generation WHERE generation_id = ?",
                 (generation_id,),

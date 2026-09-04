@@ -16,6 +16,7 @@ from app.evidence.knowledge.models import (
     KnowledgeDocument,
     SourceType,
 )
+from app.evidence.knowledge.index_jobs import IndexJobs
 from app.evidence.knowledge.repository import KnowledgeRepository
 from app.evidence.knowledge.service import KnowledgeLifecycleService
 from app.evidence.retrieval.embedding import DeterministicHashEmbedding, FastEmbedEmbedding
@@ -46,16 +47,19 @@ def _parser() -> argparse.ArgumentParser:
     inspect.add_argument("--index", action="store_true")
 
     reindex = subparsers.add_parser("reindex", help="rebuild the Qdrant vector generation")
-    reindex.add_argument("--db", required=True, type=Path)
-    reindex.add_argument("--qdrant-mode", choices=("local", "server"), default="local")
-    reindex.add_argument("--qdrant-path", type=Path)
-    reindex.add_argument("--qdrant-url", default="http://127.0.0.1:6333")
-    reindex.add_argument("--qdrant-api-key")
-    reindex.add_argument("--collection", default="attraction-facts")
-    reindex.add_argument("--embedding-mode", choices=("deterministic", "fastembed"), default="deterministic")
-    reindex.add_argument("--embedding-model", default="BAAI/bge-small-zh-v1.5")
-    reindex.add_argument("--dimension", type=int, default=512)
-    reindex.add_argument("--corpus-version")
+    sync_pending = subparsers.add_parser("sync-pending", help="resume bounded durable index jobs")
+    sync_pending.add_argument("--limit", type=int, default=10)
+    for target in (reindex, sync_pending):
+        target.add_argument("--db", required=True, type=Path)
+        target.add_argument("--qdrant-mode", choices=("local", "server"), default="local")
+        target.add_argument("--qdrant-path", type=Path)
+        target.add_argument("--qdrant-url", default="http://127.0.0.1:6333")
+        target.add_argument("--qdrant-api-key")
+        target.add_argument("--collection", default="attraction-facts")
+        target.add_argument("--embedding-mode", choices=("deterministic", "fastembed"), default="deterministic")
+        target.add_argument("--embedding-model", default="BAAI/bge-small-zh-v1.5")
+        target.add_argument("--dimension", type=int, default=512)
+        target.add_argument("--corpus-version")
     return parser
 
 
@@ -147,7 +151,7 @@ def main(argv: list[str] | None = None) -> int:
             payload["index"] = generation.model_dump(mode="json") if generation else None
         print(json.dumps(payload, ensure_ascii=False, indent=2))
         return 0
-    if args.command == "reindex":
+    if args.command in {"reindex", "sync-pending"}:
         # This CLI module is the delivery/composition boundary. The concrete adapter
         # stays out of the evidence domain's static dependency graph.
         vector_index_class = importlib.import_module(
@@ -172,13 +176,18 @@ def main(argv: list[str] | None = None) -> int:
             dimension=args.dimension,
         )
         try:
-            result = IndexSynchronizer(
+            synchronizer = IndexSynchronizer(
                 repository,
                 vector_index=index,
                 embedder=embedder,
-            ).rebuild(
-                corpus_version=args.corpus_version or repository.compute_corpus_version()
             )
+            if args.command == "sync-pending":
+                results = IndexJobs(repository, synchronizer).run_pending(limit=args.limit)
+                print(json.dumps(results, ensure_ascii=False, indent=2))
+                with repository._connect() as db:
+                    unfinished = db.execute("SELECT count(*) FROM index_sync_job WHERE status<>\'succeeded\'").fetchone()[0]
+                return 1 if unfinished else 0
+            result = synchronizer.rebuild(corpus_version=args.corpus_version or repository.compute_corpus_version())
             print(result.model_dump_json(indent=2))
         finally:
             client.close()
