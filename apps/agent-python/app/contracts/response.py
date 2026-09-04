@@ -1,8 +1,25 @@
 """Response contracts for the Agent HTTP API."""
 
-from typing import Any
+from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
+
+
+class PromotionSummary(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    status: Literal["not_attempted", "disabled", "rejected", "pending_review", "published", "partial", "failed", "unknown"]
+    candidate_count: int = Field(default=0, ge=0, le=4)
+    published_count: int = Field(default=0, ge=0, le=4)
+    pending_count: int = Field(default=0, ge=0, le=4)
+    rejected_count: int = Field(default=0, ge=0, le=4)
+
+
+class IndexSyncStatus(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    status: Literal["not_applicable", "pending", "indexed", "failed", "unknown"]
+    pending_count: int = Field(default=0, ge=0, le=4)
+    indexed_count: int = Field(default=0, ge=0, le=4)
+    failed_count: int = Field(default=0, ge=0, le=4)
 
 
 class AgentHealthResponse(BaseModel):
@@ -17,6 +34,8 @@ class AgentHealthResponse(BaseModel):
 
 class AgentQueryResponse(BaseModel):
     answer: str
+    promotion_summary: PromotionSummary | None = None
+    index_sync_status: IndexSyncStatus | None = None
     session_id: str | None = None
     query_id: str | None = None
     visible_trace: list[str] = Field(default_factory=list)

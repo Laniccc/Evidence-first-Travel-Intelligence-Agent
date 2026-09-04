@@ -3,6 +3,24 @@ import assert from "node:assert/strict";
 
 import { buildAgentResultView } from "../src/presentation/agent-result.js";
 
+test("publication snapshot distinguishes review, rejection, pending index and indexed", () => {
+  for (const [status, index, label] of [
+    ["rejected", "not_applicable", "候选已拒绝"],
+    ["pending_review", "not_applicable", "待人工审核"],
+    ["published", "pending", "已发布，索引待同步"],
+    ["published", "indexed", "已发布，已索引"],
+  ]) {
+    const view = buildAgentResultView({promotion_summary: {status, raw_payload: "private-location-secret"},
+      index_sync_status: {status: index, api_key: "private-key"}});
+    assert.equal(view.knowledge.label, label);
+    assert.equal(JSON.stringify(view).includes("private-"), false);
+  }
+  assert.equal(buildAgentResultView({answer: "legacy"}).knowledge, null);
+  const unknown = buildAgentResultView({promotion_summary: {status: "private-secret"}, index_sync_status: {status: "private-key"}});
+  assert.equal(unknown.knowledge.label, "知识维护状态未知");
+  assert.equal(JSON.stringify(unknown).includes("private-"), false);
+});
+
 test("builds readable evidence provenance and retrieval channels", () => {
   const view = buildAgentResultView({
     answer: "八点半开放",

@@ -68,6 +68,7 @@ from evals.graders.citation import CitationCaseResult, grade_citations
 from evals.graders.versioning import VersionCaseResult, grade_versioning
 from evals.graders.promotion import grade_case_safety
 from evals.closure import closure_suites, closure_metrics
+from evals.metadata import runtime_metadata
 
 
 ROOT = Path(__file__).resolve().parent
@@ -872,9 +873,11 @@ def _corpus_summary(corpus: dict, generation) -> dict:
 
 
 def _write_report(path: Path, payload: dict) -> None:
+    payload.setdefault("metadata", runtime_metadata(embedding_model=payload.get("corpus", {}).get("embedding_model"),
+        llm_model="fixture" if payload.get("suite") == "all" else None))
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-    if payload.get("suite") != "all":
+    if payload.get("suite") != "all" or "gates" not in payload:
         return
     lines = [
         f"# Evaluation — {payload['profile']}",
@@ -994,7 +997,7 @@ def _all_suite(environment, *, profile="offline") -> dict:
     }
 
 
-def main(argv: list[str] | None = None) -> int:
+def _main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     if args.offline and args.profile == "real-embedding":
         raise SystemExit("--offline cannot be combined with --profile real-embedding")
@@ -1077,6 +1080,19 @@ def main(argv: list[str] | None = None) -> int:
         client.close()
         temp_dir.cleanup()
     return 0
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = _parser().parse_args(argv)
+    try:
+        return _main(argv)
+    except Exception:
+        if args.profile != "real-embedding":
+            raise
+        _write_report(args.report, {"suite": args.suite, "profile": "real-embedding", "status": "blocked",
+            "failure_code": "semantic_evaluation_unavailable", "case_count": 0})
+        print("real-embedding evaluation blocked; no metrics produced")
+        return 2
 
 
 if __name__ == "__main__":

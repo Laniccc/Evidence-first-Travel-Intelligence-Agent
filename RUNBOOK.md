@@ -32,6 +32,12 @@ npm install
 - `QDRANT_MODE=local`：进程内本地索引，最适合快速演示。
 - `QDRANT_MODE=server`：连接独立 Qdrant；同时设置 URL 与 API key。
 - `EMBEDDING_MODE=deterministic`：可重复的离线控制面验证，不代表真实语义质量。
+- `AGENT_RUNTIME_PROFILE=offline`：默认不装配外部模型、地图与知识晋升；online 才启用有凭据的适配器。
+- `BOUNDED_BAIDU_ENABLED=true`、`BAIDU_MAP_AK`：仅允许 search/detail；与旧 MCP_PROFILE 无关。
+- `KNOWLEDGE_PROMOTION_ENABLED=true`：启用受控晋升旁支；`BAIDU_STORAGE_PERMITTED` 是独立的提供商数据留存许可，未确认必须 false。
+- `INDEX_JOB_POLL_SECONDS`：持久索引待办的后台轮询间隔，默认 5 秒。
+
+需要在线地图时，先在仓库的 `infra/baidu-mcp` 运行 `npm ci`，安装锁定的 Server 1.0.5。Python 使用 SDK 1.29.1；默认启动本地 entrypoint，不在请求中下载 npx latest。readiness 中 llm=configured 仅表示有配置，不表示真实调用成功。
 
 Java 读取 `AGENT_BASE_URL` 和 `AGENT_SERVICE_KEY`：
 
@@ -126,6 +132,17 @@ python -m app.orchestration.run_cli replay `
 ```
 
 回放只消费已持久化产物，不重新调用检索或外部模型。
+也不会再次发布知识或同步索引；只生成新的 replay 审计。它固定原策略/时间快照，不是用新策略重新评估。缺完整 delivery snapshot 的旧 run 会返回 replay_snapshot_unavailable。
+
+`promotion_summary` 和 `index_sync_status` 是回答交付时快照，历史回答不自动刷新。active 只代表 SQLite 发布，不能据此声称已索引；仅观察到成功 job 和 generation receipt 才显示 indexed。观察失败显示 unknown，不影响已验证的事实回答。
+
+自动晋升的 pending job 在重启后仍可恢复，或手动执行：
+
+```powershell
+python -m app.evidence.knowledge.cli sync-pending --db ./data/knowledge.sqlite3 --qdrant-path ./data/qdrant --limit 10
+```
+
+普通人工 CLI publish 不自动创建 promotion outbox，仍需显式 reindex。后台与 CLI 不要同时打开同一个 Qdrant local 目录；管理操作前先停 Agent，或使用独立 server 模式。
 
 ## 验证与发布门禁
 
@@ -146,6 +163,26 @@ docker compose -f infra/qdrant/compose.yml config
 ```
 
 真实 Qdrant 集成测试由 CI 启动带 API key 的 `qdrant/qdrant:v1.19.0`，再设置 `RUN_QDRANT_INTEGRATION=1` 执行。默认本地测试会跳过它。
+
+## 真实验收（显式 opt-in）
+
+真实语义检索只下载公开 embedding 模型并在本地计算，不调用收费 LLM/百度服务：
+
+```powershell
+python -m evals.runner --suite retrieval --profile real-embedding --report evals/reports/generated/resume-closure-semantic.json
+```
+
+首次需联网下载 BAAI/bge-small-zh-v1.5。缺模型/执行失败记录 blocked 并非零退出，不填写伪造指标。离线评测和真实语义结果是不同 profile。
+
+真实 LLM/百度 smoke 需预先授权调用费用和临时数据处理，配置现有凭据；命令不能代表提供商已授予缓存许可：
+
+```powershell
+python -m evals.live_smoke --allow-live --allow-data-retention --max-tool-calls 4 --max-llm-calls 4 --report evals/reports/generated/live-smoke.json
+```
+
+仅查固定景点地址、严格限定调用数量，使用隔离临时数据库/本地索引，不改现有知识库；运行后清理临时数据。最终报告只含状态、计数、布尔验收结果与版本/数据集 hash，不保存原始响应、地址、prompt 或 key。该 smoke 用 deterministic index 验证真实连接，语义效果由独立 real-embedding 命令衡量。
+
+不加两个 allow 标志时记录 not_run，不加载凭据；缺凭据/服务启动条件则 blocked。passed 返回 0，验收失败返回 1，not_run/blocked 返回 2。普通 CI 绝不传 allow 标志。
 
 ## 常见问题
 

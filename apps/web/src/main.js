@@ -346,6 +346,8 @@ function renderEvidenceAudit(view) {
   const limitations = view.limitations.map((item) => `<li>${escapeHtml(item)}</li>`).join("");
   return `<div class="evidence-audit">
     <h4>Evidence</h4>${evidence}
+    ${view.knowledge ? `<h4>知识维护</h4><p>${escapeHtml(view.knowledge.label)}</p>
+      <small>已发布 ${view.knowledge.published} · 待审核 ${view.knowledge.pendingReview} · 已拒绝 ${view.knowledge.rejected}<br>${escapeHtml(view.knowledge.note)}</small>` : ""}
     ${retrieval ? `<h4>Retrieval</h4>${retrieval}` : ""}
     <h4>Citation</h4><p class="citation-summary">${escapeHtml(view.citationSummary)}</p>
     ${citations ? `<ul>${citations}</ul>` : ""}

@@ -85,6 +85,8 @@ async def test_real_factory_model_gap_promotion_and_shutdown(tmp_path, broken_ca
             assert gap["tool_call_attempt_count"] == 2
             assert gap["trace_id"] == "trace-fixture"
             promoted = store.latest_state_output(run_id, "knowledge_promote")
+            assert body["promotion_summary"]["status"] == ("failed" if broken_candidate else "published")
+            assert body["index_sync_status"]["status"] in ({"not_applicable"} if broken_candidate else {"pending", "indexed"})
             assert promoted["resume_state"] == "compose"
             if broken_candidate:
                 assert promoted["failure_code"] == "candidate_schema_invalid"

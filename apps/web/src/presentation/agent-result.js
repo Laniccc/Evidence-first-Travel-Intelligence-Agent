@@ -25,7 +25,22 @@ export function buildAgentResultView(response = {}) {
     timeline: projectTimeline(response),
     limitations: [...(response.limitations || [])],
     metrics: { ...(response.metrics || {}) },
+    knowledge: projectKnowledge(response),
   };
+}
+
+function projectKnowledge(response) {
+  const promotion = response.promotion_summary;
+  if (!promotion) return null;
+  const labels = {not_attempted: "未触发知识维护", disabled: "知识晋升已关闭", rejected: "候选已拒绝",
+    pending_review: "待人工审核", partial: "部分候选已处理", failed: "知识维护失败", unknown: "知识维护状态未知"};
+  const indexLabels = {pending: "已发布，索引待同步", indexed: "已发布，已索引",
+    failed: "已发布，索引同步失败", unknown: "已发布，索引状态未知"};
+  const status = Object.hasOwn(labels, promotion.status) || promotion.status === "published" ? promotion.status : "unknown";
+  const label = status === "published" ? (indexLabels[response.index_sync_status?.status] || indexLabels.unknown) : labels[status];
+  const count = (value) => Number.isInteger(value) && value >= 0 && value <= 4 ? value : 0;
+  return {label, published: count(promotion.published_count), pendingReview: count(promotion.pending_count),
+    rejected: count(promotion.rejected_count), note: "回答交付时的状态快照，后续同步进度请查看维护记录。"};
 }
 
 function projectEvidence(item = {}) {

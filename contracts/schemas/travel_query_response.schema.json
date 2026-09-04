@@ -19,6 +19,8 @@
     "orchestration_summary"
   ],
   "properties": {
+    "promotion_summary": {"oneOf":[{"type":"object","additionalProperties":false,"required":["status"],"properties":{"status":{"enum":["not_attempted","disabled","rejected","pending_review","published","partial","failed","unknown"]},"candidate_count":{"type":"integer","minimum":0,"maximum":4,"default":0},"published_count":{"type":"integer","minimum":0,"maximum":4,"default":0},"pending_count":{"type":"integer","minimum":0,"maximum":4,"default":0},"rejected_count":{"type":"integer","minimum":0,"maximum":4,"default":0}}},{"type":"null"}]},
+    "index_sync_status": {"oneOf":[{"type":"object","additionalProperties":false,"required":["status"],"properties":{"status":{"enum":["not_applicable","pending","indexed","failed","unknown"]},"pending_count":{"type":"integer","minimum":0,"maximum":4,"default":0},"indexed_count":{"type":"integer","minimum":0,"maximum":4,"default":0},"failed_count":{"type":"integer","minimum":0,"maximum":4,"default":0}}},{"type":"null"}]},
     "answer": {
       "type": "string",
       "description": "Natural-language answer composed from evidence."

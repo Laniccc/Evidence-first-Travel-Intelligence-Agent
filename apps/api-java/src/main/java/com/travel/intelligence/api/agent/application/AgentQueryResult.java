@@ -25,6 +25,8 @@ public record AgentQueryResult(
         List<RetrievalReport> retrievalReports,
         Map<String, Double> metrics,
         Map<String, Object> orchestrationSummary,
+        PromotionSummary promotionSummary,
+        IndexSyncStatus indexSyncStatus,
         Map<String, Object> rawResponse
 ) {
     public AgentQueryResult {
@@ -66,6 +68,8 @@ public record AgentQueryResult(
                 mapList(raw, "retrieval_reports").stream().map(RetrievalReport::from).toList(),
                 numberMap(raw, "metrics"),
                 map(raw, "orchestration_summary"),
+                PromotionSummary.from(mapOrNull(raw, "promotion_summary")),
+                IndexSyncStatus.from(mapOrNull(raw, "index_sync_status")),
                 raw);
     }
 
@@ -76,7 +80,21 @@ public record AgentQueryResult(
                 answer, sessionId, queryId, confidence, visibleTrace, evidenceSummary,
                 limitations, toolTraces, structuredResult, fieldEvidenceSummary, conflicts,
                 citationCheckResult, semanticFrameSummary, answerMode, answerClaims,
-                citationReport, retrievalReports, metrics, orchestrationSummary, raw);
+                citationReport, retrievalReports, metrics, orchestrationSummary, promotionSummary, indexSyncStatus, raw);
+    }
+
+    public record PromotionSummary(String status, int candidateCount, int publishedCount, int pendingCount, int rejectedCount) {
+        static PromotionSummary from(Map<String, Object> value) {
+            return value == null ? null : new PromotionSummary(text(value, "status"), integer(value, "candidate_count"),
+                    integer(value, "published_count"), integer(value, "pending_count"), integer(value, "rejected_count"));
+        }
+    }
+
+    public record IndexSyncStatus(String status, int pendingCount, int indexedCount, int failedCount) {
+        static IndexSyncStatus from(Map<String, Object> value) {
+            return value == null ? null : new IndexSyncStatus(text(value, "status"), integer(value, "pending_count"),
+                    integer(value, "indexed_count"), integer(value, "failed_count"));
+        }
     }
 
     public record RetrievalReport(

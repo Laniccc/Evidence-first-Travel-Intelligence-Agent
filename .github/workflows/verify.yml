@@ -13,6 +13,8 @@ jobs:
     env:
       DEEPSEEK_API_KEY: offline-ci-key
       EMBEDDING_MODE: deterministic
+      AGENT_RUNTIME_PROFILE: offline
+      HF_HUB_OFFLINE: "1"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -22,7 +24,16 @@ jobs:
           cache-dependency-path: apps/agent-python/requirements.txt
       - run: pip install -r requirements.txt
       - run: python -m pytest -q
-      - run: python -m evals.runner --suite all --offline --fail-on-regression --report evals/reports/ci-offline.json
+      - name: Verify independent stdio process and miss-promote-dense closure
+        run: python -m pytest tests/integrations/test_stdio_session.py tests/integration/test_miss_promote_hit.py -q
+      - name: Enforce numeric and per-case release gates
+        run: python -m evals.runner --suite all --offline --fail-on-regression --report evals/reports/generated/ci-offline.json
+      - name: Archive reproducible evaluation evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: offline-evaluation
+          path: apps/agent-python/evals/reports/generated/ci-offline.*
 
   qdrant-integration:
     runs-on: ubuntu-latest

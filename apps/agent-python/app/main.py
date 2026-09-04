@@ -112,6 +112,9 @@ def build_runtime(settings, *, llm_http_client=None, mcp_parameters=None):
                 name_resolver=lambda attraction_id: repository.inspect_attraction(attraction_id)["attraction"]["name"],
                 io_runner=workers.run)
 
+    async def read_index_job(job_id):
+        return await workers.run("postfilter", resources.jobs.get, job_id) if resources.jobs else None
+
     machine = TravelAgentStateMachine(
         retriever=retriever,
         attraction_resolver=resolve_attraction,
@@ -121,6 +124,7 @@ def build_runtime(settings, *, llm_http_client=None, mcp_parameters=None):
         understanding_timeout_seconds=settings.understanding_timeout_seconds,
         gap_tool=gap,
         promotion_handler=promotion,
+        index_job_reader=read_index_job,
         run_store=SQLiteRunStore(settings.agent_run_db_path),
         logger=_logger,
     )

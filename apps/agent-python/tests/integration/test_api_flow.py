@@ -5,6 +5,7 @@ from app.api.health import ReadinessProbe
 from app.config import Settings
 from app.contracts.response import AgentQueryResponse
 from app.orchestration.agent_run_service import AgentRunService
+import pytest
 
 
 class RecordingService:
@@ -77,3 +78,44 @@ async def test_debug_file_requires_payload_and_server_switch():
 
     await service.query(AgentQueryRequest(query="故宫", debug=True))
     assert writes == []
+
+
+def test_publication_fields_are_optional_for_old_responses():
+    response = AgentQueryResponse(answer="legacy")
+    assert response.promotion_summary is None
+    assert response.index_sync_status is None
+
+
+@pytest.mark.parametrize("status,index_status", [("rejected", "not_applicable"),
+    ("pending_review", "not_applicable"), ("published", "pending"), ("published", "indexed")])
+def test_api_keeps_typed_publication_snapshot(status, index_status):
+    class ObservedService:
+        async def query(self, payload, **kwargs):
+            return AgentQueryResponse(answer="safe answer", promotion_summary={"status": status},
+                index_sync_status={"status": index_status},
+                orchestration_summary={"terminal_state": "safe_failure", "run_id": "r"})
+    app = create_app(settings_override=Settings(_env_file=None, agent_service_key=None),
+        agent_run_service=ObservedService(), readiness_probe=ReadinessProbe(sqlite_probe=lambda: True, qdrant_probe=lambda: True))
+    with TestClient(app) as client:
+        result = client.post("/agent/query", json={"query": "颐和园地址"})
+    assert result.status_code == 200
+    assert result.json()["promotion_summary"]["status"] == status
+    assert result.json()["index_sync_status"]["status"] == index_status
+
+
+def test_json_schema_and_publication_models_share_strict_additive_contract():
+    import json
+    from pathlib import Path
+    import jsonschema
+    from pydantic import ValidationError
+    from app.contracts.response import PromotionSummary, IndexSyncStatus
+    schema = json.loads((Path(__file__).parents[4] / "contracts/schemas/travel_query_response.schema.json").read_text())
+    for name, model, status in (("promotion_summary", PromotionSummary, "published"),
+                                ("index_sync_status", IndexSyncStatus, "pending")):
+        assert name not in schema["required"]
+        jsonschema.validate(model(status=status).model_dump(), schema["properties"][name])
+        jsonschema.validate(None, schema["properties"][name])
+        with pytest.raises(ValidationError):
+            model(status=status, raw_payload="private-key")
+        with pytest.raises(jsonschema.ValidationError):
+            jsonschema.validate({"status": status, "raw_payload": "private"}, schema["properties"][name])

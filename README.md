@@ -13,6 +13,7 @@ Web 工作台
       → Understand → Route → Retrieval Plan → Hybrid Retrieve
       → Evidence Evaluate → Compose → Citation Guard → Deliver
                            ↘ bounded live gap-fill ↗
+                           ↘ Knowledge Promote → SQLite + durable index job
 
 SQLite/FTS5（事实与版本权威） → Qdrant（可重建稠密索引）
               ↑ Evidence provenance / version / content hash
@@ -24,14 +25,16 @@ SQLite/FTS5（事实与版本权威） → Qdrant（可重建稠密索引）
 - 动态知识治理：pending → active → superseded/expired/rejected；发布新版本时旧版本原子失效。
 - Hybrid RAG：SQLite FTS5 + Qdrant dense + RRF + 元数据/版本/哈希后过滤 + 权威度重排。
 - Evidence-first：回答拆成 typed `AnswerClaim`；硬事实必须关联活动版本 Evidence 和来源 URL。
-- 真实运营错误控制：单通道降级、一次逻辑 gap task（最多两次尝试）、冲突保留、证据不足拒答、artifact-only replay。
+- 真实运营错误控制：并行双通道独立降级、一次逻辑 gap task（search/detail 各最多 2 次，共 4 次 tools/call）、冲突保留、证据不足拒答、无外部写副作用的原产物 Replay。
+- Evidence-to-Knowledge：模型候选经过 Schema/Grounding/Provenance/Temporal/Persistence Policy 校验；经留存许可的稳定地址可发布，开放时间仅待审核。发布与索引任务同事务，索引失败可恢复。
+- 公开观测：区分候选拒绝、待审核、已发布但索引待同步与已索引；Java 保留快照与安全失败，Web 只投影允许字段。
 - 平台边界：Java 持有用户和业务数据；Python 只拥有一次 Agent run；服务间使用 API key、trace id 和强类型错误契约。
 
 详细设计见 [状态链](docs/architecture/STATE_CHAIN.md)、[知识生命周期](docs/architecture/KNOWLEDGE_LIFECYCLE.md)、[Hybrid Retrieval](docs/architecture/HYBRID_RETRIEVAL.md) 和 [Eval](docs/architecture/EVALS.md)。
 
 ## Eval 结果
 
-最终离线门禁包含 71 个案例，当前 13 项发布指标全部通过：
+扩展离线门禁包含 112 个案例，21 项数值门禁及逐案例安全检查通过（保留原 71 个案例和 13 项门槛）：
 
 | 关键指标 | 结果 | 门槛 |
 |---|---:|---:|
@@ -43,8 +46,13 @@ SQLite/FTS5（事实与版本权威） → Qdrant（可重建稠密索引）
 | Unsupported hard facts | 0 | = 0 |
 | Citation / abstention precision | 1.00 / 1.00 | ≥ .95 / .90 |
 | Replay consistency | 1.00 | = 1.00 |
+| Unsafe auto publish / provenance fabrication / MCP budget violations | 0 / 0 / 0 | = 0 |
+| Promotion idempotency / sync recovery / miss-promote-dense hit | 1 / 1 / 1 | = 1 |
+| Replay external calls / knowledge write side effects | 0 / 0 | = 0 |
 
-报告同时列出 lexical-only、dense-only、hybrid、hybrid+rerank。离线 profile 使用 deterministic hash embedding，只证明状态编排、过滤、融合和版本控制可重复，不宣称真实中文语义模型效果。查看[最终报告](apps/agent-python/evals/reports/final-offline.md)。
+离线报告列出四组消融，使用 deterministic hash embedding 验证编排与安全，不代表语义效果。另用 BAAI/bge-small-zh-v1.5 实测 28 个检索案例：Recall@3 **96.43%**、MRR **97.14%**、nDCG@5 **97.81%**。无障碍同义提问有一例仅排第 5；小型受控集不是线上准确率，也未证明相对词法检索的语义增益。查看[验收记录](docs/plans/2026-09-04-batch-d-final-verification.md)。
+
+实际 LLM/百度服务验收仍为 **not_run**：目前完成生产接线与离线协议验证，不能将假服务测试写成真实服务已验收。
 
 ## 快速运行
 

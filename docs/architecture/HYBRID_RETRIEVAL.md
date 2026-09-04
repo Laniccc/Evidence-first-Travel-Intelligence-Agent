@@ -15,6 +15,10 @@ RetrievalPlan
 
 `RetrievalPlan` 固定包含 `task_type`、查询文本、景点 ID、事实类型、`as_of`、top-k 和隔离的 subtask ID。比较任务为每个景点生成独立计划，证据不能跨景点串用。
 
+LLM 负责生成严格 Task JSON，确定性 planner 把其事实/时间/用户约束变成有界计划（Top-K ≤ 5），不是模型自由生成 SQL/过滤器。词法使用有限别名和事实词扩展，dense 保留原自然语言。明确时间范围不被当前时间覆盖。
+
+生产两通道并行、独立超时；本地 Qdrant 使用专属串行 dense lane，避免不安全的并发访问。取消/超时后未真正完成的同步任务仍占有界容量，不声称线程被强制杀死。
+
 `RetrievalReport` 同时记录 lexical/dense 两个通道的状态、数量、延迟和失败码，RRF 候选、后过滤拒绝原因、最终排序、corpus version 和降级方式。因此一次“成功回答”也能说明是否发生过通道失败。
 
 ## 降级矩阵
@@ -31,6 +35,8 @@ RetrievalPlan
 
 ## 消融解释
 
-离线报告同时列出 lexical-only、dense-only、hybrid、hybrid+rerank。`hybrid` 使用 RRF 并保留强制版本/哈希安全过滤，但按 RRF 顺序输出；`hybrid+rerank` 再加入来源权威度和新鲜度排序。当前 deterministic hash embedding 用于完全离线、可重复的控制面回归；四组得分一致时，只能说明 fixture 上的编排、过滤和排序门禁正确，不能宣称真实语义检索优于词法检索。真实 embedding profile 是后续可选验证，不属于 CI。
+离线报告同时列出 lexical-only、dense-only、hybrid、hybrid+rerank。`hybrid` 使用 RRF 并保留强制版本/哈希安全过滤，但按 RRF 顺序输出；`hybrid+rerank` 再加入来源权威度和新鲜度排序。当前 deterministic hash embedding 用于完全离线、可重复的控制面回归；四组得分一致时，只能说明 fixture 上的编排、过滤和排序门禁正确，不能宣称真实语义检索优于词法检索。真实 embedding profile 已独立实测，不属于普通 CI。
 
 Qdrant Docker 配置是单机作品集实现，只演示带 API key 的服务边界和可重建索引；不宣称高可用、备份、容灾或生产集群能力。
+
+2026-09-04 真实 BAAI/bge-small-zh-v1.5 profile：原 20 + 新增 8 个自然中文/同义/硬负例，共 28 cases；Recall@3=0.9643、MRR=0.9714、nDCG@5=0.9781。semantic-wheelchair-natural 的 sm-access 排第 5，Top-3 未召回。这个小型集不代表线上质量，也不能证明消融增益。详见最终验收记录与本地 generated/resume-closure-semantic.json。

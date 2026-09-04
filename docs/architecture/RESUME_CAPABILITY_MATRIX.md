@@ -8,17 +8,17 @@
 |---|---|---|---|
 | LLM 强类型理解 | build_runtime 在 online 且有凭据时注入 PrimaryUnderstandingAdapter + SingleAttemptLLMClient | 单次 repair、鉴权/限流/超时/规则回退；test_online_runtime_wiring 从真实应用入口经 SDK fake HTTP 走 model 路径 | production wired / offline tested；live missing |
 | 有界检索意图 | RetrievalPlanningHandler deterministic-v2；build_runtime 传入 Top-K | 日期/时区/约束保留、比较子任务隔离；tests/integration/test_batch_a_runtime.py 验证真实 composition root + 本地 SQLite/Qdrant + 持久化计划 | 本地生产装配通过；live missing |
-| Hybrid RAG | build_runtime 接入 FTS5/BM25、Qdrant、RRF；主状态 await aretrieve | Task 4 双通道并行、独立超时、有界队列/专用 dense lane；barrier、取消、容量保留、本地持久 Qdrant 索引测试通过；指定时间过滤保留 | 本地索引通过；real embedding missing |
+| Hybrid RAG | build_runtime 接入 FTS5/BM25、Qdrant、RRF；主状态 await aretrieve | Task 4 双通道并行、独立超时、有界队列/专用 dense lane；barrier、取消、容量保留、本地持久 Qdrant 索引测试通过；指定时间过滤保留 | 本地索引通过；真实 embedding 28 cases，Recall@3=0.9643 |
 | SQLite 版本权威 | repository、v2 canonical hash、版本来源快照与幂等迁移；dense hit 二次验证保留 | 拒绝 reactivation/到期发布/换绑；chunks/TTL 变化新版本；历史 FTS/引用保留；事务 outbox、lease/CAS、重启恢复、实际索引一致性检查 | 本地持久 Qdrant 通过；server opt-in 未运行 |
 | 百度 MCP | build_runtime online + BOUNDED_BAIDU_ENABLED 装配 BoundedStdioSession / BaiduGapTool | 固定 SDK 1.29.1/百度包 1.0.5；真实应用生命周期 + 独立假 stdio 进程验证调用与退出；缺凭据/启动故障 readiness 分类 | production wired / offline protocol tested；live missing |
 | Transient Evidence | MCP envelope 移至共享 contracts；BaiduGapTool → normalizer → LiveGapFillHandler | 比较第二景点缺口定位；name/city/UID/来源校验；地址或明确开放时间原值及 pointer/hash/TTL；最多 1 logical gap、4 tools/call attempts；当前快照不回答历史/未来 | 离线协议到 Evidence 通过；live missing |
 | Knowledge Promotion | CandidateExtractor + 五层 validator + PromotionService + SQLite outbox；显式 knowledge_promote 接生产链 | stable address 经许可自动发布、开放时间 pending、默认禁留存；写失败回滚、Qdrant 失败恢复；仅精确 extraction，不宣称语义蕴含 | production wired / offline tested；live missing |
 | Citation Guard | 主链以 Evidence Evaluate 的 approved decision 与原检索产物复核 | 内容/景点/子任务/fact/time/version/hash 严格匹配；伪装为建议的硬事实拒绝；抽取式 grounding，不宣称自由文本语义蕴含 | production wired / offline tested |
-| 显式状态与审计 | state_machine + knowledge_promote；真实 create_app/build_runtime 生命周期 | 一次晋升后仅走预定出口；投影失败落 typed terminal failure；审计不可用拒绝伪成功；数据库事务后关闭连接 | 新生产路径离线通过；公共观测 DTO 待 Task 14 |
+| 显式状态与审计 | state_machine + knowledge_promote；真实 create_app/build_runtime 生命周期 | 一次晋升后仅走预定出口；投影失败落 typed terminal failure；审计不可用拒绝伪成功；数据库事务后关闭连接 | 新生产路径离线通过；Python/Java/Web 可选观测字段与旧响应兼容通过 |
 | Replay | 带 digest 的完整 delivery snapshot 保存 retrieval/gap/promotion/claims/policy/config | 关闭模型、MCP、发布和索引后重放；版本/job/决策计数不增加；不完整旧 run 拒绝；仅原产物重放，不是新策略重评 | offline tested；不宣称模型再生成确定性 |
-| Eval | evals.runner 保留原 71 + 新增 40 具名案例 + 1 生产闭环，共 112 | 21 数值门禁 + 逐案例阻断；BadCase 具名；首次 MCP 晋升→索引故障恢复→第二次 dense-only hit；hash embedding 不代表语义效果 | offline passed；real embedding / live missing |
+| Eval | evals.runner 保留原 71 + 新增 40 具名案例 + 1 生产闭环，共 112 | 21 数值门禁 + 逐案例阻断；BadCase 具名；首次 MCP 晋升→索引故障恢复→第二次 dense-only hit；hash embedding 不代表语义效果 | offline passed；real embedding measured；真实服务 not_run |
 
-## 本轮可复现基线
+## 批次 A 开始时的历史基线
 
 - python -m pytest -q：127 passed, 1 skipped；跳过为真实 Qdrant opt-in，另有 Starlette/httpx 弃用警告。
 - python -m evals.runner --suite all --offline --fail-on-regression --report evals/reports/generated/batch-a-baseline.json：exit 0，原 13 项门禁通过。
@@ -51,5 +51,13 @@
 
 - Task 11–13 完成：强化 Citation、失败终态审计、MCP 路径原产物 Replay、112-case 发布门禁。
 - 逐案例门禁检出了旧 multi-pronoun-suitability 失败；修复序列化会话景点到规则解析的类型适配，未更改原案例预期。
-- 真实 embedding 的 8 个无空格中文 / 同义改写 / 硬负例已准备，但尚未运行真实模型；不提供伪造的语义检索分数。
-- Task 14 的 Java/Web 观测、最终 CI/文档和真实服务验收仍未完成；详见 ../plans/2026-09-04-batch-d-safety-verification.md。
+- 当时真实 embedding 的 8 个无空格中文 / 同义改写 / 硬负例已准备，尚未运行真实模型。
+- 当时 Task 14 尚未完成；详见 ../plans/2026-09-04-batch-d-safety-verification.md。
+
+## 最终本地验收
+
+- Task 14 跨栈观测、CI、文档、可复现 metadata 与有界 opt-in smoke 入口已实现。
+- Python 298 passed / 1 skipped；Java 28 passed；Web 4 passed 且构建成功；112-case 离线 Eval 的 21 数值门禁及逐案例检查通过。
+- 真实 embedding 28 cases：Recall@3=0.9643、MRR=0.9714、nDCG@5=0.9781；一个轮椅自然语言案例目标排第 5，不隐去失误或声称线上泛化。
+- 真实 LLM/百度尚未调用，Qdrant server 集成测试本地未运行。CI 已配置但未推送触发，不将本地通过称为远端 CI 通过。
+- 详见 [最终验收记录](../plans/2026-09-04-batch-d-final-verification.md)。简历应区分生产接线、离线闭环验证、真实 embedding 测量与待完成的真实服务验收。

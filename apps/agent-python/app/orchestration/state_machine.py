@@ -9,6 +9,7 @@ from app.orchestration.agent_core_store import SQLiteRunStore
 from app.orchestration.state_audit import InMemoryStateAuditStore, SQLiteStateAuditStore, StateAuditEvent
 from app.orchestration.state_contracts import AgentState, StateContext, StatePolicy, StateFailure, FailureClass
 from app.orchestration.state_runtime import StateRuntime
+from app.orchestration.publication_observation import publication_snapshot
 from app.orchestration.states.answer_composition import GroundedCompositionHandler
 from app.orchestration.states.citation_guard import CitationGuardHandler
 from app.orchestration.states.context_loading import ContextLoadingHandler
@@ -40,6 +41,7 @@ class TravelAgentStateMachine:
         primary_understanding=None,
         understanding_timeout_seconds=8.0,
         promotion_handler=None,
+        index_job_reader=None,
         retrieval_top_k: int = 3,
         history_loader=None,
         gap_tool=None,
@@ -48,6 +50,7 @@ class TravelAgentStateMachine:
         logger=None,
     ) -> None:
         self._run_store = run_store
+        self._index_job_reader = index_job_reader
         self._audit = audit or (
             SQLiteStateAuditStore(run_store, logger=logger)
             if run_store
@@ -197,11 +200,15 @@ class TravelAgentStateMachine:
                 "failure": failure.model_dump(mode="json") if failure else None,
             }
         )
+        promotion, sync = await publication_snapshot(context.artifacts.get("knowledge_promote"),
+                                                     job_reader=self._index_job_reader)
         return response.model_copy(
             update={
                 "session_id": context.session_id,
                 "query_id": context.query_id,
                 "orchestration_summary": summary,
+                "promotion_summary": promotion,
+                "index_sync_status": sync,
             }
         )
 

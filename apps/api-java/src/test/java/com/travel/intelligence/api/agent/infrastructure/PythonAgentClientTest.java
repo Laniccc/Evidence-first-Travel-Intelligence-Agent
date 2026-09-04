@@ -114,4 +114,22 @@ class PythonAgentClientTest {
     private static AgentQueryCommand command() {
         return new AgentQueryCommand("故宫", "session-1", false, Map.of(), "trace-1");
     }
+
+    @Test
+    void publicationSnapshotAndSafeFailureAreNotTransportErrors() {
+        server.expect(requestTo("http://agent.test/agent/query"))
+            .andRespond(withSuccess("""
+                {"answer":"证据不足", "orchestration_summary":{"terminal_state":"safe_failure"},
+                 "promotion_summary":{"status":"published","published_count":1},
+                 "index_sync_status":{"status":"pending","pending_count":1}}
+                """, MediaType.APPLICATION_JSON));
+        AgentQueryResult result = client.query(command()).withSessionId("bound-session");
+        assertThat(result.promotionSummary().status()).isEqualTo("published");
+        assertThat(result.indexSyncStatus().status()).isEqualTo("pending");
+        assertThat(result.orchestrationSummary()).containsEntry("terminal_state", "safe_failure");
+        server.verify();
+        AgentQueryResult legacy = AgentQueryResult.fromRawResponse(Map.of("answer", "legacy"));
+        assertThat(legacy.promotionSummary()).isNull();
+        assertThat(legacy.indexSyncStatus()).isNull();
+    }
 }

@@ -1,0 +1,10 @@
+{
+  "status": "not_run",
+  "reason": "live_consent_and_credentials_required",
+  "profile": "live-providers-deterministic-index",
+  "llm_calls": 0,
+  "tool_calls": 0,
+  "checks": {},
+  "metadata": null,
+  "note": "Template only. Not evidence of real-provider or semantic embedding acceptance."
+}

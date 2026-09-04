@@ -34,6 +34,15 @@ Source → KnowledgeDocument → DocumentVersion → FactChunk
 6. generation 的数量与内容哈希核对成功后才切换 active；失败 generation 不替换线上版本。
 7. 切换后清理旧 generation；清理失败会记录，但不会回滚已验证的新 generation。
 
+## MCP → Knowledge 受控增量
+
+1. 工具先返回经实体/来源绑定的 transient Evidence，服务当前请求；它不是自动可信的持久事实。
+2. LLM 最多生成 4 个严格 KnowledgeCandidate，不能自报 authority、URL、hash 或 active 状态。
+3. Schema、原文字段 grounding、provenance、temporal、persistence policy 五层验证；只允许稳定地址自动发布，开放时间待人工审核，其他高影响字段不自动晋升。
+4. 来源留存许可默认关闭。开启后，SQLite 同一事务保存决策、不可变版本、发布和 index_sync_job；向量写入失败不回滚已发布 SQLite，后台最多 3 次有间隔重试。
+5. 新版本 canonical hash 覆盖来源绑定、ordered typed facts 与有效期，禁止 superseded/expired/rejected 重新激活；同正文但 TTL/来源变化也需新版本验证。
+6. 回答公开 `promotion_summary` / `index_sync_status` 只含状态与计数；published 与 indexed 不混同，状态为当次交付快照。Replay 保留原快照，不更新或重新晋升。
+
 ## 一致性原则
 
 - 词法检索直接查询 SQLite FTS5，并按 active 状态和时间过滤。

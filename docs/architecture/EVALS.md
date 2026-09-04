@@ -57,7 +57,7 @@ python -m evals.runner --suite all --offline --fail-on-regression --report evals
 
 原 13 门禁及阈值保持不变；新增 8 门禁。每个业务案例还必须通过 expected/actual 检查，包括原 conflict、recovery、conversation，不允许总体均值隐藏单例错误。
 
-当前验证记录：[Task 11–13 检查点](../plans/2026-09-04-batch-d-safety-verification.md)。本地最新报告路径为 `apps/agent-python/evals/reports/generated/batch-d-task13.json`，运行产物不入 Git；已提交的 `final-offline.md/json` 是旧 71-case 基线，不代表本轮结果。
+当前验证记录：[最终本地验收](../plans/2026-09-04-batch-d-final-verification.md)。本地最新报告路径为 `apps/agent-python/evals/reports/generated/resume-closure-offline.json`，运行产物不入 Git；已提交的 `final-offline.md/json` 是旧 71-case 基线，不代表本轮结果。
 
 ## BadCases 与诚实边界
 
@@ -69,4 +69,8 @@ python -m evals.runner --suite all --offline --fail-on-regression --report evals
 
 四组消融均为通道上限 20、融合候选上限 8、最终 Top-K 5，并共用不截断的安全过滤。lexical/dense 保留各通道秩序，hybrid 使用 RRF，hybrid+rerank 才增加权威性和时效性重排；不通过非法 top_k 绕过契约。
 
-当前结果不等于线上泛化能力：hash embedding 不衡量中文语义质量，也没有覆盖高并发、真实网络抖动或跨语言召回。real-embedding profile 额外加入 `retrieval_semantic.jsonl` 的 8 个无空格中文/同义表达/硬负例，多数不使用 fact-type 过滤，避免只靠过滤获得高分。报告使用实际选择的 profile；真实模型尚未实测，不预填分数。完整在线 smoke 和跨栈验收仍属 Task 14。
+当前结果不等于线上泛化能力：hash embedding 不衡量中文语义质量，也没有覆盖高并发、真实网络抖动或跨语言召回。real-embedding profile 额外加入 `retrieval_semantic.jsonl` 的 8 个无空格中文/同义表达/硬负例，多数不使用 fact-type 过滤，避免只靠过滤获得高分。
+
+2026-09-04 实测 BAAI/bge-small-zh-v1.5，28 cases：Recall@3=0.9642857143、MRR=0.9714285714、nDCG@5=0.9781018860，metadata filter accuracy 与 provenance completeness 均为 1。semantic-wheelchair-natural 的目标 sm-access 排第 5，未进入 Top-3；这是小样本检索测量，不是线上准确率或真实语义消融增益。
+
+报告记录运行 commit、工作树是否有修改、模型/SDK/百度包版本及数据集 SHA256；真实模型不可用时写 blocked 且不填指标。跨栈契约及构建已本地验证，真实 LLM/百度 smoke 尚未获本轮调用与数据处理许可，状态为 not_run。两项授权开关、调用上限与临时数据清理见 RUNBOOK；普通 CI 不执行真实服务请求。
