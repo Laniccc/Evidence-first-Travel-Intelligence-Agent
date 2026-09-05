@@ -1,11 +1,13 @@
 """Claim-grounded answer composition for the bounded RAG state chain."""
 from hashlib import sha256
+import asyncio
 
 from app.composition.answer_claim import AnswerClaim
 from app.composition.final_answer_draft import FinalAnswerDraft
 from app.evidence.evidence_decision_report import ClaimDecision
 from app.evidence.retrieval.report import RetrievalReport
 from app.governance.failure_reason import FailureClass
+from app.integrations.llm.client import ModelTransportError
 from app.orchestration.state_contracts import (
     AgentState,
     RecoveryRecord,
@@ -15,12 +17,14 @@ from app.orchestration.state_contracts import (
 
 
 class GroundedCompositionHandler:
-    """Compose typed claims; repair once, then use an evidence-only template."""
+    """One bounded proposal; any failure retains the complete evidence template."""
 
-    def __init__(self, *, composer=None) -> None:
+    def __init__(self, *, composer=None, timeout_seconds=2.0) -> None:
         self._composer = composer
+        self._timeout_seconds = timeout_seconds
 
     async def run(self, context: StateContext) -> StateResult:
+        context.versions["composition_policy"] = "complete-claim-order-v1"
         evaluation = context.artifacts.get(AgentState.EVIDENCE_EVALUATE.value, {})
         decisions = [
             ClaimDecision.model_validate(item)
@@ -61,23 +65,33 @@ class GroundedCompositionHandler:
         }
         recovery = None
         draft = None
+        failure_code = None
+        failure_class = FailureClass.PARSE_ERROR
         if self._composer is not None:
-            for attempt, repair in enumerate((False, True), start=1):
-                try:
-                    candidate = await self._composer.compose_claims(bundle, repair=repair)
-                    validated = FinalAnswerDraft.model_validate(candidate)
-                    if not validated.answer_claims or not validated.render_text().strip():
-                        raise ValueError("composer returned no answer claims")
-                    draft = validated
-                    if repair:
-                        recovery = RecoveryRecord(
-                            strategy="composition_repair_once",
-                            recovered_from=FailureClass.PARSE_ERROR,
-                            attempt=attempt,
-                        )
-                    break
-                except Exception:
-                    continue
+            try:
+                async with asyncio.timeout(self._timeout_seconds):
+                    candidate = await self._composer.compose_claims(bundle, repair=False)
+                validated = FinalAnswerDraft.model_validate(candidate)
+                expected = {c.claim_id: c.model_dump(mode="json") for c in fallback_claims}
+                actual = {c.claim_id: c.model_dump(mode="json") for c in validated.answer_claims}
+                if len(validated.answer_claims) != len(fallback_claims) or actual != expected:
+                    raise ValueError("composer_modified_claims")
+                # Only the verified ordering survives. Ignore all free-form draft text.
+                draft = FinalAnswerDraft(answer_claims=validated.answer_claims,
+                    answer_text=_render_claims(validated.answer_claims),
+                    cited_evidence_ids=sorted({e for c in fallback_claims for e in c.evidence_ids}),
+                    compose_mode="claim_grounded")
+            except TimeoutError:
+                failure_code, failure_class = "composer_timeout", FailureClass.TIMEOUT
+            except ModelTransportError as exc:
+                failure_code = exc.code.value
+                failure_class = (FailureClass.RATE_LIMIT if failure_code == "llm_rate_limited"
+                    else FailureClass.TIMEOUT if failure_code == "llm_timeout"
+                    else FailureClass.DEPENDENCY_UNAVAILABLE)
+            except (ValueError, TypeError, KeyError):
+                failure_code = "composer_invalid_output"
+            except Exception:
+                failure_code, failure_class = "composer_unavailable", FailureClass.DEPENDENCY_UNAVAILABLE
 
         mode = "model"
         if draft is None:
@@ -105,8 +119,8 @@ class GroundedCompositionHandler:
             if self._composer is not None:
                 recovery = RecoveryRecord(
                     strategy="deterministic_composition_fallback",
-                    recovered_from=FailureClass.PARSE_ERROR,
-                    attempt=2,
+                    recovered_from=failure_class,
+                    attempt=1,
                 )
 
         output = {
@@ -114,6 +128,7 @@ class GroundedCompositionHandler:
             "answer_claims": [item.model_dump(mode="json") for item in draft.answer_claims],
             "evidence_index": evidence_index,
             "composition_mode": mode,
+            "failure_code": failure_code,
         }
         if recovery:
             return StateResult(

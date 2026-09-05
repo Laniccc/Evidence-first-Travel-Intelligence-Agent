@@ -69,6 +69,7 @@ async def run_smoke(settings, args, report):
                         await asyncio.sleep(0.05)
                 checks = {
                     "model_understanding": outputs.get("understand", {}).get("understanding_path") in {"model", "repair"},
+                    "model_composition": outputs.get("compose", {}).get("composition_mode") == "model",
                     "mcp_evidence_present": bool(gap.get("mcp_envelopes")),
                     "active_publication": any(r.get("status") == "active" for r in promotion.get("results", [])),
                     "index_synchronized": bool(jobs) and all(resources.jobs.get(j)["status"] == "succeeded" for j in jobs),

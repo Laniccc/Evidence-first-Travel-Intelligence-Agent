@@ -59,10 +59,10 @@ class InvalidComposer:
 
 
 @pytest.mark.asyncio
-async def test_composition_repairs_once_then_uses_deterministic_fallback():
+async def test_composition_uses_single_attempt_then_deterministic_fallback():
     composer = InvalidComposer()
     result = await GroundedCompositionHandler(composer=composer).run(context())
 
-    assert composer.repairs == [False, True]
+    assert composer.repairs == [False]
     assert result.output["composition_mode"] == "deterministic_fallback"
     assert result.output["answer_claims"][0]["text"] == "故宫八点三十分开放"

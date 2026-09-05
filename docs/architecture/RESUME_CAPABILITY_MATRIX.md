@@ -14,6 +14,7 @@
 | Transient Evidence | MCP envelope 移至共享 contracts；BaiduGapTool → normalizer → LiveGapFillHandler | 比较第二景点缺口定位；name/city/UID/来源校验；地址或明确开放时间原值及 pointer/hash/TTL；最多 1 logical gap、4 tools/call attempts；当前快照不回答历史/未来 | 离线协议到 Evidence 通过；live missing |
 | Knowledge Promotion | CandidateExtractor + 五层 validator + PromotionService + SQLite outbox；显式 knowledge_promote 接生产链 | stable address 经许可自动发布、开放时间 pending、默认禁留存；写失败回滚、Qdrant 失败恢复；仅精确 extraction，不宣称语义蕴含 | production wired / offline tested；live missing |
 | Citation Guard | 主链以 Evidence Evaluate 的 approved decision 与原检索产物复核 | 内容/景点/子任务/fact/time/version/hash 严格匹配；伪装为建议的硬事实拒绝；抽取式 grounding，不宣称自由文本语义蕴含 | production wired / offline tested |
+| 轻量 LLM Composer | online factory 注入 BoundedLLMComposer，共享单次无重试模型客户端 | 模型仅返回全量 Claim ID 排序；原事实/引用由代码恢复，默认 2 秒、512 tokens；非法输出/超时/传输故障回退并审计，最终仍走 Citation Guard | production wired / fake HTTP tested；真实服务未调用，不宣称自由文本生成质量 |
 | 显式状态与审计 | state_machine + knowledge_promote；真实 create_app/build_runtime 生命周期 | 一次晋升后仅走预定出口；投影失败落 typed terminal failure；审计不可用拒绝伪成功；数据库事务后关闭连接 | 新生产路径离线通过；Python/Java/Web 可选观测字段与旧响应兼容通过 |
 | Replay | 带 digest 的完整 delivery snapshot 保存 retrieval/gap/promotion/claims/policy/config | 关闭模型、MCP、发布和索引后重放；版本/job/决策计数不增加；不完整旧 run 拒绝；仅原产物重放，不是新策略重评 | offline tested；不宣称模型再生成确定性 |
 | Eval | evals.runner 保留原 71 + 新增 40 具名案例 + 1 生产闭环，共 112 | 21 数值门禁 + 逐案例阻断；BadCase 具名；首次 MCP 晋升→索引故障恢复→第二次 dense-only hit；hash embedding 不代表语义效果 | offline passed；real embedding measured；真实服务 not_run |

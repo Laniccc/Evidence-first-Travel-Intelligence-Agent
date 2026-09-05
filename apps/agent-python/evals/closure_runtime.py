@@ -50,7 +50,9 @@ def fixture_transport(calls):
         payload = json.loads(request.content)
         calls.append(payload)
         user = payload["messages"][0]["content"]
-        if "untrusted_evidence" in user:
+        if "approved_claims" in user:
+            text = json.dumps({"claim_order": [c["claim_id"] for c in reversed(json.loads(user)["approved_claims"])]})
+        elif "untrusted_evidence" in user:
             source = json.loads(user.split("\nPrevious")[0])["untrusted_evidence"][0]
             text = json.dumps({"candidates": [{
                 "attraction_id": source["attraction_id"], "fact_type": "general_description",

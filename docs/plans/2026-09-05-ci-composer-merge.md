@@ -28,3 +28,12 @@
 - Push feature branch, inspect Actions until four jobs are green. Inspect main working tree and remote tip; preserve the user's untracked image.
 - Fast-forward main if possible, otherwise inspect changes and perform a normal reviewed merge. Push main and verify its exact commit's Actions.
 - Record actual results and commit IDs; no real provider calls are needed for this change.
+
+## Implementation verification
+
+- Dependency fix cb15c81: Actions run 33947424256 succeeded (python-offline, qdrant-integration, java, web).
+- Composer implementation: one 512-token order proposal, default 2 seconds; strict complete-ID permutation, no fact rewriting; invalid/timeout/transport failure falls back once. Online enabled by default; offline or explicit switch off uses the existing template.
+- Local full pytest: 311 passed / 1 skipped (opt-in Qdrant server) / 1 Starlette-httpx deprecation warning. The warning is not the Anthropic transport error.
+- All offline Eval: 112 cases, 21 unchanged numeric gates and per-case checks passed; local generated/composer-offline.json is ignored. Closure fixture now exercises the model Composer path and replay prohibits further model calls.
+- No public Java/Web contract changed. Remote workflow executes all four stacks again on each pushed commit; the authoritative final status is the Actions run associated with the merged main commit.
+- Real-provider smoke remains separate and has not been invoked in this task; it now also checks model_composition within the existing 4-call cap.

@@ -60,6 +60,6 @@ async def test_smoke_exercises_real_runtime_with_fake_transports_and_retains_no_
     report = {}
     await live_smoke.run_smoke(fixture_settings(tmp_path), SimpleNamespace(max_llm_calls=4, max_tool_calls=4), report)
     assert report["status"] == "passed" and all(report["checks"].values())
-    assert report["llm_calls"] == report["tool_calls"] == 2
+    assert report["llm_calls"] == 3 and report["tool_calls"] == 2
     assert "新建宫门" not in json.dumps(report, ensure_ascii=False)
     assert "fixture-only" not in json.dumps(report)

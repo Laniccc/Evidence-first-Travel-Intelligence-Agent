@@ -18,6 +18,8 @@ class Settings(BaseSettings):
     agent_runtime_profile: Literal["offline", "online"] = "offline"
     understanding_timeout_seconds: float = Field(default=8.0, gt=0, le=60)
     understanding_max_tokens: int = Field(default=1536, ge=128, le=4096)
+    llm_composer_enabled: bool = True
+    composer_timeout_seconds: float = Field(default=2.0, gt=0, le=5)
     bounded_baidu_enabled: bool = False
     bounded_baidu_node: str = "node"
     bounded_baidu_server_entrypoint: str | None = None

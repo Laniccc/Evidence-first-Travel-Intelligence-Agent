@@ -34,7 +34,7 @@ INGRESS → CONTEXT → UNDERSTAND → ROUTE
 | Live Gap Fill | 限流、超时、载荷畸形 | search/detail 各最多 2 attempts，合计最多 4；逻辑任务仅 1 | Tool 名、schema hash、调用 ID、失败码、预算 | Evidence evaluate / Limited answer / Safe failure |
 | Evidence Evaluate | 缺证、冲突、非活动版本 | 权威来源优先；仍不足则拒答 | 采纳/拒绝理由、冲突证据集合 | Compose / Live gap fill / Limited answer / Safe failure |
 | Knowledge Promote | 候选非法、来源/grounding/时间/留存策略拒绝、写入失败 | 最多一次 JSON repair；事务失败不重复写，当前 transient 保留 | policy/prompt/schema、candidate、decision、job 引用 | 原定 Compose / Safe failure 出口 |
-| Compose | 批准事实无法投影 | 当前直接用确定性 Evidence 模板，不调用生成模型 | typed claims 与证据集合 | Citation guard / Safe failure |
+| Compose | 超时、模型鉴权/限流/不可用、非法 JSON、缺失/重复/未知 Claim ID | online 模型仅提议全部已批准 Claim 的顺序；最多一次、默认 2 秒，任一失败回退完整 Evidence 模板；offline 直接模板 | complete-claim-order-v1、typed claims、证据集合、composition_mode、具名 failure_code 与 recovery | Citation guard / Safe failure |
 | Citation Guard | 引用缺失、版本/哈希不匹配 | 删除不受支持事实；硬事实失败即拒答 | claim 级引用决策 | Deliver / Limited answer / Safe failure |
 | Terminal projection | DTO 投影失败、审计存储失败 | 投影失败写 typed terminal failure；审计不可用拒绝伪成功；知识状态读取失败显示 unknown | terminal state、trace id、公开审计时间线与维护快照 | Response / failed / HTTP error |
 

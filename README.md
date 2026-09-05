@@ -25,6 +25,7 @@ SQLite/FTS5（事实与版本权威） → Qdrant（可重建稠密索引）
 - 动态知识治理：pending → active → superseded/expired/rejected；发布新版本时旧版本原子失效。
 - Hybrid RAG：SQLite FTS5 + Qdrant dense + RRF + 元数据/版本/哈希后过滤 + 权威度重排。
 - Evidence-first：回答拆成 typed `AnswerClaim`；硬事实必须关联活动版本 Evidence 和来源 URL。
+- 轻量 LLM Composer：online 模式下最多一次、默认 2 秒的 Claim 顺序提议；严格 JSON 必须完整保留全部已批准 Claim ID。代码恢复原事实与引用，非法输出或模型故障回退 Evidence 模板，再经过 Citation Guard。
 - 真实运营错误控制：并行双通道独立降级、一次逻辑 gap task（search/detail 各最多 2 次，共 4 次 tools/call）、冲突保留、证据不足拒答、无外部写副作用的原产物 Replay。
 - Evidence-to-Knowledge：模型候选经过 Schema/Grounding/Provenance/Temporal/Persistence Policy 校验；经留存许可的稳定地址可发布，开放时间仅待审核。发布与索引任务同事务，索引失败可恢复。
 - 公开观测：区分候选拒绝、待审核、已发布但索引待同步与已索引；Java 保留快照与安全失败，Web 只投影允许字段。

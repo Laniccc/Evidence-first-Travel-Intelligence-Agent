@@ -40,6 +40,8 @@ class TravelAgentStateMachine:
         attraction_matcher=None,
         primary_understanding=None,
         understanding_timeout_seconds=8.0,
+        composer=None,
+        composer_timeout_seconds=2.0,
         promotion_handler=None,
         index_job_reader=None,
         retrieval_top_k: int = 3,
@@ -82,7 +84,7 @@ class TravelAgentStateMachine:
                 tool=gap_tool or UnavailableGapFillTool()
             ),
             AgentState.EVIDENCE_EVALUATE: EvidenceEvaluationHandler(promotion_enabled=promotion_handler is not None),
-            AgentState.COMPOSE: GroundedCompositionHandler(),
+            AgentState.COMPOSE: GroundedCompositionHandler(composer=composer, timeout_seconds=composer_timeout_seconds),
             AgentState.CITATION_GUARD: CitationGuardHandler(),
         }
         if promotion_handler is not None:

@@ -40,12 +40,15 @@ def parameters(mode="baidu"):
         args=[str(Path(__file__).parents[1] / "fakes" / "stdio_mcp_server.py"), mode])
 
 
-def transport(calls, *, broken_candidate=False):
+def transport(calls, *, broken_candidate=False, broken_composer=False):
     def respond(request):
         payload = json.loads(request.content)
         calls.append(payload)
         user = payload["messages"][0]["content"]
-        if "untrusted_evidence" in user:
+        if "approved_claims" in user:
+            claims = json.loads(user)["approved_claims"]
+            text = "invalid" if broken_composer else json.dumps({"claim_order": [c["claim_id"] for c in reversed(claims)]})
+        elif "untrusted_evidence" in user:
             source = json.loads(user.split("\nPrevious")[0])["untrusted_evidence"][0]
             text = "invalid" if broken_candidate else json.dumps({"candidates": [{
                 "attraction_id": source["attraction_id"], "fact_type": "general_description",
@@ -81,6 +84,8 @@ async def test_real_factory_model_gap_promotion_and_shutdown(tmp_path, broken_ca
             store = SQLiteRunStore(config.agent_run_db_path)
             run_id = body["orchestration_summary"]["run_id"]
             assert store.latest_state_output(run_id, "understand")["understanding_path"] == "model"
+            assert store.latest_state_output(run_id, "compose")["composition_mode"] == "model"
+            assert body["citation_report"]["passed"]
             gap = store.latest_state_output(run_id, "live_gap_fill")
             assert gap["tool_call_attempt_count"] == 2
             assert gap["trace_id"] == "trace-fixture"
@@ -92,9 +97,9 @@ async def test_real_factory_model_gap_promotion_and_shutdown(tmp_path, broken_ca
                 assert promoted["failure_code"] == "candidate_schema_invalid"
                 phase = next(e for e in store.phase_events(run_id) if e.state == "knowledge_promote")
                 assert phase.failure_code == "candidate_schema_invalid" and phase.status == "recovered"
-                assert len(calls) == 3 and not repo.active_versions("summer-palace")
+                assert len(calls) == 4 and not repo.active_versions("summer-palace")
             else:
-                assert promoted["results"][0]["status"] == "active" and len(calls) == 2
+                assert promoted["results"][0]["status"] == "active" and len(calls) == 3
                 job_id = promoted["results"][0]["job_id"]
                 async with asyncio.timeout(5):
                     while built[0].jobs.get(job_id)["status"] != "succeeded":
@@ -141,13 +146,38 @@ async def test_storage_disabled_preserves_transient_without_extraction(tmp_path)
     async with app.router.lifespan_context(app):
         async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://fixture") as web:
             body = (await web.post("/agent/query", json={"query": "颐和园地址"})).json()
-            assert body["orchestration_summary"]["terminal_state"] == "deliver" and len(calls) == 1
+            assert body["orchestration_summary"]["terminal_state"] == "deliver" and len(calls) == 2
             run_id = body["orchestration_summary"]["run_id"]
             artifact = SQLiteRunStore(config.agent_run_db_path).latest_state_output(run_id, "knowledge_promote")
             assert artifact["failure_code"] == "storage_not_permitted"
             with repo._connect() as db:
                 assert db.execute("SELECT count(*) FROM index_sync_job").fetchone()[0] == 0
                 assert db.execute("SELECT count(*) FROM document_version").fetchone()[0] == 1
+
+
+@pytest.mark.parametrize("enabled", [True, False])
+async def test_composer_fallback_is_audited_and_switch_disables_extra_call(tmp_path, enabled):
+    from app.contracts.request import AgentQueryRequest
+    config = settings(tmp_path, llm_composer_enabled=enabled)
+    seed(config)
+    calls = []
+    service, _, resources = build_runtime(config, llm_http_client=transport(calls, broken_composer=True),
+                                        mcp_parameters=parameters())
+    await resources.start()
+    try:
+        response = await service.query(AgentQueryRequest(query="颐和园地址"))
+        assert response.orchestration_summary["terminal_state"] == "deliver"
+        assert response.citation_report["passed"] and response.answer_claims
+        store = SQLiteRunStore(config.agent_run_db_path)
+        phase = next(e for e in store.phase_events(response.orchestration_summary["run_id"]) if e.state == "compose")
+        assert phase.output["composition_mode"] == "deterministic_fallback"
+        assert len(calls) == (3 if enabled else 2)
+        if enabled:
+            assert phase.status == "recovered" and phase.failure_code == "composer_invalid_output"
+        else:
+            assert phase.status == "succeeded" and phase.failure_code is None
+    finally:
+        await resources.aclose()
 
 
 @pytest.mark.asyncio

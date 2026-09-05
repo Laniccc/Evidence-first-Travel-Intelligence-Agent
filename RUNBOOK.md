@@ -33,11 +33,17 @@ npm install
 - `QDRANT_MODE=server`：连接独立 Qdrant；同时设置 URL 与 API key。
 - `EMBEDDING_MODE=deterministic`：可重复的离线控制面验证，不代表真实语义质量。
 - `AGENT_RUNTIME_PROFILE=offline`：默认不装配外部模型、地图与知识晋升；online 才启用有凭据的适配器。
+- `LLM_COMPOSER_ENABLED=true`：仅 online 且有模型时启用一次受控组合；设 false 可关闭额外模型调用。
+- `COMPOSER_TIMEOUT_SECONDS=2`：大于 0、最多 5 秒，短于 Compose 状态的 10 秒总期限。单次输出最多 512 tokens，无 repair/SDK 隐式重试；超时、非法 JSON、增删/重复 ID、服务故障均保留完整确定性模板，并记录具名失败与恢复事件。
 - `BOUNDED_BAIDU_ENABLED=true`、`BAIDU_MAP_AK`：仅允许 search/detail；与旧 MCP_PROFILE 无关。
 - `KNOWLEDGE_PROMOTION_ENABLED=true`：启用受控晋升旁支；`BAIDU_STORAGE_PERMITTED` 是独立的提供商数据留存许可，未确认必须 false。
 - `INDEX_JOB_POLL_SECONDS`：持久索引待办的后台轮询间隔，默认 5 秒。
 
 需要在线地图时，先在仓库的 `infra/baidu-mcp` 运行 `npm ci`，安装锁定的 Server 1.0.5。Python 使用 SDK 1.29.1；默认启动本地 entrypoint，不在请求中下载 npx latest。readiness 中 llm=configured 仅表示有配置，不表示真实调用成功。
+
+Anthropic SDK 固定 0.104.1，HTTP transport 固定 httpx 0.28.1。2026-09-05 CI 曾因无上限 SDK 升级改用 httpx2、拒绝原 httpx.MockTransport 客户端而失败；当前使用经过真实 SDK 假 HTTP 测试的固定依赖对。未来升级需同时迁移客户端测试与 Eval transport，不能直接放开版本。
+
+Composer 只获得已批准 Claim 的文本、ID、事实类型与景点/子任务绑定，最多 32 条、序列化输入 16000 字符；不发送原用户查询、会话历史或原始 MCP payload。它只组织展示顺序，不生成新的事实、标题或建议。常规地址 smoke 现在通常为理解/候选/Composer 共 3 次 LLM、2 次地图调用，仍受最多各 4 次上限控制；真实 smoke 会检查 model_composition。
 
 Java 读取 `AGENT_BASE_URL` 和 `AGENT_SERVICE_KEY`：
 

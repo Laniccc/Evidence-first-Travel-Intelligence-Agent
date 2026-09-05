@@ -25,6 +25,7 @@ from app.evidence.retrieval.hybrid import HybridRetriever, QdrantDenseRetriever
 from app.evidence.retrieval.lexical import SQLiteLexicalRetriever
 from app.integrations.qdrant.vector_index import QdrantVectorIndex
 from app.integrations.llm.client import SingleAttemptLLMClient
+from app.composition.llm_composer import BoundedLLMComposer
 from app.integrations.mcp.stdio_session import BoundedStdioSession
 from app.integrations.mcp.baidu_gap_tool import BaiduGapTool
 from app.contracts.baidu import BaiduPoiBinding
@@ -122,6 +123,8 @@ def build_runtime(settings, *, llm_http_client=None, mcp_parameters=None):
         retrieval_top_k=settings.knowledge_retrieval_top_k,
         primary_understanding=primary,
         understanding_timeout_seconds=settings.understanding_timeout_seconds,
+        composer=BoundedLLMComposer(resources.model) if resources.model and settings.llm_composer_enabled else None,
+        composer_timeout_seconds=settings.composer_timeout_seconds,
         gap_tool=gap,
         promotion_handler=promotion,
         index_job_reader=read_index_job,
