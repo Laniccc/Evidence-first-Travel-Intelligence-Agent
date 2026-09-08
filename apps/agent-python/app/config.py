@@ -16,6 +16,7 @@ class Settings(BaseSettings):
     readiness_requires_qdrant: bool = False
     # New bounded runtime switches never enable the retired broad tool registry.
     agent_runtime_profile: Literal["offline", "online"] = "offline"
+    orchestration_engine: Literal["langgraph", "legacy"] = "langgraph"
     understanding_timeout_seconds: float = Field(default=8.0, gt=0, le=60)
     understanding_max_tokens: int = Field(default=1536, ge=128, le=4096)
     llm_composer_enabled: bool = True

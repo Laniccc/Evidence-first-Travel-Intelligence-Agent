@@ -9,6 +9,7 @@ from app.orchestration.agent_core_store import SQLiteRunStore
 from app.orchestration.state_audit import InMemoryStateAuditStore, SQLiteStateAuditStore, StateAuditEvent
 from app.orchestration.state_contracts import AgentState, StateContext, StatePolicy, StateFailure, FailureClass
 from app.orchestration.state_runtime import StateRuntime
+from app.orchestration.langgraph_runtime import LangGraphRuntime
 from app.orchestration.publication_observation import publication_snapshot
 from app.orchestration.states.answer_composition import GroundedCompositionHandler
 from app.orchestration.states.citation_guard import CitationGuardHandler
@@ -50,7 +51,10 @@ class TravelAgentStateMachine:
         run_store: SQLiteRunStore | None = None,
         audit=None,
         logger=None,
+        orchestration_engine: str = "langgraph",
     ) -> None:
+        if orchestration_engine not in {"langgraph", "legacy"}:
+            raise ValueError("unsupported orchestration engine")
         self._run_store = run_store
         self._index_job_reader = index_job_reader
         self._audit = audit or (
@@ -89,7 +93,8 @@ class TravelAgentStateMachine:
         }
         if promotion_handler is not None:
             handlers[AgentState.KNOWLEDGE_PROMOTE] = promotion_handler
-        self._runtime = StateRuntime(
+        runtime_type = LangGraphRuntime if orchestration_engine == "langgraph" else StateRuntime
+        self._runtime = runtime_type(
             handlers=handlers, audit=self._audit,
             policies={AgentState.LIVE_GAP_FILL: StatePolicy(timeout_seconds=25),
                       AgentState.UNDERSTAND: StatePolicy(timeout_seconds=understanding_timeout_seconds + 2),

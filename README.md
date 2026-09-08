@@ -1,6 +1,6 @@
 # Evidence-first Travel Intelligence Agent
 
-一个面向企业级 Agent 开发实习的可运行作品集：用显式状态链处理每一环错误，用版本化 Hybrid RAG 动态管理景点事实，并在交付前用 Evidence/Citation 门禁阻止无来源硬事实。
+一个面向企业级 Agent 开发实习的可运行作品集：采用 LangGraph StateGraph 调度显式状态链，用版本化 Hybrid RAG 动态管理景点事实，并在交付前用 Evidence/Citation 门禁阻止无来源硬事实。
 
 项目刻意只保留四类产品行为：景点事实查询、适合度判断、双景点比较和必要澄清。行程生成、周边推荐、评论挖掘、票务爬虫和人流估算已经物理裁剪；`ticket_price` 作为知识库事实保留。
 
@@ -10,6 +10,7 @@
 Web 工作台
   → Java Spring Boot：认证、会话、历史、收藏、Agent 服务边界
     → Python FastAPI：单次 Agent run
+      → TravelAgentStateMachine → LangGraph StateGraph（默认调度）
       → Understand → Route → Retrieval Plan → Hybrid Retrieve
       → Evidence Evaluate → Compose → Citation Guard → Deliver
                            ↘ bounded live gap-fill ↗
@@ -21,6 +22,7 @@ SQLite/FTS5（事实与版本权威） → Qdrant（可重建稠密索引）
 
 核心设计：
 
+- LangGraph Workflow：LLM Understanding、Hybrid RAG、Evidence Evaluate、MCP Gap Fill、Knowledge Promotion、Compose 与 Citation Guard 分别注册为独立节点；节点调用现有 typed StateHandler，StateContext 是唯一业务状态源，Conditional Edge 由 Handler 结果和 ALLOWED_TRANSITIONS 约束。
 - 可审计状态链：每个状态都有输入/输出契约、超时/重试边界、失败码、恢复策略和合法转换检查。
 - 动态知识治理：pending → active → superseded/expired/rejected；发布新版本时旧版本原子失效。
 - Hybrid RAG：SQLite FTS5 + Qdrant dense + RRF + 元数据/版本/哈希后过滤 + 权威度重排。
@@ -32,6 +34,8 @@ SQLite/FTS5（事实与版本权威） → Qdrant（可重建稠密索引）
 - 平台边界：Java 持有用户和业务数据；Python 只拥有一次 Agent run；服务间使用 API key、trace id 和强类型错误契约。
 
 详细设计见 [状态链](docs/architecture/STATE_CHAIN.md)、[知识生命周期](docs/architecture/KNOWLEDGE_LIFECYCLE.md)、[Hybrid Retrieval](docs/architecture/HYBRID_RETRIEVAL.md) 和 [Eval](docs/architecture/EVALS.md)。
+
+默认 `ORCHESTRATION_ENGINE=langgraph`，迁移期可设为 `legacy` 并重启 Python 服务回退。两种调度共用超时/重试/审计执行器、业务 Handler 和 SQLite 原产物 Replay。此次迁移仅改变 Workflow 调度，未重新运行 Benchmark 或修改下方历史评测数字；不使用 ReAct、Checkpointer 或远程图服务。
 
 ## Eval 结果
 

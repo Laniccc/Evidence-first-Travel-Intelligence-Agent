@@ -2,6 +2,19 @@
 
 生产请求只经过 `TravelAgentStateMachine`。每个状态都接收 `StateContext`、返回 `StateResult`，转换是否合法由显式转换表校验；状态不能直接跳过证据评估或引用门禁。
 
+默认调度器为 LangGraph StateGraph（langgraph 1.2.7），每个非终态以 AgentState.value 注册为独立 Node。业务执行仍是原 StateHandler.run；节点不复制 RAG、MCP、Promotion 或 Citation 逻辑。
+
+| 既有概念 | LangGraph 映射 |
+|---|---|
+| StateContext | LangGraphState.run_context 引用同一对象；未复制 artifacts、budget、版本或请求标识 |
+| StateHandler | 薄 async Node 调用共享 execute_state_handler |
+| StateResult.next_state | Conditional Edge 路由键，由现有 Handler/code policy 决定 |
+| ALLOWED_TRANSITIONS | 构图注册路由，同时在 Node 返回前再次校验；非法目标不执行、不提交当前产物 |
+| 终止状态 | 映射 END，TravelAgentStateMachine 沿用原响应投影 |
+| StatePolicy / StateAudit | state_execution.py 共享执行器，legacy 与 LangGraph 使用相同逻辑 |
+
+Graph state 额外只含 next_state、terminal_state、failure 和 steps 调度元数据。使用 run_context 命名是为了避免与已有 context 节点重名。Graph 不使用 Checkpointer；同一个图可处理多个请求，各请求传入自己的 StateContext。
+
 ```text
 INGRESS → CONTEXT → UNDERSTAND → ROUTE
                               ├→ CLARIFICATION
@@ -44,6 +57,10 @@ INGRESS → CONTEXT → UNDERSTAND → ROUTE
 - 对外状态时间线只保留摘要、失败和恢复信息。内部状态产物/Replay 快照仍可能含请求与白名单来源字段，需要独立的数据留存与访问控制；关闭知识晋升不等于关闭审计留存。不得保存密钥、完整 prompt 或思维链。
 - `SQLiteRunStore` 分开保存状态产物、Evidence、AnswerClaim、CitationDecision 和指标。
 - `ReplayService` 只接受 `evidence_evaluate` 命名边界，恢复完整 delivery snapshot 原产物（含 gap/promotion），不重新运行下游策略、模型、MCP 或知识写入。缺快照或 digest 损坏拒绝重放；新的 run 仅用于 replay 审计。
-- `StateRuntime` 统一捕获 handler 异常和超时，按 `StatePolicy` 做至多 3 次的显式尝试，并拒绝转换表之外的跳转。
+- `execute_state_handler` 统一捕获 handler 异常和超时，按原 `StatePolicy` 做至多 3 次显式尝试；默认 LangGraph 和 legacy 都调用它。Graph 不叠加节点重试。取消向上传播，审计写入失败仍按现有入口拒绝伪成功。
+- 24 步业务预算优先产生 max_steps_exceeded 审计及 FAILED；LangGraph recursion_limit 留出预算终止节点的余量。正常终态直接 END，不调用终态 Handler。
+- `StateRuntime.run` 的旧调度循环与 `_run_handler` 兼容入口仍保留；`ORCHESTRATION_ENGINE=legacy` 可回退。默认 LangGraph 节点间由图执行，未在单个节点内包装旧 while-loop。
 
-实现入口：`apps/agent-python/app/orchestration/state_machine.py`、`state_runtime.py`、`transition_table.py` 和 `state_audit.py`。
+实现入口：`apps/agent-python/app/orchestration/state_machine.py`、`langgraph_runtime.py`、`state_execution.py`、`state_runtime.py`、`transition_table.py` 和 `state_audit.py`。API response schema、SQLiteRunStore、ReplayService 及所有业务 Handler 本次均未修改。
+
+Graph API 依据：[LangGraph 官方文档](https://docs.langchain.com/oss/python/langgraph/graph-api)。本次只验证调度行为，历史 Benchmark 与评测数字保持原样。
