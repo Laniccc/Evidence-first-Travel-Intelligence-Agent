@@ -53,7 +53,7 @@ def test_query_expansion_is_bounded_and_no_user_generated_fts_operators():
 
 
 def test_requested_future_or_history_requires_explicit_coverage_for_both_channels(tmp_path):
-    repo = KnowledgeRepository(tmp_path / "knowledge.sqlite3")
+    repo = KnowledgeRepository(tmp_path / "knowledge.sqlite3", clock=lambda: NOW)
     add(repo, "snapshot", "开放时间：08:30—17:00")
     add(repo, "future", "开放时间：09:00—17:00",
         valid_from=NOW + timedelta(days=1), valid_to=NOW + timedelta(days=3))

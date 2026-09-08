@@ -117,6 +117,7 @@ def build_runtime(settings, *, llm_http_client=None, mcp_parameters=None):
         return await workers.run("postfilter", resources.jobs.get, job_id) if resources.jobs else None
 
     machine = TravelAgentStateMachine(
+        orchestration_engine=settings.orchestration_engine,
         retriever=retriever,
         attraction_resolver=resolve_attraction,
         attraction_matcher=repository.find_attractions_in_text,

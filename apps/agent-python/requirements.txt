@@ -5,6 +5,7 @@ pydantic-settings>=2.6.0
 # Tested SDK/transport pair; newer Anthropic releases use incompatible httpx2 objects.
 httpx==0.28.1
 anthropic==0.104.1
+langgraph==1.2.7
 mcp==1.29.1
 jsonschema>=4.20,<5
 python-dotenv>=1.0.0
